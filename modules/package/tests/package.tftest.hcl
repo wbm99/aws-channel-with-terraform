@@ -43,3 +43,12 @@ run "policy_allows_only_the_medialive_role" {
     error_message = "Policy must be scoped to the channel."
   }
 }
+
+run "endpoint_policy_allows_playback" {
+  command = apply
+
+  assert {
+    condition     = jsondecode(awscc_mediapackagev2_origin_endpoint_policy.playback.policy).Statement[0].Action == "mediapackagev2:GetObject"
+    error_message = "Endpoint policy must grant mediapackagev2:GetObject."
+  }
+}

@@ -17,3 +17,13 @@ output "passphrase_secret_arn" {
   description = "Secrets Manager ARN of the SRT passphrase."
   value       = module.ingest.passphrase_secret_arn
 }
+
+output "medialive_channel_id" {
+  description = "ID of the MediaLive channel."
+  value       = module.encode.channel_id
+}
+
+output "hls_manifest_url" {
+  description = "HLS playback manifest URL from MediaPackage v2."
+  value       = module.package.hls_manifest_url
+}

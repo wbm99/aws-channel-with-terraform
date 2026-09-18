@@ -79,7 +79,12 @@ resource "aws_medialive_channel" "this" {
           }
 
           hls_cdn_settings {
-            hls_basic_put_settings {}
+            hls_basic_put_settings {
+              connection_retry_interval = 1
+              filecache_duration        = 300
+              num_retries               = 10
+              restart_delay             = 15
+            }
           }
         }
       }
