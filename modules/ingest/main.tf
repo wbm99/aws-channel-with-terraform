@@ -53,7 +53,6 @@ resource "awscc_mediaconnect_flow" "this" {
     min_latency    = var.min_latency_ms
 
     decryption = {
-      algorithm  = "aes256"
       key_type   = "srt-password"
       role_arn   = aws_iam_role.flow.arn
       secret_arn = aws_secretsmanager_secret.srt.arn
