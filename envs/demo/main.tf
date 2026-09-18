@@ -49,3 +49,21 @@ module "encode" {
   role_arn   = module.medialive_role.role_arn
   ingest_url = module.package.ingest_url
 }
+
+module "player" {
+  source = "../../modules/player"
+
+  name          = "${var.project}-demo"
+  manifest_path = module.package.hls_manifest_path
+}
+
+module "delivery" {
+  source = "../../modules/delivery"
+
+  name                               = "${var.project}-demo"
+  origin_domain                      = module.package.origin_domain
+  cdn_identifier                     = module.package.cdn_identifier
+  player_bucket_id                   = module.player.bucket_id
+  player_bucket_arn                  = module.player.bucket_arn
+  player_bucket_regional_domain_name = module.player.bucket_regional_domain_name
+}

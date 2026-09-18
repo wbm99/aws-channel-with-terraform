@@ -27,3 +27,8 @@ output "hls_manifest_url" {
   description = "HLS playback manifest URL from MediaPackage v2."
   value       = module.package.hls_manifest_url
 }
+
+output "player_url" {
+  description = "URL of the player page."
+  value       = "https://${module.delivery.distribution_domain_name}/"
+}
