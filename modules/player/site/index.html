@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live SRT Demo</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: #111; color: #eee; }
+    main { max-width: 960px; margin: 0 auto; padding: 16px; }
+    video { width: 100%; background: #000; border-radius: 8px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
+    .stat { background: #1c1c1c; border-radius: 8px; padding: 12px; }
+    .label { font-size: 12px; text-transform: uppercase; opacity: .7; }
+    .value { font-size: 28px; font-variant-numeric: tabular-nums; }
+    p.note { opacity: .7; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Live SRT to HLS</h1>
+    <video id="video" controls autoplay muted playsinline></video>
+    <div class="stats">
+      <div class="stat"><div class="label">Browser clock (UTC)</div><div class="value" id="clock">--</div></div>
+      <div class="stat"><div class="label">Player-reported latency</div><div class="value" id="latency">n/a</div></div>
+      <div class="stat"><div class="label">Current rendition</div><div class="value" id="level">n/a</div></div>
+    </div>
+    <p class="note">Compare the clock burned into the video with the browser clock above for an approximate glass-to-glass latency. Clocks are not synchronised, so this is a demonstration, not a measurement.</p>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+  <script>
+    const video = document.getElementById('video');
+    const clock = document.getElementById('clock');
+    const latency = document.getElementById('latency');
+    const level = document.getElementById('level');
+
+    function tick() {
+      clock.textContent = new Date().toISOString().slice(11, 23);
+      requestAnimationFrame(tick);
+    }
+    tick();
+
+    fetch('config.json', { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((config) => {
+        const url = config.manifestPath;
+        if (window.Hls && Hls.isSupported()) {
+          const hls = new Hls({ liveSyncDurationCount: 3 });
+          hls.loadSource(url);
+          hls.attachMedia(video);
+          hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+            level.textContent = hls.levels[data.level].height + 'p';
+          });
+          setInterval(() => {
+            latency.textContent = hls.latency ? hls.latency.toFixed(1) + ' s' : 'n/a';
+          }, 500);
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+          video.src = url;
+        }
+      });
+  </script>
+</body>
+</html>
