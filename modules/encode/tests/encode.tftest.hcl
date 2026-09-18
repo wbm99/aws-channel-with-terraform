@@ -39,3 +39,55 @@ run "rejects_unknown_channel_class" {
 
   expect_failures = [var.channel_class]
 }
+
+run "default_ladder_has_three_renditions" {
+  command = plan
+
+  assert {
+    condition     = length(aws_medialive_channel.this.encoder_settings[0].video_descriptions) == 3
+    error_message = "Default ladder must have 3 video descriptions."
+  }
+
+  assert {
+    condition     = length(aws_medialive_channel.this.encoder_settings[0].output_groups[0].outputs) == 3
+    error_message = "Default ladder must have 3 outputs."
+  }
+}
+
+run "custom_ladder_is_respected" {
+  command = plan
+
+  variables {
+    renditions = [
+      { name = "720p", width = 1280, height = 720, bitrate = 3000000 },
+    ]
+  }
+
+  assert {
+    condition     = length(aws_medialive_channel.this.encoder_settings[0].video_descriptions) == 1
+    error_message = "A one-rung ladder must produce one video description."
+  }
+}
+
+run "rejects_empty_ladder" {
+  command = plan
+
+  variables {
+    renditions = []
+  }
+
+  expect_failures = [var.renditions]
+}
+
+run "rejects_duplicate_rendition_names" {
+  command = plan
+
+  variables {
+    renditions = [
+      { name = "720p", width = 1280, height = 720, bitrate = 3000000 },
+      { name = "720p", width = 1280, height = 720, bitrate = 2000000 },
+    ]
+  }
+
+  expect_failures = [var.renditions]
+}

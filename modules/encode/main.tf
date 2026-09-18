@@ -38,18 +38,25 @@ resource "aws_medialive_channel" "this" {
       source = "EMBEDDED"
     }
 
-    video_descriptions {
-      name   = "video_720p"
-      width  = 1280
-      height = 720
+    dynamic "video_descriptions" {
+      for_each = var.renditions
 
-      codec_settings {
-        h264_settings {
-          bitrate               = 3000000
-          rate_control_mode     = "CBR"
-          framerate_control     = "SPECIFIED"
-          framerate_numerator   = 30
-          framerate_denominator = 1
+      content {
+        name   = "video_${video_descriptions.value.name}"
+        width  = video_descriptions.value.width
+        height = video_descriptions.value.height
+
+        codec_settings {
+          h264_settings {
+            bitrate               = video_descriptions.value.bitrate
+            rate_control_mode     = "CBR"
+            framerate_control     = "SPECIFIED"
+            framerate_numerator   = 30
+            framerate_denominator = 1
+            gop_size              = 2
+            gop_size_units        = "SECONDS"
+            scene_change_detect   = "DISABLED"
+          }
         }
       }
     }
@@ -89,18 +96,22 @@ resource "aws_medialive_channel" "this" {
         }
       }
 
-      outputs {
-        output_name             = "720p"
-        video_description_name  = "video_720p"
-        audio_description_names = ["audio_main"]
+      dynamic "outputs" {
+        for_each = var.renditions
 
-        output_settings {
-          hls_output_settings {
-            name_modifier = "_720p"
+        content {
+          output_name             = outputs.value.name
+          video_description_name  = "video_${outputs.value.name}"
+          audio_description_names = ["audio_main"]
 
-            hls_settings {
-              standard_hls_settings {
-                m3u8_settings {}
+          output_settings {
+            hls_output_settings {
+              name_modifier = "_${outputs.value.name}"
+
+              hls_settings {
+                standard_hls_settings {
+                  m3u8_settings {}
+                }
               }
             }
           }
