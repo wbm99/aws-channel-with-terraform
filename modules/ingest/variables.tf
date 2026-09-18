@@ -24,3 +24,9 @@ variable "min_latency_ms" {
   type        = number
   default     = 2000
 }
+
+variable "thumbnails_enabled" {
+  description = "Generate source thumbnails (JPEG, 480x270) while the flow is active, viewable in the MediaConnect console."
+  type        = bool
+  default     = true
+}

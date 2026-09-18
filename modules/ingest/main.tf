@@ -59,6 +59,10 @@ resource "awscc_mediaconnect_flow" "this" {
     }
   }
 
+  source_monitoring_config = {
+    thumbnail_state = var.thumbnails_enabled ? "ENABLED" : "DISABLED"
+  }
+
   depends_on = [
     aws_iam_role_policy.read_secret,
     aws_secretsmanager_secret_version.srt,

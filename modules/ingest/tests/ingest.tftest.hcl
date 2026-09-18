@@ -51,3 +51,25 @@ run "rejects_invalid_cidr" {
 
   expect_failures = [var.whitelist_cidr]
 }
+
+run "thumbnails_enabled_by_default" {
+  command = plan
+
+  assert {
+    condition     = awscc_mediaconnect_flow.this.source_monitoring_config.thumbnail_state == "ENABLED"
+    error_message = "Thumbnails must be enabled by default."
+  }
+}
+
+run "thumbnails_can_be_disabled" {
+  command = plan
+
+  variables {
+    thumbnails_enabled = false
+  }
+
+  assert {
+    condition     = awscc_mediaconnect_flow.this.source_monitoring_config.thumbnail_state == "DISABLED"
+    error_message = "thumbnails_enabled = false must disable thumbnails."
+  }
+}
