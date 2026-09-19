@@ -1,7 +1,7 @@
 # Live SRT Contribution-to-Distribution Pipeline on AWS: Design
 
 Date: 2026-09-18
-Status: Draft for review
+Status: Implemented (v1); see the README
 
 This document has two parts: a product part (PRD: what and why) and a technical part (TRD: how). A README is written after implementation.
 
@@ -55,7 +55,7 @@ MediaConnect flow (SRT listener, CIDR-whitelisted)
 MediaLive channel (single pipeline, ABR ladder 1080p/720p/480p)
    │  HLS
    ▼
-MediaPackage (channel + HLS endpoint)
+MediaPackage v2 (HLS ingest, CDN authorization)
    ▼
 CloudFront ──► static player page (S3 + CloudFront OAC, hls.js + latency overlay)
 ```
@@ -78,32 +78,33 @@ live-sports-aws/
 ├── modules/
 │   ├── ingest/       # MediaConnect flow, SRT passphrase secret, CIDR whitelist
 │   ├── encode/       # MediaLive input, channel, IAM role, channel_class variable
-│   ├── package/      # MediaPackage channel + HLS endpoint
+│   ├── medialive-role/ # IAM role that MediaLive assumes
+│   ├── package/      # MediaPackage v2 channel, endpoint, CDN authorization
 │   ├── delivery/     # CloudFront distribution, OAC
 │   ├── player/       # S3 bucket + static page (hls.js + overlay)
 │   └── guardrails/   # AWS Budgets + alerts
 ├── envs/demo/        # wires modules; variables; backend config
-├── tools/            # Python CLI
+├── tools/            # livectl Python package (tools/livectl) and its tests (tools/tests)
 ├── source/           # FFmpeg script
-├── tests/            # .tftest.hcl per module
+├── scripts/          # price lookup for the cost estimate
 └── README.md
 ```
 
-Each module has `main.tf`, `variables.tf`, `outputs.tf` and `versions.tf`, follows the terraform-style-guide skill, pins provider versions, and applies consistent tags (`Project`, `Env`). Only the `demo` environment exists.
+Each module has `main.tf`, `variables.tf`, `outputs.tf` and `versions.tf`, follows the terraform-style-guide skill, pins provider versions, and applies consistent tags (`Project`, `Env`). Only the `demo` environment exists. Terraform tests live in each module's own `tests/` directory, because `terraform test` runs from the module folder.
 
 Module contracts: `ingest` outputs the flow ARN and SRT endpoint; `encode` consumes the flow and outputs the channel ID and packaging destination; `package` outputs the HLS endpoint; `delivery` outputs the distribution domain; `player` consumes that domain.
 
 ## State
 Remote state in an S3 bucket (versioning, encryption, public access blocked) created by `bootstrap/`. Locking uses S3 native lockfile (`use_lockfile`), so no DynamoDB table is needed.
 
-## Python tooling (`tools/`)
-A CLI using `boto3` and `argparse`, with no framework. Resource IDs come from `terraform output -json`; nothing is hardcoded.
+## Python tooling (`tools/livectl`)
+A small package using `boto3` and `argparse`, split into `targets`, `control`, `status`, `clean` and `cli`. Resource IDs come from `terraform output -json` by default and can be overridden with `--flow-arn` and `--channel-id` (then Terraform is not needed, which matters when state is unavailable).
 - `start`: starts the MediaConnect flow, then the MediaLive channel, waiting for each to be running.
 - `stop`: stops the channel, then the flow, waiting for both to be idle.
 - `status`: prints flow and channel state, whether the SRT source is connected, the SRT endpoint and the playback URL.
-- `check-clean`: confirms nothing billable is still running after `destroy`.
+- `check-clean`: exits 1 and lists any billable resources whose names start with the project prefix (channels in `DELETING` or `DELETED` state are ignored).
 
-Tests use `pytest`, with `moto` if it covers the MediaLive and MediaConnect APIs, otherwise stubbed clients.
+Commands are idempotent. Tests use `pytest` with `moto`; no AWS access is needed.
 
 ## FFmpeg source (`source/`)
 A commented shell script wrapping one FFmpeg command: `testsrc2` plus tone, burned-in wall-clock time via `drawtext`, H.264/AAC, pushed over SRT with the passphrase and a configurable `latency`. Endpoint and passphrase come from environment variables.
@@ -115,22 +116,22 @@ A commented shell script wrapping one FFmpeg command: `testsrc2` plus tone, burn
 - End-to-end verification is the live demo itself.
 
 ## Cost controls
-- AWS Budgets: $25 monthly, alerts at 50% and 80% (actual) and 100% (forecast), by email. Alerts lag, so they are a safety net.
+- AWS Budgets: $25 monthly, alerts at 50% and 80% (actual) and 100% (forecast), by email. It lives in `bootstrap/` so it survives `terraform destroy`. Alerts lag, so they are a safety net.
 - Primary control is behavioural: `stop` and `terraform destroy` after each session, verified by `check-clean`.
-- The cost estimate in the article is computed from current AWS pricing pages and labelled as an estimate.
+- The cost estimate (`docs/cost-estimate.md`) is computed from the AWS Price List API and labelled as an estimate.
 
 ## Demo flow
-`terraform apply` → `tools start` → run FFmpeg script → open player page → `tools stop` → `terraform destroy` → `check-clean`.
+`terraform apply` → `livectl start` → `source/send-srt.sh` → open the player page → `livectl stop` → `terraform destroy` → `livectl check-clean`.
 
 ## Verification tasks before implementation
 These are facts to confirm against current AWS and provider documentation, not open design questions:
 1. RESOLVED (spike passed 2026-09-18): no MediaConnect flow resource in `hashicorp/aws`; `awscc_mediaconnect_flow` creates an SRT listener flow with whitelist CIDR and `srt-password` decryption (do not set `algorithm`; MediaConnect rejects it for `srt-password`). A real FFmpeg SRT stream connected (`SourceConnected` = 1, about 2 Mbps), and `terraform destroy` left nothing behind.
 2. RESOLVED: `aws_medialive_input` with `type = "MEDIACONNECT"` accepts `media_connect_flows { flow_arn }`.
 3. RESOLVED (Plan 2 spike passed 2026-09-18): MediaLive `hls_group_settings` with `hls_basic_put_settings` PUT to a MediaPackage v2 channel (`input_type = "HLS"`, `awscc`) works, fully declarative. A SigV4-signed GET of the origin endpoint returned HTTP 200 with a 720p30 manifest and TS segments (decoded as H.264 1280x720 30 fps); MediaLive reported no 4xx/5xx output errors. The earlier prediction that the missing SigV4 mode would block this was wrong; the mechanism (role plus channel policy) was not verified. Notes: an empty `hls_basic_put_settings {}` block is dropped by the provider and rejected by MediaLive, so set retry values explicitly. Anonymous playback returned 403 even with a public-read endpoint policy, so Plan 3 must add CloudFront with MediaPackage CDN authorization. MediaConnect source thumbnails were confirmed visible in the console (Flow, Details, Preview).
-4. Minimum Terraform version for `use_lockfile`.
-5. Current pricing for MediaConnect, MediaLive, MediaPackage and CloudFront, for the budget and article.
-6. MediaLive channel class immutability and the cost multiplier of `STANDARD`.
-7. moto coverage of MediaLive and MediaConnect.
+4. RESOLVED: the S3 backend with `use_lockfile = true` works on the installed Terraform 1.16.3. The modules pin `>= 1.11` from my recollection that native locking became generally available in 1.11; I did not verify that floor independently.
+5. RESOLVED (2026-09-18): see `docs/cost-estimate.md`, about 1.74 USD per hour for the priced items. Not priced: CloudFront data transfer out, and MediaPackage v2 live rates are assumed to equal the listed `EMP` ingest and packaging lines.
+6. RESOLVED (cost): the Standard class is priced at about 1.67x the single-pipeline lines (for example HD output 0.7020 versus 0.4212 USD per hour), not 2x. The immutability of the channel class after creation is from AWS documentation as I remember it and was not tested.
+7. RESOLVED: `moto` 5.2.3 supports MediaLive, MediaConnect and MediaPackage v2 create, start, stop, describe and list, which is all `livectl` needs.
 
 If the `awscc` spike in item 1 fails, the fallback is a `terraform_data` resource calling the AWS CLI, documented in the article.
 
