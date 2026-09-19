@@ -13,14 +13,6 @@ provider "awscc" {
   region = var.region
 }
 
-module "guardrails" {
-  source = "../../modules/guardrails"
-
-  project     = var.project
-  limit_usd   = var.budget_limit_usd
-  alert_email = var.alert_email
-}
-
 module "ingest" {
   source = "../../modules/ingest"
 

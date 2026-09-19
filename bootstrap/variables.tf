@@ -9,3 +9,14 @@ variable "project" {
   type        = string
   default     = "live-sports-aws"
 }
+
+variable "alert_email" {
+  description = "Email address that receives budget alerts."
+  type        = string
+}
+
+variable "budget_limit_usd" {
+  description = "Monthly budget limit in USD."
+  type        = number
+  default     = 25
+}

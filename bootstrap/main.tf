@@ -41,3 +41,11 @@ resource "aws_s3_bucket_public_access_block" "state" {
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
+
+module "guardrails" {
+  source = "../modules/guardrails"
+
+  project     = var.project
+  limit_usd   = var.budget_limit_usd
+  alert_email = var.alert_email
+}
