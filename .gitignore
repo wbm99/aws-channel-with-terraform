@@ -20,3 +20,6 @@ __pycache__/
 .agents/
 .claude/
 skills-lock.json
+*.egg-info/
+build/
+dist/
