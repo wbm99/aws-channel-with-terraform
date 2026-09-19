@@ -52,7 +52,7 @@ cd envs/demo
 cp backend.hcl.example backend.hcl                # put the bucket name in
 printf 'source_cidr = "%s/32"\n' "$(curl -s https://checkip.amazonaws.com)" > terraform.tfvars
 terraform init -backend-config=backend.hcl
-terraform apply                                   # about 3 minutes, CloudFront included
+terraform apply                                   # a few minutes, CloudFront included
 cd ../..
 
 # 3. Install the CLI
@@ -60,7 +60,7 @@ python3 -m virtualenv .venv
 .venv/bin/pip install -e "tools[dev]"
 
 # 4. Go live
-.venv/bin/livectl start                           # flow first, then the channel
+.venv/bin/livectl start                           # flow first, then the channel (about 2 minutes)
 SRT_HOST=$(terraform -chdir=envs/demo output -raw ingest_ip) \
 SRT_PASSPHRASE=$(aws secretsmanager get-secret-value \
   --secret-id "$(terraform -chdir=envs/demo output -raw passphrase_secret_arn)" \
@@ -124,6 +124,7 @@ channel. When nothing is running, cost is close to zero. Details, assumptions an
   kept running. `%{gmtime\:%T}` works. The lesson is to render one frame locally before going live (`--frame`).
 - **A deleted MediaLive channel lingers in `DELETING`.** `livectl check-clean` ignores it, or it would raise a false alarm right after a destroy.
 - **Budgets belong outside the environment they watch.** Mine started in the demo and was destroyed with it.
+- **IAM is eventually consistent, so dependencies must say so.** A rehearsal from scratch failed with a 403 because the MediaLive input was created before its role's policy existed. The role's `role_arn` output now depends on the policy. Earlier runs had only been lucky.
 
 ## Known limitations
 
@@ -134,3 +135,4 @@ channel. When nothing is running, cost is close to zero. Details, assumptions an
 - The SRT passphrase is visible in the FFmpeg process arguments on a shared machine, and it is stored in Terraform state
   (the state bucket is private, encrypted and versioned).
 - If your public IP changes, update `source_cidr` and re-apply, or the stream is rejected.
+- `livectl check-clean` covers the media resources and CloudFront (flows, channels, inputs, channel groups, distributions). It does not look at secrets, IAM roles or S3 buckets; `terraform destroy` removes those, and the README's teardown ends with it.
