@@ -134,6 +134,15 @@ These are facts to confirm against current AWS and provider documentation, not o
 
 If the `awscc` spike in item 1 fails, the fallback is a `terraform_data` resource calling the AWS CLI, documented in the article.
 
+## Plan 3 result (2026-09-18)
+
+Applied all 31 resources on the first try, streamed a 1080p SRT test source with a burned-in UTC clock, then destroyed everything with a clean leftover check.
+
+- CDN authorization works as designed: direct requests to the MediaPackage v2 endpoint returned 403 with no header, 403 with a wrong `X-MediaPackageV2-CDNIdentifier`, and 200 with the correct one (a 404 appeared briefly while ingest warmed up).
+- Through CloudFront: the player page returned 200, `config.json` carried the manifest path, and the master manifest returned 200 listing three renditions (1920x1080, 1280x720, 854x480).
+- Not measured here: the glass-to-glass latency figure and browser playback details, which depend on the viewer's screenshot for the article.
+- Deployment notes: CloudFront created in about 2.5 minutes; all module tests use mocked providers, with apply-mode mocks where computed values are needed.
+
 ## Risks
 
 | Risk | Mitigation |
