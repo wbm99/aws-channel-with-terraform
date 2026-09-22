@@ -228,8 +228,8 @@
         <button class="act danger" id="confirm-btn">Confirm destroy</button>
         <span class="hint">This tears down the whole demo stack.</span>
       </div>
-      <p class="note">Start and stop take about two minutes each. Apply and destroy run with
-        <code>-auto-approve</code>.</p>
+      <p class="note" id="controls-note">Start and stop take about two minutes each. Apply and destroy
+        run with <code>-auto-approve</code>.</p>
     </section>
 
     <!-- endpoints -->
@@ -279,6 +279,22 @@
   let liveSince = null;  // when this page first saw the pipeline billing
   let lastUpdate = null;
   let busy = false;
+  let deployed = false;
+
+  // start and stop act on a flow and a channel, so they need a stack. apply creates one,
+  // destroy removes one, and check-clean scans AWS by name prefix, so those work either way.
+  const NEEDS_STACK = new Set(['start', 'stop']);
+
+  function updateButtons() {
+    document.querySelectorAll('button.act').forEach((button) => {
+      const action = button.dataset.post;
+      button.disabled = busy || (NEEDS_STACK.has(action) && !deployed);
+    });
+    $('busy').textContent = busy ? jobName + ' running…' : deployed ? '' : 'no stack yet';
+    $('controls-note').textContent = deployed
+      ? 'Start and stop take about two minutes each. Apply and destroy run with -auto-approve.'
+      : 'Nothing is deployed, so there is no flow or channel to start. Use Apply first.';
+  }
 
   const setDot = (el, kind) => { el.className = 'dot' + (kind ? ' ' + kind : ''); };
 
@@ -358,16 +374,15 @@
 
   function renderJob(job) {
     busy = Boolean(job && job.state === 'running');
-    document.querySelectorAll('button.act').forEach((b) => { b.disabled = busy; });
-    $('busy').textContent = busy ? job.name + ' running…' : '';
-
-    if (!job) { $('log-state').textContent = ''; return; }
-
-    if (job.name !== jobName) {     // a new job replaces the previous log
+    if (job && job.name !== jobName) {   // a new job replaces the previous log
       jobName = job.name;
       offset = 0;
       log.textContent = '';
     }
+    updateButtons();
+
+    if (!job) { $('log-state').textContent = ''; return; }
+
     if (job.lines && job.lines.length) {
       log.textContent += job.lines.join('\n') + '\n';
       log.scrollTop = log.scrollHeight;
@@ -392,10 +407,11 @@
       const data = await response.json();
       lastUpdate = Date.now();
 
-      if (data.deployed === false) {
+      deployed = data.deployed !== false;
+      if (!deployed) {
         // The usual cause is simply that nothing exists yet; anything else is worth showing verbatim.
         const expected = (data.error || '').includes('could not determine');
-        renderEmpty(expected ? 'Nothing is deployed yet. Run `just up` to create the stack.' : data.error);
+        renderEmpty(expected ? 'Nothing is deployed yet. Use Apply below, or run `just up`.' : data.error);
       } else {
         $('deployed-note').textContent = data.error || '';
         renderState(data);
@@ -420,8 +436,11 @@
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
+      const raw = data.error || (action + ' was refused (' + response.status + ')');
       const banner = $('banner');
-      banner.textContent = data.error || (action + ' was refused (' + response.status + ')');
+      banner.textContent = raw.includes('could not determine')
+        ? 'Nothing is deployed yet, so there is nothing to ' + action + '. Use Apply first.'
+        : raw;
       banner.classList.add('on');
       return;
     }
@@ -459,6 +478,7 @@
     });
   });
 
+  updateButtons();
   poll();
   setInterval(poll, POLL_MS);
   setInterval(tickFreshness, 1000);

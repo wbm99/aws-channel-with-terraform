@@ -157,6 +157,23 @@ def test_start_without_a_deployed_stack_is_a_readable_400(aws):
     assert status == 400 and "could not determine" in payload["error"]
 
 
+def test_stop_without_a_deployed_stack_is_a_readable_400(aws):
+    status, payload = call(make_console(), "POST", "/api/stop")
+
+    assert status == 400 and "could not determine" in payload["error"]
+
+
+def test_check_clean_needs_no_stack_so_it_still_runs_after_a_destroy(aws):
+    """The page keeps this button enabled when nothing is deployed; this is why that is safe."""
+    console = make_console()
+
+    status, _ = call(console, "POST", "/api/check-clean")
+    console.jobs.wait(10)
+
+    assert status == 202
+    assert console.jobs.summary()["state"] == SUCCEEDED
+
+
 def test_a_second_job_is_refused_with_409(aws):
     console = deployed_console()
     release = threading.Event()
