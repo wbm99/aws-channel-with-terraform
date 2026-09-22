@@ -1,3 +1,4 @@
+import io
 import json
 import threading
 
@@ -5,7 +6,7 @@ import boto3
 
 from conftest import make_workflow
 from livectl.jobs import FAILED, SUCCEEDED, JobRunner
-from livectl.server import Console, route
+from livectl.server import Console, _Handler, _Server, route
 
 OUTPUTS = {
     "flow_arn": {"value": "arn:aws:mediaconnect:us-east-1:123456789012:flow:1-abc:demo"},
@@ -251,3 +252,61 @@ def test_check_clean_passes_when_nothing_is_left(aws):
     summary = console.jobs.summary()
     assert summary["state"] == SUCCEEDED
     assert summary["lines"] == ["clean: nothing left"]
+
+
+# --- a client that hangs up ----------------------------------------------------
+
+
+class BrokenWFile:
+    """A socket whose peer has gone away."""
+
+    def write(self, data):
+        raise BrokenPipeError(32, "Broken pipe")
+
+    def flush(self):
+        pass
+
+
+def make_handler(console, wfile):
+    """A handler wired up by hand, so no socket is needed to exercise _dispatch."""
+    handler = _Handler.__new__(_Handler)
+    handler.console = console
+    handler.path = "/api/status"
+    handler.headers = {}
+    handler.rfile = io.BytesIO(b"")
+    handler.wfile = wfile
+    handler.request_version = "HTTP/1.1"
+    handler.requestline = "GET /api/status HTTP/1.1"
+    handler.close_connection = False
+    handler._headers_buffer = []
+    return handler
+
+
+def test_a_browser_that_hangs_up_mid_response_is_not_an_error(aws):
+    handler = make_handler(make_console(), BrokenWFile())
+
+    handler._dispatch("GET")  # a reload during a poll must not raise
+
+    assert handler.close_connection is True
+
+
+def test_a_disconnected_client_prints_no_traceback(capsys):
+    server = _Server.__new__(_Server)
+
+    try:
+        raise BrokenPipeError(32, "Broken pipe")
+    except BrokenPipeError:
+        server.handle_error(None, ("127.0.0.1", 51964))
+
+    assert capsys.readouterr().err == ""
+
+
+def test_an_unexpected_error_is_still_reported(capsys):
+    server = _Server.__new__(_Server)
+
+    try:
+        raise RuntimeError("something actually broke")
+    except RuntimeError:
+        server.handle_error(None, ("127.0.0.1", 51964))
+
+    assert "something actually broke" in capsys.readouterr().err

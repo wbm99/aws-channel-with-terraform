@@ -11,6 +11,7 @@ network interface.
 from __future__ import annotations
 
 import json
+import sys
 import webbrowser
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -199,12 +200,25 @@ class _Handler(BaseHTTPRequestHandler):
             body = {}
 
         status, content_type, payload = route(method, parsed.path, parse_qs(parsed.query), body, self.console)
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(payload)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(payload)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(payload)
+        except (BrokenPipeError, ConnectionResetError):
+            # The browser reloaded or navigated away while a poll was in flight.
+            self.close_connection = True
+
+
+class _Server(ThreadingHTTPServer):
+    """ThreadingHTTPServer that does not print a traceback when a client hangs up."""
+
+    def handle_error(self, request, client_address) -> None:
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError)):
+            return
+        super().handle_error(request, client_address)
 
 
 def serve(console: Console, *, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
@@ -214,7 +228,7 @@ def serve(console: Console, *, host: str = "127.0.0.1", port: int = 8765, open_b
 
     handler = type("ConsoleHandler", (_Handler,), {"console": console})
     try:
-        server = ThreadingHTTPServer((host, port), handler)
+        server = _Server((host, port), handler)
     except OSError as error:
         raise ConsoleError(f"cannot listen on {host}:{port}: {error.strerror or error}") from error
 
