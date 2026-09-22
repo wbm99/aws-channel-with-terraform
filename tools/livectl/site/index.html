@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>livectl</title>
+<style>
+  @font-face {
+    font-family: Inter;
+    src: url('fonts/InterVariable-subset.woff2') format('woff2');
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  :root {
+    --bg: #f4f5f9;
+    --surface: #ffffff;
+    --border: #eaecf2;
+    --text: #111827;
+    --text-2: #475467;
+    --muted: #8a90a2;
+    --accent: #2563eb;
+    --accent-tint: #eff4ff;
+    --ok: #12b76a;
+    --warn: #f79009;
+    --danger: #f04438;
+    --radius: 14px;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 4px 12px rgba(16, 24, 40, .04);
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-optical-sizing: auto;
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  main { max-width: 1120px; margin: 0 auto; padding: 28px 16px 48px; }
+
+  /* header */
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; flex-wrap: wrap; }
+  h1 { font-size: 20px; font-weight: 600; letter-spacing: -.01em; margin: 0; }
+  .chip {
+    font-size: 12px; font-weight: 500; color: var(--text-2);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 11px; white-space: nowrap;
+  }
+  .chip .dot { margin-right: 6px; }
+  header .spacer { flex: 1; }
+
+  /* cards */
+  .grid {
+    display: grid; gap: 16px;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px 20px;
+  }
+  .card.wide { grid-column: 1 / -1; }
+  .card.alert { border-color: #fbdca7; background: #fffcf5; }
+  .card-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 15px; font-weight: 600; color: var(--text); margin: 0 0 14px;
+  }
+  .card-title svg { color: var(--accent); flex: none; }
+  .card-title .right { margin-left: auto; font-size: 12px; font-weight: 500; color: var(--muted); }
+
+  /* hero metric */
+  .metric { display: flex; align-items: baseline; gap: 6px; }
+  .metric .currency { font-size: 20px; font-weight: 500; color: var(--muted); }
+  .metric .value {
+    font-size: 44px; font-weight: 700; letter-spacing: -.025em; line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric .unit { font-size: 15px; font-weight: 500; color: var(--muted); }
+  .metric .value.long { font-size: 30px; letter-spacing: -.015em; }
+
+  /* dot legend under a metric */
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 14px; }
+  .legend span { font-size: 13px; font-weight: 500; color: var(--text-2); white-space: nowrap; }
+  .legend b { font-weight: 600; color: var(--text); }
+  .dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--muted); margin-right: 7px; vertical-align: .09em;
+  }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); }
+  .dot.danger { background: var(--danger); } .dot.accent { background: var(--accent); }
+
+  hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
+
+  /* endpoints */
+  .row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border); }
+  .row:first-of-type { border-top: 0; }
+  .row .label { font-size: 12px; font-weight: 500; color: var(--muted); width: 66px; flex: none; }
+  .row .val {
+    font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; flex: 1; font-variant-numeric: tabular-nums;
+    font-feature-settings: 'calt' 0;
+  }
+  .row a { color: var(--accent); text-decoration: none; }
+  .row a:hover { text-decoration: underline; }
+  .copy {
+    border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+    border-radius: 8px; padding: 4px 7px; cursor: pointer; font: inherit; font-size: 11px; flex: none;
+  }
+  .copy:hover { color: var(--accent); border-color: #cfdcfa; background: var(--accent-tint); }
+
+  /* buttons */
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  button.act {
+    font: inherit; font-size: 13px; font-weight: 500; border-radius: 999px;
+    padding: 8px 16px; cursor: pointer; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-2); transition: background .12s, border-color .12s;
+  }
+  button.act:hover:not(:disabled) { background: #f7f8fb; color: var(--text); }
+  button.act.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.act.primary:hover:not(:disabled) { background: #1d4fd7; }
+  button.act.danger { color: var(--danger); border-color: #fbd3ce; }
+  button.act.danger:hover:not(:disabled) { background: #fef4f2; }
+  button.act:disabled { opacity: .45; cursor: not-allowed; }
+
+  .confirm { display: none; gap: 8px; margin-top: 12px; align-items: center; }
+  .confirm.on { display: flex; }
+  .confirm input {
+    font: inherit; font-size: 13px; padding: 7px 11px; border-radius: 10px;
+    border: 1px solid #fbd3ce; background: #fff; color: var(--text); width: 150px;
+  }
+  .confirm input:focus { outline: 2px solid #fbd3ce; outline-offset: 1px; }
+  .confirm .hint { font-size: 12px; color: var(--muted); }
+
+  /* activity log */
+  .log-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+  .log-head #log-icon { color: var(--muted); font-size: 11px; }
+  .log-head .state { font-weight: 500; color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+  pre.log {
+    margin: 12px 0 0; padding: 14px 16px; background: #fbfbfd; border: 1px solid var(--border);
+    border-radius: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; line-height: 1.65; color: var(--text-2);
+    max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    font-feature-settings: 'calt' 0;
+  }
+  pre.log:empty::before { content: 'No activity yet.'; color: var(--muted); }
+
+  .note { font-size: 12px; color: var(--muted); margin: 10px 0 0; }
+  .banner {
+    display: none; align-items: center; gap: 8px; margin-bottom: 16px; padding: 11px 14px;
+    border-radius: 10px; border: 1px solid #fbd3ce; background: #fef4f2;
+    color: #912018; font-size: 13px; font-weight: 500;
+  }
+  .banner.on { display: flex; }
+
+  @media (max-width: 880px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>live-sports-aws &middot; demo</h1>
+    <span class="chip" id="freshness">connecting&hellip;</span>
+    <span class="spacer"></span>
+    <span class="chip" id="overall"><i class="dot"></i>unknown</span>
+  </header>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="grid">
+    <!-- pipeline state -->
+    <section class="card">
+      <h2 class="card-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+        Pipeline state
+      </h2>
+      <div class="metric"><span class="value" id="hero">&mdash;</span></div>
+      <div class="legend">
+        <span><i class="dot" id="d-flow"></i>flow <b id="v-flow">&mdash;</b></span>
+        <span><i class="dot" id="d-channel"></i>channel <b id="v-channel">&mdash;</b></span>
+        <span><i class="dot" id="d-source"></i>source <b id="v-source">&mdash;</b></span>
+      </div>
+      <p class="note" id="deployed-note"></p>
+    </section>
+
+    <!-- cost -->
+    <section class="card" id="cost-card">
+      <h2 class="card-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5h4a1.8 1.8 0 010 3.6h-3a1.8 1.8 0 000 3.6h4"/></svg>
+        Cost while live
+      </h2>
+      <div class="metric">
+        <span class="currency">$</span><span class="value" id="rate">0.00</span><span class="unit">/ hour</span>
+      </div>
+      <div class="legend">
+        <span><i class="dot accent"></i>MediaLive <b>$1.20</b></span>
+        <span><i class="dot ok"></i>MediaConnect <b>$0.29</b></span>
+        <span><i class="dot warn"></i>MediaPackage <b>$0.25</b></span>
+      </div>
+      <p class="note" id="accrued">Idle. Nothing is billing by the hour.</p>
+    </section>
+
+    <!-- controls -->
+    <section class="card">
+      <h2 class="card-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+        Controls
+        <span class="right" id="busy"></span>
+      </h2>
+      <div class="actions">
+        <button class="act primary" data-post="start">Start</button>
+        <button class="act" data-post="stop">Stop</button>
+        <button class="act" data-post="check-clean">Check clean</button>
+        <button class="act" data-post="apply">Apply</button>
+        <button class="act danger" id="destroy-btn">Destroy</button>
+      </div>
+      <div class="confirm" id="confirm">
+        <input id="confirm-input" placeholder="type destroy" autocomplete="off" spellcheck="false">
+        <button class="act danger" id="confirm-btn">Confirm destroy</button>
+        <span class="hint">This tears down the whole demo stack.</span>
+      </div>
+      <p class="note">Start and stop take about two minutes each. Apply and destroy run with
+        <code>-auto-approve</code>.</p>
+    </section>
+
+    <!-- endpoints -->
+    <section class="card">
+      <h2 class="card-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7"/></svg>
+        Endpoints
+      </h2>
+      <div class="row">
+        <span class="label">Ingest</span>
+        <span class="val" id="e-ingest">&mdash;</span>
+        <button class="copy" data-copy="e-ingest">Copy</button>
+      </div>
+      <div class="row">
+        <span class="label">Player</span>
+        <span class="val" id="e-player">&mdash;</span>
+        <button class="copy" data-copy="e-player">Copy</button>
+      </div>
+      <p class="note">Push a source with <code>just send</code>, then open the player.</p>
+    </section>
+
+    <!-- activity -->
+    <section class="card wide">
+      <div class="log-head">
+        <span id="log-icon" aria-hidden="true">&#9679;</span>
+        <span id="log-name">Activity</span>
+        <span class="state" id="log-state"></span>
+      </div>
+      <pre class="log" id="log"></pre>
+    </section>
+  </div>
+</main>
+
+<script>
+(() => {
+  'use strict';
+
+  const RATE_PER_HOUR = 1.74;          // docs/cost-estimate.md, us-east-1, single pipeline
+  const POLL_MS = 2000;
+
+  const $ = (id) => document.getElementById(id);
+  const log = $('log');
+
+  let offset = 0;        // how many log lines we have already rendered
+  let jobName = null;    // the job whose lines are in the log right now
+  let liveSince = null;  // when this page first saw the pipeline billing
+  let lastUpdate = null;
+  let busy = false;
+
+  const setDot = (el, kind) => { el.className = 'dot' + (kind ? ' ' + kind : ''); };
+
+  function setHero(text) {
+    const hero = $('hero');
+    hero.textContent = text;
+    hero.classList.toggle('long', text.length > 8);
+  }
+
+  function flowKind(state) {
+    if (state === 'ACTIVE') return 'ok';
+    if (state === 'STANDBY' || !state) return '';
+    return 'warn';
+  }
+  function channelKind(state) {
+    if (state === 'RUNNING') return 'ok';
+    if (state === 'IDLE' || !state) return '';
+    return 'warn';
+  }
+
+  function renderState(s) {
+    const flow = s.flow || null;
+    const channel = s.channel || null;
+
+    $('v-flow').textContent = flow || '—';
+    $('v-channel').textContent = channel || '—';
+    setDot($('d-flow'), flowKind(flow));
+    setDot($('d-channel'), channelKind(channel));
+
+    const connected = s.source_connected;
+    $('v-source').textContent = connected === true ? 'connected'
+      : connected === false ? 'not connected' : 'unknown';
+    setDot($('d-source'), connected === true ? 'ok' : connected === false ? 'danger' : '');
+
+    const hero = channel === 'RUNNING' && flow === 'ACTIVE' ? 'LIVE'
+      : channel === 'RUNNING' || flow === 'ACTIVE' ? 'PARTIAL'
+      : channel || flow ? 'IDLE' : '—';
+    setHero(hero);
+
+    const overall = $('overall');
+    overall.innerHTML = '<i class="dot ' + (hero === 'LIVE' ? 'ok' : hero === 'PARTIAL' ? 'warn' : '') + '"></i>'
+      + hero.toLowerCase();
+
+    // Anything hourly is billing as soon as the flow or the channel is up.
+    const billing = flow === 'ACTIVE' || channel === 'RUNNING';
+    $('cost-card').classList.toggle('alert', billing);
+    $('rate').textContent = billing ? RATE_PER_HOUR.toFixed(2) : '0.00';
+    if (billing) {
+      if (liveSince === null) liveSince = Date.now();
+      const hours = (Date.now() - liveSince) / 3.6e6;
+      $('accrued').textContent = 'About $' + (hours * RATE_PER_HOUR).toFixed(2)
+        + ' since this page saw it start (' + Math.round(hours * 60) + ' min). Stop it when you are done.';
+    } else {
+      liveSince = null;
+      $('accrued').textContent = 'Idle. Nothing is billing by the hour.';
+    }
+
+    $('e-ingest').textContent = s.ingest || '—';
+    const player = $('e-player');
+    player.innerHTML = s.player
+      ? '<a href="' + s.player + '" target="_blank" rel="noopener">' + s.player + ' ↗</a>'
+      : '—';
+  }
+
+  function renderEmpty(message) {
+    ['v-flow', 'v-channel', 'v-source'].forEach((id) => { $(id).textContent = '—'; });
+    ['d-flow', 'd-channel', 'd-source'].forEach((id) => setDot($(id), ''));
+    setHero('NOT DEPLOYED');
+    $('overall').innerHTML = '<i class="dot"></i>not deployed';
+    $('e-ingest').textContent = '—';
+    $('e-player').textContent = '—';
+    $('cost-card').classList.remove('alert');
+    $('rate').textContent = '0.00';
+    $('accrued').textContent = 'Nothing is deployed, so nothing is billing.';
+    $('deployed-note').textContent = message;
+  }
+
+  function renderJob(job) {
+    busy = Boolean(job && job.state === 'running');
+    document.querySelectorAll('button.act').forEach((b) => { b.disabled = busy; });
+    $('busy').textContent = busy ? job.name + ' running…' : '';
+
+    if (!job) { $('log-state').textContent = ''; return; }
+
+    if (job.name !== jobName) {     // a new job replaces the previous log
+      jobName = job.name;
+      offset = 0;
+      log.textContent = '';
+    }
+    if (job.lines && job.lines.length) {
+      log.textContent += job.lines.join('\n') + '\n';
+      log.scrollTop = log.scrollHeight;
+    }
+    offset = job.offset;
+
+    const icon = $('log-icon');
+    icon.textContent = job.state === 'succeeded' ? '✓' : job.state === 'failed' ? '⚠' : '●';
+    icon.style.color = job.state === 'succeeded' ? 'var(--ok)'
+      : job.state === 'failed' ? 'var(--danger)' : 'var(--accent)';
+    $('log-name').textContent = job.name;
+    $('log-state').textContent = job.state + (job.finished_at ? '' : '…');
+
+    const banner = $('banner');
+    banner.classList.toggle('on', job.state === 'failed');
+    if (job.state === 'failed') banner.textContent = job.name + ' failed: ' + (job.error || 'see the log');
+  }
+
+  async function poll() {
+    try {
+      const response = await fetch('api/status?offset=' + offset, { cache: 'no-store' });
+      const data = await response.json();
+      lastUpdate = Date.now();
+
+      if (data.deployed === false) {
+        // The usual cause is simply that nothing exists yet; anything else is worth showing verbatim.
+        const expected = (data.error || '').includes('could not determine');
+        renderEmpty(expected ? 'Nothing is deployed yet. Run `just up` to create the stack.' : data.error);
+      } else {
+        $('deployed-note').textContent = data.error || '';
+        renderState(data);
+      }
+      renderJob(data.job);
+    } catch (error) {
+      $('deployed-note').textContent = 'Console unreachable: ' + error.message;
+    }
+  }
+
+  function tickFreshness() {
+    if (lastUpdate === null) return;
+    const seconds = Math.round((Date.now() - lastUpdate) / 1000);
+    $('freshness').textContent = seconds < 2 ? 'Updated just now' : 'Updated ' + seconds + 's ago';
+  }
+
+  async function post(action, body) {
+    const response = await fetch('api/' + action, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      const banner = $('banner');
+      banner.textContent = data.error || (action + ' was refused (' + response.status + ')');
+      banner.classList.add('on');
+      return;
+    }
+    $('banner').classList.remove('on');
+    offset = 0;
+    jobName = null;
+    poll();
+  }
+
+  document.querySelectorAll('button.act[data-post]').forEach((button) => {
+    button.addEventListener('click', () => post(button.dataset.post));
+  });
+
+  $('destroy-btn').addEventListener('click', () => {
+    $('confirm').classList.add('on');
+    $('confirm-input').focus();
+  });
+  $('confirm-btn').addEventListener('click', async () => {
+    // The server checks this token too; typing it here is a speed bump, not the guard.
+    await post('destroy', { confirm: $('confirm-input').value.trim() });
+    $('confirm-input').value = '';
+    $('confirm').classList.remove('on');
+  });
+
+  document.querySelectorAll('button.copy').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const text = $(button.dataset.copy).textContent.trim();
+      if (!text || text === '—') return;
+      try {
+        await navigator.clipboard.writeText(text);
+        const original = button.textContent;
+        button.textContent = 'Copied';
+        setTimeout(() => { button.textContent = original; }, 1200);
+      } catch (error) { /* clipboard blocked; the value is on screen anyway */ }
+    });
+  });
+
+  poll();
+  setInterval(poll, POLL_MS);
+  setInterval(tickFreshness, 1000);
+})();
+</script>
+</body>
+</html>
