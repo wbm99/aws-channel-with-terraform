@@ -18,5 +18,8 @@ livectl = "livectl.cli:main"
 [tool.setuptools.packages.find]
 include = ["livectl*"]
 
+[tool.setuptools.package-data]
+livectl = ["site/*.html", "site/fonts/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
