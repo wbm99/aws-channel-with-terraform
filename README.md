@@ -28,7 +28,8 @@ flowchart LR
 - **Infrastructure as code:** one module per layer, remote state in S3 with native locking, tagging, `terraform fmt` and mocked-provider `terraform test` suites that need no AWS access.
 - **Working around provider gaps:** the `hashicorp/aws` provider has no MediaConnect flow and no MediaPackage v2 resources, so those use `hashicorp/awscc` (the whole chain stays declarative).
 - **Security:** SRT encryption, an IP allow-list, no public origin (CDN authorization), private buckets with origin access control, no secrets in the repository.
-- **Operations:** a Python CLI (`livectl`) with `start`, `stop`, `status` and `check-clean`, tested with `pytest` and `moto`.
+- **Operations:** a Python CLI (`livectl`) with `start`, `stop`, `status` and `check-clean`, a browser console for the
+  same operations, and `just` recipes for everything; tested with `pytest` and `moto`.
 - **Cost awareness:** a persistent budget with alerts, a priced estimate ([docs/cost-estimate.md](docs/cost-estimate.md)) and a leftover check.
 
 ## Prerequisites
@@ -36,50 +37,63 @@ flowchart LR
 - Terraform 1.11 or newer, and the AWS CLI v2 with credentials for a personal or sandbox account.
 - FFmpeg built with SRT support (`ffmpeg -protocols | grep srt`) and the DejaVu Sans font (`fonts-dejavu-core`).
 - Python 3.10 or newer with `virtualenv` (`pip install --user virtualenv`).
+- [`just`](https://github.com/casey/just) to run the recipes below (`cargo install just`, `brew install just`, or a
+  prebuilt binary from the releases page; Ubuntu ships it from 24.04 onwards).
 
 ## Quick start
 
+Every command is a `just` recipe. `just --list` shows them all, and the [`justfile`](justfile) is the readable source
+of what each one runs.
+
 ```bash
 # 1. One-time: state bucket and the monthly budget (state stays local and is gitignored)
-cd bootstrap
-cp terraform.tfvars.example terraform.tfvars      # set alert_email
-terraform init && terraform apply
-terraform output -raw state_bucket_name           # note the bucket name
-cd ..
+cp bootstrap/terraform.tfvars.example bootstrap/terraform.tfvars    # set alert_email
+just bootstrap                                     # prints the state bucket name
 
-# 2. Configure the demo environment
-cd envs/demo
-cp backend.hcl.example backend.hcl                # put the bucket name in
-printf 'source_cidr = "%s/32"\n' "$(curl -s https://checkip.amazonaws.com)" > terraform.tfvars
-terraform init -backend-config=backend.hcl
-terraform apply                                   # a few minutes, CloudFront included
-cd ../..
+# 2. Configure and create the demo environment
+cp envs/demo/backend.hcl.example envs/demo/backend.hcl              # put the bucket name in
+printf 'source_cidr = "%s/32"\n' "$(curl -s https://checkip.amazonaws.com)" > envs/demo/terraform.tfvars
+just venv                                          # .venv with livectl and its dev extras
+just init
+just up                                            # a few minutes, CloudFront included
 
-# 3. Install the CLI
-python3 -m virtualenv .venv
-.venv/bin/pip install -e "tools[dev]"
+# 3. Go live
+just start                                         # flow first, then the channel (about 2 minutes)
+just send                                          # FFmpeg test pattern; leave it running
+just player                                        # the URL to open in a browser
 
-# 4. Go live
-.venv/bin/livectl start                           # flow first, then the channel (about 2 minutes)
-SRT_HOST=$(terraform -chdir=envs/demo output -raw ingest_ip) \
-SRT_PASSPHRASE=$(aws secretsmanager get-secret-value \
-  --secret-id "$(terraform -chdir=envs/demo output -raw passphrase_secret_arn)" \
-  --query SecretString --output text) \
-  source/send-srt.sh                              # leave running
-terraform -chdir=envs/demo output -raw player_url # open this in a browser
-
-# 5. Tear down (do not skip: MediaLive and MediaConnect bill by the hour while running)
-.venv/bin/livectl stop
-terraform -chdir=envs/demo destroy
-.venv/bin/livectl check-clean                     # exits 1 if anything billable is left
+# 4. Tear down (do not skip: MediaLive and MediaConnect bill by the hour while running)
+just stop
+just down                                          # destroy, then verify nothing billable survived
 ```
 
-`livectl` reads the flow ARN and channel ID from `terraform output` by default. If Terraform state is not available, pass them directly:
-`livectl stop --flow-arn <arn> --channel-id <id>`.
+**Without `just`:** every recipe is an ordinary shell command, so read the `justfile` and run them directly. `just send`
+is the one worth copying rather than retyping: it reads the ingest address from `terraform output` and the passphrase
+from Secrets Manager at the moment of use, so the secret never lands in a file or your shell history.
+
+`livectl` reads the flow ARN and channel ID from `terraform output` by default. If Terraform state is not available,
+pass them directly: `livectl stop --flow-arn <arn> --channel-id <id>`.
+
+## Operating it
+
+`just ui` serves a console on <http://127.0.0.1:8765>: pipeline state, what it costs per hour while it runs, the ingest
+and player endpoints, and buttons for start, stop, check-clean, apply and destroy with the output streamed as it
+arrives. It is built on Python's standard library, so it adds no dependency to the project.
+
+It is deliberately blunt about its limits:
+
+- **Loopback only.** It refuses any address that is not `127.0.0.1`, `localhost` or `::1`, because it can destroy
+  infrastructure. There is no authentication and it is not meant to be exposed.
+- **Destroy needs confirmation.** You type `destroy` into the page, and the server checks that token as well, so calling
+  the API directly does not skip the guard.
+- **One operation at a time.** A second request while a job is running is refused rather than queued.
+- Terraform runs with `-input=false`, so it can never stall on a prompt nobody can see.
 
 ## Repository layout
 
 ```
+AGENTS.md           conventions and cost rules for agents working here (CLAUDE.md symlinks to it)
+justfile            every command in the project; `just --list` to see them
 bootstrap/          one-time root: state bucket and the budget (never destroyed)
 modules/
   ingest/           MediaConnect SRT flow, passphrase secret, IP allow-list, thumbnails
@@ -90,10 +104,10 @@ modules/
   delivery/         CloudFront distribution with the two origins
   guardrails/       AWS Budgets alerts
 envs/demo/          wires the modules together
-tools/livectl/      Python CLI, with tests in tools/tests
+tools/livectl/      Python CLI and the browser console (site/), with tests in tools/tests
 source/             FFmpeg SRT source script
 scripts/            price lookup for the cost estimate
-docs/               design spec, implementation plans, cost estimate
+docs/               cost estimate and study notes; the spec and plans live under docs/superpowers/
 ```
 
 ## Testing
@@ -101,9 +115,9 @@ docs/               design spec, implementation plans, cost estimate
 Everything runs offline with no AWS credentials:
 
 ```bash
-for m in bootstrap modules/*; do (cd $m && terraform init -backend=false -input=false && terraform test); done
-.venv/bin/pytest -q tools
-source/send-srt.sh --frame /tmp/clock.png         # renders one frame to check the burned-in clock
+just test          # terraform test for every root (mocked providers), then pytest over tools (moto)
+just validate      # formatting check and terraform validate for every root
+just frame         # renders one frame to /tmp/clock.png to check the burned-in clock
 ```
 
 ## Costs
@@ -135,4 +149,6 @@ channel. When nothing is running, cost is close to zero. Details, assumptions an
 - The SRT passphrase is visible in the FFmpeg process arguments on a shared machine, and it is stored in Terraform state
   (the state bucket is private, encrypted and versioned).
 - If your public IP changes, update `source_cidr` and re-apply, or the stream is rejected.
+- The browser console has no authentication. It binds to loopback only and refuses anything else, but anyone with an
+  account on the same machine can reach it, and its apply and destroy run with `-auto-approve`.
 - `livectl check-clean` covers the media resources and CloudFront (flows, channels, inputs, channel groups, distributions). It does not look at secrets, IAM roles or S3 buckets; `terraform destroy` removes those, and the README's teardown ends with it.
