@@ -20,7 +20,7 @@ def test_flow_status_change_reads_as_a_transition():
                               {"previousStatus": "STANDBY", "currentStatus": "ACTIVE"}), T)
 
     assert line.tab == "mediaconnect"
-    assert line.text.endswith("MediaConnect · flow STANDBY → ACTIVE")
+    assert line.text == "MediaConnect · flow STANDBY → ACTIVE", "the time is data (at_ms), printed by the page"
 
 
 def test_source_health_goes_to_the_srt_tab_with_its_tr_101_290_flags():
@@ -38,7 +38,7 @@ def test_medialive_state_change():
     line = format_event(event("aws.medialive", "MediaLive Channel State Change", {"state": "RUNNING"},
                               (CHANNEL,)), T)
 
-    assert (line.tab, line.text.split(" ", 1)[1]) == ("medialive", "MediaLive · channel RUNNING")
+    assert (line.tab, line.text, line.at_ms) == ("medialive", "MediaLive · channel RUNNING", T)
 
 
 def test_an_unknown_event_type_is_summarised_not_dropped():
@@ -87,7 +87,7 @@ def test_medialive_logs_are_labelled_encoder_or_as_run(aws):
 
     lines = medialive_lines(LogReader(logs), CHANNEL, T - 1)
 
-    assert lines[0].text.endswith("as-run · Switched to input mediaconnect-srt")
+    assert lines[0].text == "MediaLive as-run · Switched to input mediaconnect-srt"
 
 
 def test_the_medialive_stream_prefix_is_the_arn_with_underscores():
@@ -106,7 +106,7 @@ def test_the_medialive_stream_prefix_is_the_arn_with_underscores():
 # Event shapes below were captured from a live run on 2026-09-27.
 
 def text_of(source, kind, detail, resources=(FLOW,)):
-    return format_event(event(source, kind, detail, resources), T).text.split(" ", 1)[1]
+    return format_event(event(source, kind, detail, resources), T).text
 
 
 def test_a_mediaconnect_alert_reads_as_its_code_and_message():
@@ -130,7 +130,7 @@ def test_flow_health_reads_as_a_state_with_the_zero_bitrate_flag():
 
     line = format_event(event("aws.mediaconnect", "MediaConnect Flow Health", detail), T)
 
-    assert (line.tab, line.text.split(" ", 1)[1]) == ("mediaconnect", "MediaConnect · flow disconnected, no bitrate")
+    assert (line.tab, line.text) == ("mediaconnect", "MediaConnect · flow disconnected, no bitrate")
 
 
 def test_output_health_reads_as_a_state():

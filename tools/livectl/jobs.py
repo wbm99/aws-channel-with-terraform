@@ -40,6 +40,7 @@ class Job:
     finished_at: Optional[str] = None
     error: Optional[str] = None
     lines: list[str] = field(default_factory=list)
+    stamps: list[str] = field(default_factory=list)   # when each line was written, same length as lines
 
 
 def command_job(args: Sequence[str], *, popen=subprocess.Popen) -> Work:
@@ -105,6 +106,7 @@ class JobRunner:
                 "start": start,
                 "offset": len(current.lines),
                 "lines": current.lines[start:],
+                "stamps": current.stamps[start:],
             }
 
     def wait(self, timeout: Optional[float] = None) -> None:
@@ -123,8 +125,10 @@ class JobRunner:
             self._finish(job, SUCCEEDED, None)
 
     def _append(self, job: Job, line: str) -> None:
+        stamp = self._clock()
         with self._lock:
             job.lines.append(line)
+            job.stamps.append(stamp)
 
     def _finish(self, job: Job, state: str, error: Optional[str]) -> None:
         with self._lock:

@@ -140,3 +140,16 @@ def test_an_offset_for_the_same_job_is_honoured_and_reported():
     summary = runner.summary(offset=2, job=key)
 
     assert (summary["start"], summary["lines"]) == (2, ["c"])
+
+
+def test_every_job_line_has_the_time_it_was_written():
+    ticks = iter(["2026-09-27T02:00:00+00:00", "2026-09-27T02:00:01+00:00", "2026-09-27T02:00:05+00:00",
+                  "2026-09-27T02:00:09+00:00"])
+    runner = JobRunner(clock=lambda: next(ticks))
+    runner.submit("go-live", lambda log: [log("starting the MediaConnect flow"), log("MediaConnect flow ACTIVE")])
+    runner.wait(5)
+
+    summary = runner.summary()
+
+    assert summary["stamps"] == ["2026-09-27T02:00:01+00:00", "2026-09-27T02:00:05+00:00"]
+    assert runner.summary(offset=1, job=summary["key"])["stamps"] == ["2026-09-27T02:00:05+00:00"]

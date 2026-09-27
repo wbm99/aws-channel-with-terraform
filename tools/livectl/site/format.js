@@ -42,3 +42,8 @@ export function metricRow(key, value) {
   const [label, show] = METRICS[key] || [key, String];
   return [label, show(value)];
 }
+
+// "2026-09-27 02:54:39", in UTC like the burned-in clock and the player's clock. Takes epoch ms or an ISO string.
+export function stamp(value) {
+  return new Date(value).toISOString().slice(0, 19).replace('T', ' ');
+}

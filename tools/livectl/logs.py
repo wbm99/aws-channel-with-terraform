@@ -25,6 +25,8 @@ MAX_PAGES = 5
 
 @dataclass(frozen=True)
 class LogLine:
+    """One line for the page. The time is data (at_ms); the page prints it, so text carries none."""
+
     at_ms: int
     tab: str
     text: str
@@ -102,7 +104,7 @@ def format_event(message: str, at_ms: int) -> Optional[LogLine]:
         tab, text = "medialive", _medialive(kind, detail)
     else:
         return None
-    return LogLine(at_ms, tab, f"{clock_label(at_ms)} {text}", raw=message)
+    return LogLine(at_ms, tab, text, raw=message)
 
 
 def is_ours(message: str, targets: Targets) -> bool:
@@ -154,7 +156,7 @@ def medialive_lines(reader: LogReader, channel_arn: str, after_ms: int) -> list[
     prefix = channel_arn.replace(":", "_")
     for at_ms, stream, message in reader.events(ELEMENTAL_GROUP, after_ms=after_ms, stream_prefix=prefix):
         kind = "as-run" if stream.endswith("_as_run") else "encoder"
-        lines.append(LogLine(at_ms, "medialive", f"{clock_label(at_ms)} {kind} · {message.strip()}"))
+        lines.append(LogLine(at_ms, "medialive", f"MediaLive {kind} · {message.strip()}"))
     return lines
 
 

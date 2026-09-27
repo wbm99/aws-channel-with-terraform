@@ -25,7 +25,7 @@ from livectl.clean import find_informational, find_leftovers
 from livectl.control import start as start_workflow
 from livectl.control import stop as stop_workflow
 from livectl.jobs import RUNNING, JobBusy, JobRunner, Work, command_job
-from livectl.logs import LOG_TABS, LOOKBACK_MS, LogLine, LogReader, clock_label, event_lines, medialive_lines
+from livectl.logs import LOG_TABS, LOOKBACK_MS, LogLine, LogReader, event_lines, medialive_lines
 from livectl.pipeline import REDEPLOY_HINT, Pipeline
 from livectl.source import SourceBusy, SourceProcess, now_ms
 from livectl.targets import NotDeployed, Runner, TargetError, Targets, resolve_targets, run_command
@@ -205,7 +205,7 @@ def _logs_payload(console: Console, tab: str, after: int) -> dict:
     lines: list[LogLine] = []
     notes: list[str] = []
     if tab == "srt":
-        lines += [LogLine(at, "srt", f"{clock_label(at)} ffmpeg · {text}") for at, text in console.source.lines(after)]
+        lines += [LogLine(at, "srt", f"FFmpeg · {text}") for at, text in console.source.lines(after)]
     try:
         targets: Optional[Targets] = console.targets()
     except TargetError:

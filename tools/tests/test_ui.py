@@ -4,6 +4,7 @@ These tests exist because API tests once passed while the page offered a Start b
 They check what a person sees and can click, in every state.
 """
 
+import re
 import threading
 
 import pytest
@@ -418,8 +419,8 @@ def test_a_new_job_shows_its_output_from_the_first_line(open_scenario):
     page.locator("#confirm-go").click()
 
     expect(page.locator("#job-title")).to_have_text("Last job: teardown")
-    expect(page.locator("#job-log")).to_have_text(
-        "$ terraform -chdir=envs/demo destroy -auto-approve -input=false -no-color\n")
+    expect(page.locator("#job-log")).to_have_text(re.compile(
+        r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d  \$ terraform -chdir=envs/demo destroy -auto-approve -input=false -no-color\n$"))
 
 
 def test_live_logs_run_below_the_player_newest_first(open_scenario):
@@ -460,3 +461,12 @@ def test_stale_aws_data_is_labelled(open_scenario):
     scenario.console.pipeline.unreachable = lambda: "AWS is not answering (EndpointConnectionError). Showing what it said 40 s ago."
 
     expect(page.locator("#aws-note")).to_contain_text("Showing what it said 40 s ago", timeout=10000)
+
+
+
+def test_every_log_line_starts_with_its_date_and_time(open_scenario):
+    page, _ = open_scenario("source-running", "live")
+
+    first = page.locator("#log .line").first
+    expect(first.locator("time")).to_have_text(re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$"))
+    expect(first).to_contain_text("MediaConnect · source connected")

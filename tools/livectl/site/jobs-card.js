@@ -1,3 +1,5 @@
+import { stamp } from './format.js';
+
 // The last job's output (Terraform, go live, go off air, scan), full width under the endpoints.
 // Collapsed it shows the newest lines; expanded it scrolls through the whole run.
 
@@ -30,11 +32,13 @@ export class JobsCard {
       this.offset = 0;
     }
     // Two polls can overlap and both answer from the same line; keep only the lines this card does not have yet.
-    const fresh = job.lines.slice(Math.max(0, this.offset - job.start));
+    const skip = Math.max(0, this.offset - job.start);
+    const fresh = job.lines.slice(skip);
+    const stamps = (job.stamps || []).slice(skip);
     if (fresh.length) {
       const latest = fresh.filter((line) => line.trim()).pop();
       if (latest) this.lastLine = latest.length > 80 ? latest.slice(0, 79) + '…' : latest;
-      this.log.textContent += fresh.join('\n') + '\n';
+      this.log.textContent += fresh.map((line, i) => (stamps[i] ? stamp(stamps[i]) + '  ' : '') + line).join('\n') + '\n';
       this.log.scrollTop = this.log.scrollHeight;
     }
     this.offset = Math.max(this.offset, job.offset);

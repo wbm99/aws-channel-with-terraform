@@ -1,6 +1,6 @@
 // The Live page's log panel: one tab per resource, newest line first. Only the visible tab is polled.
 import { getLogs } from './api.js';
-import { el } from './format.js';
+import { el, stamp } from './format.js';
 
 const TABS = [
   ['all', 'All'], ['srt', 'SRT Source'], ['mediaconnect', 'MediaConnect'], ['medialive', 'MediaLive'],
@@ -87,7 +87,8 @@ export class LogsPanel {
   }
 
   line(line) {
-    const node = el('div', { class: 'line' + (line.raw ? ' has-raw' : '') }, line.text);
+    const node = el('div', { class: 'line' + (line.raw ? ' has-raw' : '') },
+      el('time', { datetime: new Date(line.at_ms).toISOString(), title: 'UTC' }, stamp(line.at_ms)), '  ', line.text);
     if (line.raw) {
       node.addEventListener('click', () => {
         const open = node.querySelector('.raw');
