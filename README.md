@@ -86,7 +86,7 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
   *On air · no source*, *Partly on*, …), what is billing per hour right now (summed from the resources that are up),
   and, whenever a job runs, a pill with its name, how long it has run and its latest line. Clicking the pill opens the
   job's output.
-- **Pipeline:** one node per resource, left to right: SRT Input Source → MediaConnect Flow → MediaLive Input →
+- **Pipeline:** one node per resource, left to right: MediaConnect Source (SRT) → MediaConnect Flow → MediaLive Input →
   MediaLive Channel → MediaPackage Channel → CloudFront CDN → Player. Each shows its AWS state, a health colour and a
   key figure. The Player node fetches the playlist through CloudFront and checks that its media sequence advances, the
   only end-to-end proof that viewers get video. Whether the SRT source is connected comes from MediaConnect's Source
@@ -105,6 +105,9 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
   | Send test source / Stop test source | runs `source/send-srt.sh` against the ingest |
 
 - **Last job:** the output of the latest job, full width, each line with its UTC date and time, with *Show all*.
+  A stopwatch and a progress bar show how far it has got: Terraform's own plan gives deploy and teardown an exact
+  count (*12 of 31 resources · 39%*), and going live or off air counts the flow and channel reaching their states.
+  The bar is blue while the job runs, green when it succeeds and red if it fails; the header pill shows the same.
 - **Endpoints:** SRT ingest, player, HLS manifest and the Secrets Manager ARN of the passphrase, each with a Copy
   button that copies exactly the value.
 - **Maintenance,** apart from the steps: *Scan for leftovers* and *Tear down stack* (`terraform destroy`, after you
@@ -159,7 +162,7 @@ the new outputs exist), open `just ui` and check:
 4. The **MediaLive** tab shows channel state events (proves the EventBridge rule and the log resource policy) and
    encoder log lines (the `ElementalMediaLive` streams are named after the channel ARN with `_` for `:`, confirmed
    in the first live run).
-5. The **SRT Source** tab shows FFmpeg output with `passphrase=***`.
+5. The **Source (SRT)** tab shows FFmpeg output with `passphrase=***`.
 6. The **CloudFront** node shows requests per minute (proves the metric dimensions).
 7. Stop the test source while on air: the channel node lists an input-loss alert (proves `list_alerts` with
    `StateFilter=SET`), and the player turns black.

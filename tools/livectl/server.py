@@ -27,6 +27,7 @@ from livectl.control import stop as stop_workflow
 from livectl.jobs import RUNNING, JobBusy, JobRunner, Work, command_job
 from livectl.logs import LOG_TABS, LOOKBACK_MS, LogLine, LogReader, event_lines, medialive_lines
 from livectl.pipeline import REDEPLOY_HINT, Pipeline
+from livectl.progress import job_progress
 from livectl.source import SourceBusy, SourceProcess, now_ms
 from livectl.targets import NotDeployed, Runner, TargetError, Targets, resolve_targets, run_command
 from livectl.verdict import hourly_rate, verdict
@@ -146,6 +147,8 @@ def _after_job(console: Console, work: Work, *, stack_changed: bool = False) -> 
 def _snapshot(console: Console, offset: int = 0, job_key: Optional[str] = None) -> tuple[dict, Situation]:
     """Everything the page shows, plus the situation the action rules judge."""
     job = console.jobs.summary(offset, job_key)
+    if job:
+        job["progress"] = job_progress(job["name"], console.jobs.lines(), job["state"])
     running = job["name"] if job and job["state"] == RUNNING else None
     note: Optional[str] = None
     try:

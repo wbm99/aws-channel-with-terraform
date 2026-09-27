@@ -468,3 +468,27 @@ def test_the_payload_names_the_next_step(aws):
     assert call(make_console(), "GET", "/api/pipeline")[1]["next"] == "deploy"
     assert call(stub_console(), "GET", "/api/pipeline")[1]["next"] == "go-live"
     assert call(stub_console(flow="ACTIVE", channel="RUNNING"), "GET", "/api/pipeline")[1]["next"] == "source-start"
+
+
+def test_the_job_summary_says_how_far_terraform_has_got(aws):
+    console = make_console(command=lambda args: lambda log: [
+        log("Plan: 2 to add, 0 to change, 0 to destroy."),
+        log("module.player.aws_s3_bucket.this: Creation complete after 1s [id=b]"),
+    ])
+    release = threading.Event()
+    original = console.command
+
+    def slow(args):
+        work = original(args)
+        return lambda log: (work(log), release.wait(5))
+
+    console.command = slow
+    call(console, "POST", "/api/deploy")
+    import time
+    time.sleep(0.2)
+
+    progress = call(console, "GET", "/api/pipeline")[1]["job"]["progress"]
+    release.set()
+    console.jobs.wait(5)
+
+    assert progress == {"done": 1, "total": 2, "percent": 50, "label": "1 of 2 resources"}

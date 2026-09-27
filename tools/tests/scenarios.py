@@ -146,7 +146,17 @@ def build(name: str) -> Scenario:
                                 source_status=console.source.status, logs=console.logs)
     scenario = Scenario(console=console, commands=commands)
     if job:
-        console.jobs.submit(job, lambda log: (log(f"{job} in progress…"), scenario.release.wait(120)))
+        # Output shaped like the real thing, so progress can be measured: halfway through in both cases.
+        output = {
+            "deploy": ["$ terraform -chdir=envs/demo apply -auto-approve -input=false -no-color",
+                       "Plan: 4 to add, 0 to change, 0 to destroy.",
+                       "module.player.aws_s3_bucket.this: Creation complete after 1s [id=player]",
+                       "module.ingest.aws_iam_role.flow: Creation complete after 1s [id=flow]",
+                       "module.delivery.aws_cloudfront_distribution.this: Still creating... [00m10s elapsed]"],
+            "go-live": ["starting the MediaConnect flow", "MediaConnect flow STARTING", "MediaConnect flow ACTIVE",
+                        "starting the MediaLive channel", "MediaLive channel STARTING"],
+        }.get(job, [f"{job} in progress…"])
+        console.jobs.submit(job, lambda log: ([log(line) for line in output], scenario.release.wait(120)))
     return scenario
 
 

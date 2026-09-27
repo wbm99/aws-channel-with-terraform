@@ -4,7 +4,7 @@ import { getPipeline, post } from './api.js';
 import { renderChain } from './chain.js';
 import { renderEndpoints } from './endpoints.js';
 import { ago } from './format.js';
-import { JobsCard } from './jobs-card.js';
+import { JobsCard, duration } from './jobs-card.js';
 import { renderStats } from './live.js';
 import { LogsPanel, TAB_FOR_NODE } from './logs-panel.js';
 import { renderDetail } from './node-detail.js';
@@ -14,7 +14,10 @@ const POLL_MS = 2000;
 const PAGES = ['control', 'live', 'logs'];
 const $ = (id) => document.getElementById(id);
 const logs = new LogsPanel($('tabs'), $('log'));
-const jobs = new JobsCard({ title: $('job-title'), state: $('job-state'), log: $('job-log'), toggle: $('job-toggle') });
+const jobs = new JobsCard({
+  title: $('job-title'), state: $('job-state'), log: $('job-log'), toggle: $('job-toggle'),
+  meta: $('job-meta'), progress: $('job-progress'), bar: $('job-bar'),
+});
 const seen = {};
 let data = null;
 let selected = null;           // the node whose details are open in the drawer
@@ -62,11 +65,6 @@ function showPage() {
 
 // --- header -----------------------------------------------------------------------------
 
-function elapsed(startedAt) {
-  const seconds = Math.max(0, (Date.now() - Date.parse(startedAt)) / 1000);
-  return seconds < 90 ? Math.round(seconds) + ' s' : Math.round(seconds / 60) + ' min';
-}
-
 function renderHeader() {
   $('verdict').dataset.health = data.verdict.health;
   $('verdict-text').textContent = data.verdict.text;
@@ -79,18 +77,22 @@ function renderHeader() {
     $('cost').textContent = '$0.00 / h';
   }
 
-  // A running job is never out of sight: its name, how long it has run and what it is doing now, on every page.
+  renderPill();
+}
+
+// A running job is never out of sight: its name, progress, stopwatch and latest line, on every page.
+function renderPill() {
   const pill = $('job-pill');
-  const job = data.job;
+  const job = data && data.job;
   pill.hidden = !job;
-  if (job) {
-    const running = job.state === 'running';
-    pill.dataset.state = job.state;
-    pill.textContent = running
-      ? job.name + ' · ' + elapsed(job.started_at) + (jobs.lastLine ? ' · ' + jobs.lastLine : '')
-      : job.name + ' ' + job.state;
-    pill.title = 'Show the job output';
-  }
+  if (!job) return;
+  const running = job.state === 'running';
+  const percent = job.progress ? ' · ' + job.progress.percent + '%' : '';
+  pill.dataset.state = job.state;
+  pill.textContent = running
+    ? job.name + percent + ' · ' + duration(job.started_at) + (jobs.lastLine ? ' · ' + jobs.lastLine : '')
+    : job.name + ' ' + job.state + ' · took ' + duration(job.started_at, job.finished_at);
+  pill.title = 'Show the job output';
 }
 
 // --- regions ------------------------------------------------------------------------------
@@ -222,6 +224,8 @@ document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && 
 window.addEventListener('hashchange', showPage);
 setInterval(() => {
   if (lastUpdate !== null) $('freshness').textContent = 'Updated ' + ago((Date.now() - lastUpdate) / 1000);
+  jobs.tick();                  // stopwatches run between polls too
+  renderPill();
 }, 1000);
 
 showPage();

@@ -43,8 +43,11 @@
         <h2 class="card-title">
           <span id="job-title">Last job</span>
           <span class="job-state" id="job-state"></span>
+          <span class="job-meta" id="job-meta"></span>
           <button class="copy" id="job-toggle" type="button" aria-expanded="false" aria-controls="job-log">Show all</button>
         </h2>
+        <div class="progress" id="job-progress" role="progressbar" aria-labelledby="job-title" aria-valuemin="0"
+             aria-valuemax="100" hidden><div class="progress-bar" id="job-bar"></div></div>
         <pre class="log job-log" id="job-log" tabindex="0"></pre>
       </section>
 

@@ -114,7 +114,7 @@ def test_clicking_a_node_shows_its_details(open_scenario):
     page.locator('#chain button[data-node="srt_source"]').click()
 
     expect(page.locator("#drawer")).to_be_visible()
-    expect(page.locator("#detail h2")).to_contain_text("SRT Input Source")
+    expect(page.locator("#detail h2")).to_contain_text("MediaConnect Source (SRT)")
     expect(page.locator('#chain button[data-node="srt_source"]')).to_have_attribute("aria-pressed", "true")
     expect(page.locator('#chain button[data-node="srt_source"]')).to_have_attribute("data-health", "bad")
 
@@ -320,12 +320,12 @@ def test_a_running_job_is_visible_from_the_live_page(open_scenario):
     pill = page.locator("#job-pill")
     expect(pill).to_be_visible()
     expect(pill).to_contain_text("go-live")
-    expect(pill).to_contain_text("go-live in progress")
+    expect(pill).to_contain_text("MediaLive channel STARTING")
 
     pill.click()
 
     expect(page.locator("#view-control")).to_be_visible()
-    expect(page.locator("#job-log")).to_contain_text("go-live in progress")
+    expect(page.locator("#job-log")).to_contain_text("MediaLive channel STARTING")
 
 
 def test_the_step_a_job_belongs_to_says_what_is_happening(open_scenario):
@@ -511,3 +511,55 @@ def test_the_filter_keeps_only_matching_lines(open_scenario):
 
     page.locator("#log-filter").fill("nothing like this")
     expect(page.locator("#log")).to_contain_text('No line matches "nothing like this"')
+
+
+
+# --- progress and stopwatch ---------------------------------------------------------------------------
+
+
+def test_a_terraform_job_shows_how_far_it_has_got(open_scenario):
+    page, _ = open_scenario("deploying")
+
+    bar = page.locator("#job-progress")
+    expect(bar).to_be_visible()
+    expect(bar).to_have_attribute("aria-valuenow", "50")
+    expect(bar).to_have_attribute("data-state", "running")
+    expect(page.locator("#job-meta")).to_have_text(re.compile(r"^2 of 4 resources · 50% · 0:\d\d$"))
+    expect(page.locator("#job-pill")).to_contain_text("deploy · 50% · 0:")
+
+
+def test_going_live_shows_its_milestones(open_scenario):
+    page, _ = open_scenario("going-live")
+
+    expect(page.locator("#job-meta")).to_contain_text("MediaConnect flow active · 50%")
+
+
+def test_the_stopwatch_runs_between_polls(open_scenario):
+    page, _ = open_scenario("deploying")
+    meta = page.locator("#job-meta")
+    expect(meta).to_contain_text("50%")
+    first = meta.inner_text()
+
+    page.wait_for_timeout(2200)
+
+    assert meta.inner_text() != first
+
+
+def test_a_finished_job_turns_green_and_says_how_long_it_took(open_scenario):
+    page, _ = open_scenario("off-air")
+    page.locator('#maintenance [data-action="teardown"]').click()
+    page.locator("#confirm-input").fill("destroy")
+    page.locator("#confirm-go").click()
+
+    expect(page.locator("#job-progress")).to_have_attribute("data-state", "succeeded")
+    expect(page.locator("#job-progress")).to_have_attribute("aria-valuenow", "100")
+    expect(page.locator("#job-meta")).to_contain_text("took 0:0")
+    expect(page.locator("#job-pill")).to_have_attribute("data-state", "succeeded")
+    color = page.locator("#job-bar").evaluate("el => getComputedStyle(el).backgroundColor")
+    assert color == "rgb(18, 183, 106)", "green (--ok), not the running blue"
+
+
+def test_the_first_node_is_named_for_the_mediaconnect_source(open_scenario):
+    page, _ = open_scenario("off-air")
+
+    expect(page.locator('#chain button[data-node="srt_source"]')).to_contain_text("MediaConnect Source (SRT)")

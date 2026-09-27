@@ -109,6 +109,11 @@ class JobRunner:
                 "stamps": current.stamps[start:],
             }
 
+    def lines(self) -> list[str]:
+        """Every line of the current job, for measuring its progress."""
+        with self._lock:
+            return list(self._job.lines) if self._job else []
+
     def wait(self, timeout: Optional[float] = None) -> None:
         """Block until the running job finishes. For tests and for shutdown."""
         thread = self._thread

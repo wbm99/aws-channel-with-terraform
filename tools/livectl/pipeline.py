@@ -31,7 +31,7 @@ ORDER = (
     "mediapackage_channel", "cloudfront_cdn", "player",
 )
 TITLES = {
-    "srt_source": "SRT Input Source",
+    "srt_source": "MediaConnect Source (SRT)",
     "mediaconnect_flow": "MediaConnect Flow",
     "medialive_input": "MediaLive Input",
     "medialive_channel": "MediaLive Channel",
@@ -82,7 +82,8 @@ def source_node(flow_status: Optional[str], metrics: dict, process: Optional[dic
     """Connected or not comes from the newest MediaConnect Source Health event when there is one (seconds behind),
     else from the SourceConnected metric (minutes behind). The figures always come from CloudWatch."""
     picked = {k: metrics.get(k) for k in ("src_connected", "src_bitrate", "src_rtt", "src_not_recovered", "src_cc_errors")}
-    details = {"test source": (process or {}).get("state", "not started from this console")}
+    # The node is the flow's SRT source; an FFmpeg test source on this machine is only one thing that can feed it.
+    details = {"Test source (FFmpeg on this machine)": (process or {}).get("state", "not started from this console")}
     if event:
         connected: Optional[float] = 1.0 if event[0] in SOURCE_UP else 0.0
         details["state from"] = f"MediaConnect event at {clock_label(event[1])} UTC"

@@ -49,7 +49,7 @@ def test_there_is_one_node_per_resource_in_chain_order():
     nodes = make(stub_aws()).nodes(TARGETS)
 
     assert [n.id for n in nodes] == list(ORDER)
-    assert nodes[0].title == "SRT Input Source" and nodes[-1].title == "Player"
+    assert nodes[0].title == "MediaConnect Source (SRT)" and nodes[-1].title == "Player"
 
 
 def test_off_air_everything_hourly_is_off():
@@ -138,7 +138,7 @@ def test_the_player_is_not_fetched_while_the_channel_is_idle():
 def test_the_test_source_state_shows_on_the_source_node():
     nodes = by_id(make(stub_aws(), source={"state": "running"}).nodes(TARGETS))
 
-    assert nodes["srt_source"].details["test source"] == "running"
+    assert nodes["srt_source"].details["Test source (FFmpeg on this machine)"] == "running"
 
 
 def test_nodes_serialise_to_plain_json_types():

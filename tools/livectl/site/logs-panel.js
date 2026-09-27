@@ -3,7 +3,7 @@ import { getLogs } from './api.js';
 import { el, metricRow, stamp } from './format.js';
 
 const TABS = [
-  ['all', 'All'], ['srt', 'SRT Source'], ['mediaconnect', 'MediaConnect'], ['medialive', 'MediaLive'],
+  ['all', 'All'], ['srt', 'Source (SRT)'], ['mediaconnect', 'MediaConnect'], ['medialive', 'MediaLive'],
   ['mediapackage', 'MediaPackage'], ['cloudfront', 'CloudFront'],
 ];
 // Tabs without logs show their resource's CloudWatch figures instead.
