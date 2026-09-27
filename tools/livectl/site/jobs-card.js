@@ -9,6 +9,7 @@ export class JobsCard {
     this.toggle = toggle;
     this.key = null;
     this.offset = 0;
+    this.lastLine = '';        // what the job is doing now, for the pill in the header
     this.toggle.addEventListener('click', () => {
       const expanded = this.log.classList.toggle('expanded');
       this.toggle.textContent = expanded ? 'Show less' : 'Show all';
@@ -26,8 +27,11 @@ export class JobsCard {
     if (key !== this.key) {           // a new job replaces the previous output
       this.key = key;
       this.log.textContent = '';
+      this.lastLine = '';
     }
     if (job.lines.length) {
+      const latest = job.lines.filter((line) => line.trim()).pop();
+      if (latest) this.lastLine = latest.length > 80 ? latest.slice(0, 79) + '…' : latest;
       this.log.textContent += job.lines.join('\n') + '\n';
       this.log.scrollTop = this.log.scrollHeight;
     }

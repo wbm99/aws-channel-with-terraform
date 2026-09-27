@@ -11,54 +11,86 @@
 <header class="top">
   <h1>live-sports-aws · demo</h1>
   <span class="verdict" id="verdict" data-health="unknown"><i class="dot"></i><span id="verdict-text">connecting…</span></span>
+  <button class="job-pill" id="job-pill" type="button" hidden></button>
   <span class="spacer"></span>
   <span class="chip" id="cost">$0.00 / h</span>
   <span class="chip muted" id="freshness"></span>
-  <button class="chip button" id="panel-toggle" type="button" aria-expanded="true" aria-controls="panel">Logs</button>
 </header>
 <div class="banner" id="banner" role="alert" hidden></div>
-<div class="layout" id="layout">
-  <main class="main">
-    <section class="card" aria-labelledby="chain-title">
-      <h2 class="card-title" id="chain-title">Pipeline</h2>
+
+<div class="shell">
+  <nav class="menu" aria-label="Pages">
+    <a href="#control" data-page="control">Control</a>
+    <a href="#live" data-page="live">Live</a>
+  </nav>
+
+  <div class="content">
+    <section class="card chain-card" aria-label="Pipeline">
       <ol class="chain" id="chain"></ol>
       <p class="note" id="deploy-note" hidden></p>
     </section>
-    <div class="stage">
-      <section class="card player-card" aria-label="Player">
-        <iframe id="player-frame" title="Player" hidden></iframe>
-        <p class="placeholder" id="player-empty">The player appears here once the stack is deployed.</p>
+
+    <!-- Control: set up, go live, tear down. -->
+    <main class="view" id="view-control" data-view="control">
+      <section class="card" aria-labelledby="steps-title">
+        <h2 class="card-title" id="steps-title">Steps</h2>
+        <ol class="steps" id="steps"></ol>
       </section>
-      <section class="card" id="detail" aria-live="polite"></section>
-    </div>
-    <section class="card" aria-labelledby="controls-title">
-      <h2 class="card-title" id="controls-title">Controls</h2>
-      <div id="controls"></div>
-      <div class="confirm" id="confirm" hidden>
-        <label for="confirm-input">Type <b>destroy</b> to tear down the whole stack</label>
-        <input id="confirm-input" autocomplete="off" spellcheck="false">
-        <button class="act danger" id="confirm-go" type="button">Tear down</button>
-        <button class="act" id="confirm-cancel" type="button">Cancel</button>
+
+      <section class="card" aria-labelledby="job-title" id="job-card">
+        <h2 class="card-title">
+          <span id="job-title">Last job</span>
+          <span class="job-state" id="job-state"></span>
+          <button class="copy" id="job-toggle" type="button" aria-expanded="false" aria-controls="job-log">Show all</button>
+        </h2>
+        <pre class="log job-log" id="job-log" tabindex="0"></pre>
+      </section>
+
+      <div class="pair">
+        <section class="card" aria-labelledby="endpoints-title">
+          <h2 class="card-title" id="endpoints-title">Endpoints</h2>
+          <dl class="endpoints" id="endpoints"></dl>
+        </section>
+        <section class="card" aria-labelledby="maintenance-title">
+          <h2 class="card-title" id="maintenance-title">Maintenance</h2>
+          <div id="maintenance"></div>
+          <div class="confirm" id="confirm" hidden>
+            <label for="confirm-input">Type <b>destroy</b> to tear down the whole stack</label>
+            <input id="confirm-input" autocomplete="off" spellcheck="false">
+            <button class="act danger" id="confirm-go" type="button">Tear down</button>
+            <button class="act" id="confirm-cancel" type="button">Cancel</button>
+          </div>
+        </section>
       </div>
-    </section>
-    <section class="card" aria-labelledby="endpoints-title">
-      <h2 class="card-title" id="endpoints-title">Endpoints</h2>
-      <dl class="endpoints" id="endpoints"></dl>
-    </section>
-    <section class="card" aria-labelledby="job-title" id="job-card">
-      <h2 class="card-title">
-        <span id="job-title">Last job</span>
-        <span class="job-state" id="job-state"></span>
-        <button class="copy" id="job-toggle" type="button" aria-expanded="false" aria-controls="job-log">Show all</button>
-      </h2>
-      <pre class="log job-log" id="job-log" tabindex="0"></pre>
-    </section>
-  </main>
-  <aside class="card panel" id="panel" aria-label="Logs">
-    <div class="tabs" role="tablist" id="tabs"></div>
-    <div class="log" id="log" tabindex="0" role="log"></div>
-  </aside>
+    </main>
+
+    <!-- Live: watch the broadcast and its logs. -->
+    <main class="view" id="view-live" data-view="live" hidden>
+      <div class="live">
+        <div class="live-main">
+          <section class="card player-card" aria-label="Player">
+            <iframe id="player-frame" title="Player" hidden></iframe>
+            <p class="placeholder" id="player-empty">The player appears here once the stack is deployed.</p>
+          </section>
+          <section class="card live-bar" aria-label="Live figures">
+            <dl class="stats" id="stats"></dl>
+            <div class="live-actions" id="live-actions"></div>
+          </section>
+        </div>
+        <section class="card panel" id="panel" aria-label="Logs">
+          <div class="tabs" role="tablist" id="tabs"></div>
+          <div class="log" id="log" tabindex="0" role="log"></div>
+        </section>
+      </div>
+    </main>
+  </div>
 </div>
+
+<aside class="drawer" id="drawer" aria-label="Resource details" hidden>
+  <button class="copy drawer-close" id="drawer-close" type="button" aria-label="Close details">Close</button>
+  <div id="detail"></div>
+</aside>
+
 <script type="module" src="app.js"></script>
 </body>
 </html>

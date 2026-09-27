@@ -1,20 +1,23 @@
-// Startup, polling and wiring. Each region re-renders only when its data changed, so a poll never steals focus.
+// Startup, polling, the two pages and the wiring between them.
+// Each region re-renders only when its data changed, so a poll never steals focus or wipes a half-typed word.
 import { getPipeline, post } from './api.js';
 import { renderChain } from './chain.js';
-import { renderControls } from './controls.js';
 import { renderEndpoints } from './endpoints.js';
 import { ago } from './format.js';
 import { JobsCard } from './jobs-card.js';
+import { renderStats } from './live.js';
 import { LogsPanel, TAB_FOR_NODE } from './logs-panel.js';
 import { renderDetail } from './node-detail.js';
+import { renderLiveActions, renderMaintenance, renderSteps } from './steps.js';
 
 const POLL_MS = 2000;
+const PAGES = ['control', 'live'];
 const $ = (id) => document.getElementById(id);
 const logs = new LogsPanel($('tabs'), $('log'));
 const jobs = new JobsCard({ title: $('job-title'), state: $('job-state'), log: $('job-log'), toggle: $('job-toggle') });
 const seen = {};
 let data = null;
-let selected = 'medialive_channel';
+let selected = null;           // the node whose details are open in the drawer
 let lastUpdate = null;
 let billingSince = null;
 let lastFailedJob = null;
@@ -32,6 +35,30 @@ function banner(text) {
   $('banner').hidden = !text;
 }
 
+// --- pages ------------------------------------------------------------------------------
+
+function page() {
+  const name = location.hash.replace('#', '');
+  return PAGES.includes(name) ? name : 'control';
+}
+
+function showPage() {
+  const current = page();
+  for (const view of document.querySelectorAll('[data-view]')) view.hidden = view.dataset.view !== current;
+  for (const link of document.querySelectorAll('.menu [data-page]')) {
+    if (link.dataset.page === current) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  }
+  if (data) render();
+}
+
+// --- header -----------------------------------------------------------------------------
+
+function elapsed(startedAt) {
+  const seconds = Math.max(0, (Date.now() - Date.parse(startedAt)) / 1000);
+  return seconds < 90 ? Math.round(seconds) + ' s' : Math.round(seconds / 60) + ' min';
+}
+
 function renderHeader() {
   $('verdict').dataset.health = data.verdict.health;
   $('verdict-text').textContent = data.verdict.text;
@@ -43,7 +70,22 @@ function renderHeader() {
     billingSince = null;
     $('cost').textContent = '$0.00 / h';
   }
+
+  // A running job is never out of sight: its name, how long it has run and what it is doing now, on every page.
+  const pill = $('job-pill');
+  const job = data.job;
+  pill.hidden = !job;
+  if (job) {
+    const running = job.state === 'running';
+    pill.dataset.state = job.state;
+    pill.textContent = running
+      ? job.name + ' · ' + elapsed(job.started_at) + (jobs.lastLine ? ' · ' + jobs.lastLine : '')
+      : job.name + ' ' + job.state;
+    pill.title = 'Show the job output';
+  }
 }
+
+// --- regions ------------------------------------------------------------------------------
 
 function renderPlayer() {
   const frame = $('player-frame');
@@ -62,31 +104,54 @@ function renderPlayer() {
   $('player-empty').hidden = Boolean(url);
 }
 
+function renderDrawer() {
+  const node = data.nodes.find((n) => n.id === selected);
+  $('drawer').hidden = !node;
+  if (node) renderDetail($('detail'), node, data.metrics_age);
+}
+
+function select(id) {
+  selected = selected === id ? null : id;
+  if (selected && page() === 'live') logs.select(TAB_FOR_NODE[selected] || 'all');
+  delete seen.nodes;
+  render();
+}
+
 function render() {
+  jobs.show(data.job);           // first, so the header's job pill shows this poll's latest line
   renderHeader();
   const note = $('deploy-note');
   note.hidden = data.deployed && !data.note;
   note.textContent = data.note || (data.deployed ? '' : 'Nothing is deployed yet. Deploy stack creates it (a few minutes).');
 
-  if (!data.nodes.some((n) => n.id === selected) && data.nodes.length) selected = data.nodes[0].id;
+  if (selected && !data.nodes.some((n) => n.id === selected)) selected = null;
   // checked_at moves every second; leaving it out keeps the chain from re-rendering (and losing focus) on each poll.
   const stable = data.nodes.map(({ checked_at, ...rest }) => rest);
-  if (changed('nodes', [stable, selected])) {
-    renderChain($('chain'), data.nodes, selected, (id) => { selected = id; logs.select(TAB_FOR_NODE[id] || 'all'); render(); });
-    renderDetail($('detail'), data.nodes.find((n) => n.id === selected), data.metrics_age);
+  if (changed('nodes', [stable, selected, data.metrics_age === null])) {
+    renderChain($('chain'), data.nodes, selected, select);
+    renderDrawer();
+    renderStats($('stats'), data.nodes);
   }
-  renderPlayer();
-  const sourceRunning = Boolean(data.source && data.source.state === 'running');
-  if (changed('actions', [data.actions, sourceRunning, data.next])) {
-    renderControls($('controls'), data.actions, sourceRunning, data.next, act);
+
+  const sourceRunning = Boolean(data.source && ['starting', 'running'].includes(data.source.state));
+  const job = data.job && data.job.state === 'running' ? data.job.name : null;
+  const state = { actions: data.actions, next: data.next, nodes: stable, deployed: data.deployed, sourceRunning, job };
+  if (changed('actions', state)) {
+    renderSteps($('steps'), state, act);
+    renderMaintenance($('maintenance'), state, act);
+    renderLiveActions($('live-actions'), state, act);
   }
   if (changed('endpoints', data.endpoints)) renderEndpoints($('endpoints'), data.endpoints);
+  renderPlayer();
 
-  jobs.show(data.job);
-  const job = data.job;
-  if (job && job.state === 'failed' && lastFailedJob !== job.started_at) {
-    lastFailedJob = job.started_at;
-    banner(job.name + ' failed: ' + (job.error || 'see Last job below'));
+  // Once the stream plays, point at the Live page if that is not where the person is.
+  const playing = data.verdict.text === 'On air · playing';
+  document.querySelector('.menu [data-page="live"]').classList.toggle('next', playing && page() !== 'live');
+
+  const last = data.job;
+  if (last && last.state === 'failed' && lastFailedJob !== job.started_at) {
+    lastFailedJob = last.started_at;
+    banner(last.name + ' failed: ' + (last.error || 'see the job output on the Control page'));
   }
 }
 
@@ -112,7 +177,7 @@ async function act(name, body) {
     return;
   }
   banner('');
-  // The test source's output is in its log tab; everything else runs as a job, shown in the Last job card.
+  // The test source's output is in its log tab; everything else runs as a job, shown on the Control page.
   if (name === 'source-start' || name === 'source-stop') logs.select('srt');
   delete seen.actions;
   poll();
@@ -124,13 +189,17 @@ $('confirm-go').addEventListener('click', async () => {
   $('confirm').hidden = true;
 });
 $('confirm-cancel').addEventListener('click', () => { $('confirm').hidden = true; });
-$('panel-toggle').addEventListener('click', () => {
-  const hidden = $('layout').classList.toggle('panel-hidden');
-  $('panel-toggle').setAttribute('aria-expanded', String(!hidden));
+$('job-pill').addEventListener('click', () => {
+  location.hash = '#control';
+  $('job-card').scrollIntoView({ block: 'nearest' });
 });
+$('drawer-close').addEventListener('click', () => select(selected));
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && selected) select(selected); });
+window.addEventListener('hashchange', showPage);
 setInterval(() => {
   if (lastUpdate !== null) $('freshness').textContent = 'Updated ' + ago((Date.now() - lastUpdate) / 1000);
 }, 1000);
 
+showPage();
 poll();
 setInterval(poll, POLL_MS);

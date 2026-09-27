@@ -80,36 +80,46 @@ pass them directly: `livectl stop --flow-arn <arn> --channel-id <id>`.
 `just ui` serves a control center on <http://127.0.0.1:8765>. It is built on Python's standard library and plain
 browser modules, so it adds no dependency to the project.
 
+It has two pages, picked from a side menu, with the same header and pipeline on both:
+
 - **Header:** a one-line verdict for the whole pipeline (*Not deployed*, *Off air*, *On air · playing*,
-  *On air · no source*, *Partly on*, …) and what is billing per hour right now, summed from the resources that are up.
+  *On air · no source*, *Partly on*, …), what is billing per hour right now (summed from the resources that are up),
+  and, whenever a job runs, a pill with its name, how long it has run and its latest line. Clicking the pill opens the
+  job's output.
 - **Pipeline:** one node per resource, left to right: SRT Input Source → MediaConnect Flow → MediaLive Input →
   MediaLive Channel → MediaPackage Channel → CloudFront CDN → Player. Each shows its AWS state, a health colour and a
   key figure. The Player node fetches the playlist through CloudFront and checks that its media sequence advances, the
-  only end-to-end proof that viewers get video. Clicking a node shows everything known about it, with a link to the
-  AWS console.
-- **Player:** the deployed hls.js page, embedded next to the selected node. It is reloaded once when the playlist
-  starts advancing, because the page gives up on the 404s it receives before the first segment exists.
-- **Controls,** named for what they do and shown only when they can work:
+  only end-to-end proof that viewers get video. Clicking a node opens its details in a drawer, with a link to the AWS
+  console.
 
-  | Control | Runs |
+**Control** is for setting up and tearing down:
+
+- **Steps:** 1 Deploy the stack, 2 Go live, 3 Send a source. Each step ticks off when done, says what is happening
+  while its job runs, and holds its own buttons; the next step pulses.
+
+  | Button | Runs |
   |---|---|
   | Deploy stack | `terraform apply` (refused while on air: Terraform cannot update a running channel) |
-  | Tear down stack | `terraform destroy`, after you type `destroy` (refused while on air) |
-  | Scan for leftovers | lists billable resources still carrying the project name |
-  | Go live | starts the flow, then the channel |
-  | Go off air | stops the test source, then the channel, then the flow |
+  | Go live / Go off air | starts the flow, then the channel / stops the test source, the channel, then the flow |
   | Send test source / Stop test source | runs `source/send-srt.sh` against the ingest |
 
+- **Last job:** the output of the latest job, full width, newest lines first in view, with *Show all*.
 - **Endpoints:** SRT ingest, player, HLS manifest and the Secrets Manager ARN of the passphrase, each with a Copy
   button that copies exactly the value.
-- **Logs panel,** one tab per resource. MediaLive and MediaConnect events (state changes, alerts, SRT source health
-  with its TR 101 290 flags) reach a log group through an EventBridge rule (`modules/observability`); MediaLive's own
-  encoder and as-run logs are read from `ElementalMediaLive`; the SRT Source tab also shows the test source's output.
-  MediaPackage and CloudFront access logs are not enabled; their figures are in the node details.
-- **Last job:** the output of the latest Deploy, Tear down, Go live, Go off air or Scan, full width under the
-  endpoints, showing the newest lines with a *Show all* toggle.
-- **Next step:** the button for the next step towards a playing stream (Deploy stack, then Go live, then Send test
-  source) pulses, and stops once the stream plays or a source is already connected.
+- **Maintenance,** apart from the steps: *Scan for leftovers* and *Tear down stack* (`terraform destroy`, after you
+  type `destroy`; refused while on air).
+
+**Live** is for watching the broadcast:
+
+- **Player:** the deployed hls.js page, large. It is reloaded once when the playlist starts advancing, because the page
+  gives up on the 404s it receives before the first segment exists. The *Live* menu item pulses once the stream plays.
+- **Figures** under it: source bitrate, round trip, unrecovered packets, input frame rate, active alerts, ingest into
+  MediaPackage and CloudFront requests, with *Stop test source* and *Go off air* so billing can be ended from here.
+- **Logs,** one tab per resource, filling the height beside the player. MediaLive and MediaConnect events (state
+  changes, alerts, SRT source health with its TR 101 290 flags) reach a log group through an EventBridge rule
+  (`modules/observability`); MediaLive's own encoder and as-run logs are read from `ElementalMediaLive`; the SRT
+  Source tab also shows the test source's output. MediaPackage and CloudFront access logs are not enabled; their
+  figures are in the node details.
 
 It is deliberately blunt about its limits:
 

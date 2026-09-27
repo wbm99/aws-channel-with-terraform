@@ -40,7 +40,7 @@ def browser():
 def open_scenario(browser):
     opened = []
 
-    def open_(name):
+    def open_(name, view="control"):
         scenario = build(name)
         server = make_server(scenario.console, port=0)
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -48,7 +48,7 @@ def open_scenario(browser):
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
-        page.goto(f"http://127.0.0.1:{server.server_address[1]}/")
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}/#{view}")
         opened.append((scenario, server, context, errors))
         return page, scenario
 
@@ -71,7 +71,7 @@ def test_each_state_shows_its_verdict_and_only_the_actions_that_can_work(open_sc
     verdict, actions = EXPECTED[name]
 
     expect(page.locator("#verdict-text")).to_have_text(verdict, timeout=15000)
-    shown = page.locator("#controls button[data-action]")
+    shown = page.locator("#view-control button[data-action]")
     expect(shown).to_have_count(len(actions))
     assert sorted(shown.evaluate_all("els => els.map(e => e.dataset.action)")) == sorted(actions)
 
@@ -84,7 +84,7 @@ def test_nothing_on_any_page_mentions_a_cli_flag(open_scenario):
 
 
 def test_not_deployed_explains_what_to_do(open_scenario):
-    page, _ = open_scenario("not-deployed")
+    page, _ = open_scenario("not-deployed", "live")
 
     expect(page.locator("#deploy-note")).to_contain_text("Deploy stack")
     expect(page.locator("#player-empty")).to_be_visible()
@@ -111,6 +111,7 @@ def test_clicking_a_node_shows_its_details(open_scenario):
 
     page.locator('#chain button[data-node="srt_source"]').click()
 
+    expect(page.locator("#drawer")).to_be_visible()
     expect(page.locator("#detail h2")).to_contain_text("SRT Input Source")
     expect(page.locator('#chain button[data-node="srt_source"]')).to_have_attribute("aria-pressed", "true")
     expect(page.locator('#chain button[data-node="srt_source"]')).to_have_attribute("data-health", "bad")
@@ -133,14 +134,14 @@ def test_the_player_frame_loads_the_deployed_player(open_scenario):
 def test_teardown_needs_the_typed_word_then_runs_terraform(open_scenario):
     page, scenario = open_scenario("off-air")
 
-    page.locator('#controls button[data-action="teardown"]').click()
+    page.locator('#maintenance button[data-action="teardown"]').click()
     expect(page.locator("#confirm")).to_be_visible()
     page.locator("#confirm-input").fill("yes")
     page.locator("#confirm-go").click()
     expect(page.locator("#banner")).to_contain_text("destroy")
     assert scenario.commands == []
 
-    page.locator('#controls button[data-action="teardown"]').click()
+    page.locator('#maintenance button[data-action="teardown"]').click()
     page.locator("#confirm-input").fill("destroy")
     page.locator("#confirm-go").click()
 
@@ -151,7 +152,7 @@ def test_teardown_needs_the_typed_word_then_runs_terraform(open_scenario):
 
 def test_a_poll_does_not_wipe_a_half_typed_confirmation(open_scenario):
     page, _ = open_scenario("off-air")
-    page.locator('#controls button[data-action="teardown"]').click()
+    page.locator('#maintenance button[data-action="teardown"]').click()
     page.locator("#confirm-input").fill("destr")
 
     page.wait_for_timeout(4500)  # two polls
@@ -159,13 +160,18 @@ def test_a_poll_does_not_wipe_a_half_typed_confirmation(open_scenario):
     expect(page.locator("#confirm-input")).to_have_value("destr")
 
 
-def test_the_log_panel_collapses(open_scenario):
+def test_the_menu_switches_pages_and_a_reload_keeps_the_page(open_scenario):
     page, _ = open_scenario("off-air")
+    expect(page.locator("#view-control")).to_be_visible()
+    expect(page.locator("#view-live")).to_be_hidden()
 
-    page.locator("#panel-toggle").click()
+    page.locator('.menu [data-page="live"]').click()
+    expect(page.locator("#view-live")).to_be_visible()
+    expect(page.locator('.menu [data-page="live"]')).to_have_attribute("aria-current", "page")
 
-    expect(page.locator("#panel")).to_be_hidden()
-    expect(page.locator("#panel-toggle")).to_have_attribute("aria-expanded", "false")
+    page.reload()
+    expect(page.locator("#view-live")).to_be_visible()
+    expect(page.locator("#chain button[data-node]")).to_have_count(7)
 
 
 def test_billing_states_show_a_rate(open_scenario):
@@ -184,7 +190,7 @@ def test_a_poll_does_not_take_focus_off_the_selected_node(open_scenario):
 
 
 def test_the_mediaconnect_tab_reads_events_as_sentences(open_scenario):
-    page, _ = open_scenario("off-air")
+    page, _ = open_scenario("off-air", "live")
 
     page.locator('[data-tab="mediaconnect"]').click()
 
@@ -192,7 +198,7 @@ def test_the_mediaconnect_tab_reads_events_as_sentences(open_scenario):
 
 
 def test_the_srt_tab_shows_tr_101_290_flags_and_never_the_passphrase(open_scenario):
-    page, _ = open_scenario("source-running")
+    page, _ = open_scenario("source-running", "live")
 
     page.locator('[data-tab="srt"]').click()
 
@@ -201,7 +207,7 @@ def test_the_srt_tab_shows_tr_101_290_flags_and_never_the_passphrase(open_scenar
 
 
 def test_selecting_a_node_opens_its_log_tab(open_scenario):
-    page, _ = open_scenario("off-air")
+    page, _ = open_scenario("off-air", "live")
 
     page.locator('#chain button[data-node="medialive_channel"]').click()
 
@@ -211,7 +217,7 @@ def test_selecting_a_node_opens_its_log_tab(open_scenario):
 
 
 def test_a_raw_event_opens_on_click(open_scenario):
-    page, _ = open_scenario("off-air")
+    page, _ = open_scenario("off-air", "live")
     page.locator('[data-tab="all"]').click()
 
     page.locator("#log .has-raw").first.click()
@@ -220,7 +226,7 @@ def test_a_raw_event_opens_on_click(open_scenario):
 
 
 def test_mediapackage_says_plainly_that_it_has_no_access_logs(open_scenario):
-    page, _ = open_scenario("off-air")
+    page, _ = open_scenario("off-air", "live")
 
     page.locator('[data-tab="mediapackage"]').click()
 
@@ -231,19 +237,16 @@ def test_mediapackage_says_plainly_that_it_has_no_access_logs(open_scenario):
 # --- feedback from the first live run (2026-09-27) ---------------------------------------
 
 
-def test_job_output_sits_under_the_endpoints_not_in_the_side_panel(open_scenario):
+def test_job_output_is_on_the_control_page_not_in_the_log_tabs(open_scenario):
     page, _ = open_scenario("off-air")
 
-    endpoints = page.locator("#endpoints").bounding_box()
-    job = page.locator("#job-card").bounding_box()
-
-    assert job["y"] > endpoints["y"]
-    assert job["width"] > 600, "the job log runs the width of the main column"
+    expect(page.locator("#job-card")).to_be_visible()
+    assert page.locator("#job-card").bounding_box()["width"] > 600, "the job log runs the width of the page"
     expect(page.locator('[data-tab="jobs"]')).to_have_count(0)
 
 
 def test_the_side_panel_never_grows_past_the_window(open_scenario):
-    page, _ = open_scenario("on-air-playing")
+    page, _ = open_scenario("on-air-playing", "live")
 
     height = page.locator("#panel").bounding_box()["height"]
 
@@ -258,7 +261,7 @@ def test_the_side_panel_never_grows_past_the_window(open_scenario):
 def test_the_next_step_is_highlighted(open_scenario, name, step):
     page, _ = open_scenario(name)
 
-    highlighted = page.locator("#controls button[data-next]")
+    highlighted = page.locator("#view-control button[data-next]")
 
     expect(highlighted).to_have_count(1)
     expect(highlighted).to_have_attribute("data-action", step)
@@ -268,7 +271,7 @@ def test_nothing_is_highlighted_once_the_stream_plays(open_scenario):
     page, _ = open_scenario("on-air-playing")
 
     expect(page.locator("#verdict-text")).to_have_text("On air · playing", timeout=15000)
-    expect(page.locator("#controls button[data-next]")).to_have_count(0)
+    expect(page.locator("#view-control button[data-next]")).to_have_count(0)
 
 
 def test_the_player_reloads_once_when_the_stream_starts_playing(open_scenario):
@@ -289,7 +292,7 @@ def test_overlapping_log_reads_never_duplicate_lines(open_scenario):
 
     Stub reads are instant, so the page's fetch is slowed down here to make the reads overlap.
     """
-    page, _ = open_scenario("off-air")
+    page, _ = open_scenario("off-air", "live")
     page.evaluate("""() => {
         const original = window.fetch;
         window.fetch = (url, options) => String(url).includes('api/logs')
@@ -302,3 +305,86 @@ def test_overlapping_log_reads_never_duplicate_lines(open_scenario):
     page.wait_for_timeout(2500)
 
     assert page.locator("#log .line", has_text="flow STANDBY → ACTIVE").count() == 1
+
+
+
+# --- two pages (2026-09-27) --------------------------------------------------------------------
+
+
+def test_a_running_job_is_visible_from_the_live_page(open_scenario):
+    page, _ = open_scenario("going-live", "live")
+
+    pill = page.locator("#job-pill")
+    expect(pill).to_be_visible()
+    expect(pill).to_contain_text("go-live")
+    expect(pill).to_contain_text("go-live in progress")
+
+    pill.click()
+
+    expect(page.locator("#view-control")).to_be_visible()
+    expect(page.locator("#job-log")).to_contain_text("go-live in progress")
+
+
+def test_the_step_a_job_belongs_to_says_what_is_happening(open_scenario):
+    page, _ = open_scenario("going-live")
+
+    step = page.locator('[data-step="live"]')
+
+    expect(step).to_have_attribute("data-status", "busy")
+    expect(step).to_contain_text("Starting the flow, then the channel")
+
+
+def test_steps_tick_off_what_is_done(open_scenario):
+    page, _ = open_scenario("source-running")
+
+    for step in ("deploy", "live", "source"):
+        expect(page.locator(f'[data-step="{step}"]')).to_have_attribute("data-status", "done")
+
+
+def test_tear_down_lives_under_maintenance_not_in_the_steps(open_scenario):
+    page, _ = open_scenario("off-air")
+
+    expect(page.locator('#steps [data-action="teardown"]')).to_have_count(0)
+    expect(page.locator('#maintenance [data-action="teardown"]')).to_have_count(1)
+
+
+def test_the_live_page_can_always_stop_billing(open_scenario):
+    page, _ = open_scenario("source-running", "live")
+
+    expect(page.locator('#live-actions [data-action="go-off-air"]')).to_be_visible()
+    expect(page.locator('#live-actions [data-action="source-stop"]')).to_be_visible()
+
+
+def test_the_live_page_offers_nothing_to_stop_off_air(open_scenario):
+    page, _ = open_scenario("off-air", "live")
+
+    expect(page.locator("#verdict-text")).to_have_text("Off air")
+    expect(page.locator("#live-actions button")).to_have_count(0)
+
+
+def test_the_live_page_shows_the_broadcast_figures(open_scenario):
+    page, _ = open_scenario("source-running", "live")
+
+    expect(page.locator('[data-metric="src_bitrate"] dd')).to_have_text("6.0 Mbps")
+    expect(page.locator('[data-metric="ml_fps"] dd')).to_have_text("30.0 fps")
+
+
+def test_the_live_menu_item_pulses_once_the_stream_plays(open_scenario):
+    page, _ = open_scenario("source-running")
+
+    live = page.locator('.menu [data-page="live"]')
+    expect(live).to_have_class("next", timeout=15000)
+
+    live.click()
+    expect(live).not_to_have_class("next")
+
+
+def test_details_open_in_a_drawer_that_escape_closes(open_scenario):
+    page, _ = open_scenario("off-air", "live")
+
+    page.locator('#chain button[data-node="cloudfront_cdn"]').click()
+    expect(page.locator("#drawer")).to_be_visible()
+    expect(page.locator("#detail h2")).to_contain_text("CloudFront CDN")
+
+    page.keyboard.press("Escape")
+    expect(page.locator("#drawer")).to_be_hidden()
