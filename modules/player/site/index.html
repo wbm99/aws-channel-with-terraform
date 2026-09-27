@@ -70,13 +70,37 @@
     }
     setInterval(showEdge, 500);
 
-    liveEdge.addEventListener('click', () => {
+    function goLive() {
       const at = edge();
       if (at == null) return;
       video.currentTime = at;
       video.play().catch(() => {});   // autoplay rules may refuse; the position is right either way
       showEdge();
+    }
+    liveEdge.addEventListener('click', goLive);
+
+    // Chrome pauses muted video that stops being visible (another tab, or the console showing another page), and
+    // resumes it from where it stopped: minutes behind, or at a segment that no longer exists. So when the video is
+    // visible again after a pause the browser made, jump back to the live edge. A pause the viewer made stays put.
+    let onScreen = true;
+    let viewerPaused = false;
+    const visible = () => onScreen && document.visibilityState === 'visible';
+
+    function becameVisible() {
+      if (!viewerPaused && edge() != null && edge() - video.currentTime > LIVE_WINDOW_S) goLive();
+    }
+
+    video.addEventListener('pause', () => {
+      // Chrome's pause arrives as the video is hidden; wait a moment to see whether it is still visible.
+      setTimeout(() => { if (visible()) viewerPaused = true; }, 300);
     });
+    video.addEventListener('play', () => { viewerPaused = false; });
+    document.addEventListener('visibilitychange', () => { if (visible()) becameVisible(); });
+    new IntersectionObserver((entries) => {
+      const was = onScreen;
+      onScreen = entries[entries.length - 1].isIntersecting;
+      if (onScreen && !was && visible()) becameVisible();
+    }).observe(video);
 
     function tick() {
       clock.textContent = new Date().toISOString().slice(11, 23);

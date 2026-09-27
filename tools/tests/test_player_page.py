@@ -162,3 +162,99 @@ def test_a_paused_player_is_not_live(page, site_url):
     behind_edge(page, edge=100, current=100, paused=True)
 
     expect(page.locator("#live-edge")).to_have_attribute("data-state", "behind")
+
+
+# --- back to live after the browser paused it (Chrome pauses muted video that is not visible) ---------------
+
+
+def hide(page, hidden):
+    page.evaluate(f"document.querySelector('.screen').style.display = '{'none' if hidden else ''}'")
+    page.wait_for_timeout(500)
+
+
+def test_shown_again_after_the_browser_paused_it_the_player_jumps_to_live(page, site_url):
+    page.goto(site_url + "?embed=1")
+    page.wait_for_function("window.hlsCalls.length === 1")
+    behind_edge(page, edge=100, current=40, paused=False)
+
+    hide(page, True)
+    page.evaluate("document.getElementById('video').dispatchEvent(new Event('pause'))")  # what Chrome does
+    hide(page, False)
+
+    assert page.evaluate("document.getElementById('video').currentTime") == 100
+
+
+def test_a_pause_the_viewer_made_is_respected(page, site_url):
+    page.goto(site_url + "?embed=1")
+    page.wait_for_function("window.hlsCalls.length === 1")
+    behind_edge(page, edge=100, current=40, paused=True)
+
+    page.evaluate("document.getElementById('video').dispatchEvent(new Event('pause'))")  # while visible: the viewer
+    page.wait_for_timeout(500)
+    hide(page, True)
+    hide(page, False)
+
+    assert page.evaluate("document.getElementById('video').currentTime") == 40
+
+
+def test_coming_back_to_a_background_tab_jumps_to_live(page, site_url):
+    page.goto(site_url + "?embed=1")
+    page.wait_for_function("window.hlsCalls.length === 1")
+    behind_edge(page, edge=100, current=40, paused=False)
+
+    page.evaluate("""() => {
+        const set = (state) => {
+            Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+            document.dispatchEvent(new Event('visibilitychange'));
+        };
+        set('hidden');
+        document.getElementById('video').dispatchEvent(new Event('pause'));
+        return new Promise((resolve) => setTimeout(() => { set('visible'); resolve(); }, 500));
+    }""")
+    page.wait_for_timeout(300)
+
+    assert page.evaluate("document.getElementById('video').currentTime") == 100
+
+
+def test_inside_the_consoles_frame_leaving_and_returning_jumps_to_live(page, site_url):
+    """The console hides the frame (display: none) when you leave the Live page. Cross-origin, like the real one."""
+    parent = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(_Parent, player=site_url + "?embed=1"))
+    threading.Thread(target=parent.serve_forever, daemon=True).start()
+    try:
+        page.goto(f"http://localhost:{parent.server_address[1]}/")
+        frame = page.locator("#player").element_handle().content_frame()
+        frame.wait_for_function("window.hlsCalls && window.hlsCalls.length === 1")
+        frame.evaluate("""() => {
+            window.hls.liveSyncPosition = 100;
+            const video = document.getElementById('video');
+            video.currentTime = 40;
+            Object.defineProperty(video, 'paused', { configurable: true, get: () => false });
+        }""")
+
+        page.evaluate("document.getElementById('player').style.display = 'none'")
+        page.wait_for_timeout(500)
+        frame.evaluate("document.getElementById('video').dispatchEvent(new Event('pause'))")
+        page.evaluate("document.getElementById('player').style.display = ''")
+        page.wait_for_timeout(700)
+
+        assert frame.evaluate("document.getElementById('video').currentTime") == 100
+    finally:
+        parent.shutdown()
+        parent.server_close()
+
+
+class _Parent(SimpleHTTPRequestHandler):
+    def __init__(self, *args, player, **kwargs):
+        self.player = player
+        super().__init__(*args, **kwargs)
+
+    def do_GET(self):  # noqa: N802
+        body = f'<!doctype html><iframe id="player" src="{self.player}" width="640" height="360"></iframe>'.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        return

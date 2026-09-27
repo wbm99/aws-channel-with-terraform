@@ -117,7 +117,9 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
 
 - **Player:** the deployed hls.js page in embed mode (`?embed=1`: the video alone, 16:9), with a YouTube-style
   badge: a red **LIVE** at the live edge, a grey **Go live** when paused or more than a segment behind, which jumps
-  back to the edge. The page retries when the
+  back to the edge. Chrome pauses muted video that stops being visible (another tab, or the console showing another
+  page) and resumes it from where it stopped, minutes behind; the player notices and jumps back to live. A pause you
+  make yourself is left alone. The page retries when the
   playlist is still a 404 before the first segment, so a player opened before going live starts on its own. The *Live*
   menu item pulses once the stream plays.
 - **Figures** under it (a dash for a resource that is off, rather than its last stale datapoint): source bitrate, round trip, unrecovered packets, input frame rate, active alerts, ingest into
