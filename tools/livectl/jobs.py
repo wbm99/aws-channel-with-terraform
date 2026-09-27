@@ -7,6 +7,7 @@ operations change the same resources, and two at once would race.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import threading
 from dataclasses import dataclass, field
@@ -14,6 +15,8 @@ from datetime import datetime, timezone
 from typing import Callable, Optional, Sequence
 
 RUNNING, SUCCEEDED, FAILED = "running", "succeeded", "failed"
+# Terminal colour and cursor codes. Terraform gets -no-color, but anything else a job runs may still send them.
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 Log = Callable[[str], None]
 Work = Callable[[Log], None]
@@ -51,7 +54,7 @@ def command_job(args: Sequence[str], *, popen=subprocess.Popen) -> Work:
         process = popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         with process.stdout:
             for line in process.stdout:
-                log(line.rstrip("\n"))
+                log(ANSI.sub("", line.rstrip("\n")))
         code = process.wait()
         if code != 0:
             raise RuntimeError(f"{args[0]} exited with status {code}")

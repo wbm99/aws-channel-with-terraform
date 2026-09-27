@@ -103,3 +103,12 @@ def test_command_job_raises_on_a_non_zero_exit():
 
     with pytest.raises(RuntimeError, match="exited with status 1"):
         work(lambda line: None)
+
+
+def test_command_job_strips_terminal_colour_codes():
+    captured = []
+    coloured = "\x1b[0m\x1b[1mmodule.delivery.data.aws_cloudfront_cache_policy.disabled: Reading...\x1b[0m\x1b[0m"
+
+    command_job(["terraform", "apply"], popen=fake_popen([coloured, "  \x1b[32m+\x1b[0m create"]))(captured.append)
+
+    assert captured[1:] == ["module.delivery.data.aws_cloudfront_cache_policy.disabled: Reading...", "  + create"]

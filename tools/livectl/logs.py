@@ -41,23 +41,48 @@ def _brief(detail: dict, limit: int = 160) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def _health(detail: dict) -> tuple[str, str]:
+    """State and flags of a Source/Flow Health event: 'disconnected, no bitrate' plus any TR 101 290 errors."""
+    current = detail.get("current") or {}
+    state = str(current.get("state") or "?").lower()
+    if current.get("isBitrateZero"):
+        state += ", no bitrate"
+    flags = [name for name, on in (current.get("tr101") or {}).items() if on]
+    return state, (f" · TR 101 290: {', '.join(flags)}" if flags else "")
+
+
 def _mediaconnect(kind: str, detail: dict) -> tuple[str, str]:
     if kind == "MediaConnect Source Health":
-        current = detail.get("current") or {}
-        flags = [name for name, on in (current.get("tr101") or {}).items() if on]
-        text = f"MediaConnect · source {str(current.get('state', '?')).lower()}"
-        return "srt", text + (f" · TR 101 290: {', '.join(flags)}" if flags else "")
+        state, flags = _health(detail)
+        return "srt", f"MediaConnect · source {state}{flags}"
+    if kind == "MediaConnect Flow Health":
+        state, flags = _health(detail)
+        return "mediaconnect", f"MediaConnect · flow {state}{flags}"
     if kind == "MediaConnect Flow Status Change":
         return "mediaconnect", f"MediaConnect · flow {detail.get('previousStatus', '?')} → {detail.get('currentStatus', '?')}"
+    if kind == "MediaConnect Alert" and "error-code" in detail:
+        if detail.get("errored") is False:
+            return "mediaconnect", f"MediaConnect · alert cleared {detail['error-code']}"
+        return "mediaconnect", f"MediaConnect · alert {detail['error-code']}: {detail.get('error-message', '')}".rstrip(": ")
+    if kind == "MediaConnect Output Health":
+        return "mediaconnect", f"MediaConnect · output {str((detail.get('current') or {}).get('state', '?')).lower()}"
+    if kind == "MediaConnect Flow Source Metadata Changed":
+        return "srt", "MediaConnect · source metadata changed"
+    if kind == "MediaConnect Flow Content Quality":
+        return "mediaconnect", f"MediaConnect · content quality report ({len(detail.get('streams') or [])} streams)"
     return "mediaconnect", f"MediaConnect · {kind.removeprefix('MediaConnect ')}: {_brief(detail)}"
 
 
 def _medialive(kind: str, detail: dict) -> str:
     if kind == "MediaLive Channel State Change" and "state" in detail:
         return f"MediaLive · channel {detail['state']}"
-    if kind == "MediaLive Channel Alert" and "message" in detail:
-        state = detail.get("alarm_state", "")
-        return f"MediaLive · alert {state} {detail.get('alert_type', '')}: {detail['message']}".replace("  ", " ")
+    if kind == "MediaLive Channel Alert" and "alert_type" in detail:
+        if detail.get("alarm_state") == "CLEARED":
+            return f"MediaLive · alert cleared: {detail['alert_type']}"
+        message = f" ({detail['message']})" if detail.get("message") else ""
+        return f"MediaLive · alert raised: {detail['alert_type']}{message}"
+    if kind == "MediaLive Channel Input Change" and "active_input_attachment_name" in detail:
+        return f"MediaLive · input switched to {detail['active_input_attachment_name']}"
     return f"MediaLive · {kind.removeprefix('MediaLive ')}: {_brief(detail)}"
 
 
@@ -120,7 +145,9 @@ def event_lines(reader: LogReader, targets: Targets, tab: str, after_ms: int) ->
 
 def medialive_lines(reader: LogReader, channel_arn: str, after_ms: int) -> list[LogLine]:
     lines = []
-    for at_ms, stream, message in reader.events(ELEMENTAL_GROUP, after_ms=after_ms, stream_prefix=channel_arn):
+    # Log stream names cannot contain ":", so MediaLive names its streams after the ARN with underscores.
+    prefix = channel_arn.replace(":", "_")
+    for at_ms, stream, message in reader.events(ELEMENTAL_GROUP, after_ms=after_ms, stream_prefix=prefix):
         kind = "as-run" if stream.endswith("_as_run") else "encoder"
         lines.append(LogLine(at_ms, "medialive", f"{clock_label(at_ms)} {kind} · {message.strip()}"))
     return lines

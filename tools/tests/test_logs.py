@@ -82,8 +82,83 @@ def test_event_lines_filter_by_tab_and_come_back_in_time_order(aws):
 
 def test_medialive_logs_are_labelled_encoder_or_as_run(aws):
     logs = boto3.client("logs")
-    put(logs, "ElementalMediaLive", CHANNEL + "_0_as_run", ["Switched to input mediaconnect-srt"])
+    # Stream names cannot contain ":", so MediaLive writes the ARN with underscores (seen live, 2026-09-27).
+    put(logs, "ElementalMediaLive", CHANNEL.replace(":", "_") + "_0_as_run", ["Switched to input mediaconnect-srt"])
 
     lines = medialive_lines(LogReader(logs), CHANNEL, T - 1)
 
     assert lines[0].text.endswith("as-run · Switched to input mediaconnect-srt")
+
+
+def test_the_medialive_stream_prefix_is_the_arn_with_underscores():
+    calls = []
+
+    class Logs:
+        def filter_log_events(self, **request):
+            calls.append(request)
+            return {"events": []}
+
+    medialive_lines(LogReader(Logs()), CHANNEL, T)
+
+    assert calls[0]["logStreamNamePrefix"] == "arn_aws_medialive_us-east-1_123456789012_channel_7387208"
+
+
+# Event shapes below were captured from a live run on 2026-09-27.
+
+def text_of(source, kind, detail, resources=(FLOW,)):
+    return format_event(event(source, kind, detail, resources), T).text.split(" ", 1)[1]
+
+
+def test_a_mediaconnect_alert_reads_as_its_code_and_message():
+    detail = {"error-code": "SourceStreamError", "error-id": "Qta", "errored": True,
+              "error-message": "Source live-sports-aws-demo-srt Stream Error: Timeout. Please investigate the flow source."}
+
+    assert text_of("aws.mediaconnect", "MediaConnect Alert", detail) == (
+        "MediaConnect · alert SourceStreamError: Source live-sports-aws-demo-srt Stream Error: Timeout. "
+        "Please investigate the flow source.")
+
+
+def test_a_cleared_mediaconnect_alert_says_so():
+    detail = {"error-code": "SourceStreamError", "error-message": "Timeout.", "errored": False}
+
+    assert text_of("aws.mediaconnect", "MediaConnect Alert", detail) == "MediaConnect · alert cleared SourceStreamError"
+
+
+def test_flow_health_reads_as_a_state_with_the_zero_bitrate_flag():
+    detail = {"current": {"isBitrateZero": True, "state": "DISCONNECTED", "tr101": {"pcr_error": False}},
+              "previous": {"state": ""}, "unhealthy": True}
+
+    line = format_event(event("aws.mediaconnect", "MediaConnect Flow Health", detail), T)
+
+    assert (line.tab, line.text.split(" ", 1)[1]) == ("mediaconnect", "MediaConnect · flow disconnected, no bitrate")
+
+
+def test_output_health_reads_as_a_state():
+    assert text_of("aws.mediaconnect", "MediaConnect Output Health",
+                   {"current": {"state": "SENDING"}, "previous": {"state": "IDLE"}}) == "MediaConnect · output sending"
+
+
+def test_metadata_and_content_quality_events_are_short():
+    assert text_of("aws.mediaconnect", "MediaConnect Flow Source Metadata Changed",
+                   {"metadataChangeTime": "2026-09-27T00:49:11Z"}) == "MediaConnect · source metadata changed"
+    assert text_of("aws.mediaconnect", "MediaConnect Flow Content Quality",
+                   {"streams": [{}, {}]}) == "MediaConnect · content quality report (2 streams)"
+
+
+def test_medialive_alerts_say_raised_or_cleared():
+    detail = {"alarm_state": "SET", "alert_type": "Stopped Receiving UDP Input", "pipeline": "0",
+              "message": "Stopped receiving network data on [mediaconnect-srt]"}
+
+    assert text_of("aws.medialive", "MediaLive Channel Alert", detail, (CHANNEL,)) == (
+        "MediaLive · alert raised: Stopped Receiving UDP Input (Stopped receiving network data on [mediaconnect-srt])")
+    detail["alarm_state"] = "CLEARED"
+    assert text_of("aws.medialive", "MediaLive Channel Alert", detail, (CHANNEL,)) == (
+        "MediaLive · alert cleared: Stopped Receiving UDP Input")
+
+
+def test_an_input_change_names_the_input():
+    detail = {"pipeline": "0", "message": "Input switch event on pipeline",
+              "active_input_attachment_name": "mediaconnect-srt"}
+
+    assert text_of("aws.medialive", "MediaLive Channel Input Change", detail, (CHANNEL,)) == (
+        "MediaLive · input switched to mediaconnect-srt")

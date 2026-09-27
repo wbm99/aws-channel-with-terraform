@@ -300,7 +300,7 @@ def test_teardown_runs_terraform_destroy_off_air(aws):
     console.jobs.wait(5)
 
     assert (status, payload) == (202, {"started": "teardown"})
-    assert calls == [["terraform", "-chdir=envs/demo", "destroy", "-auto-approve", "-input=false"]]
+    assert calls == [["terraform", "-chdir=envs/demo", "destroy", "-auto-approve", "-input=false", "-no-color"]]
 
 
 def test_deploy_runs_terraform_apply(aws):
@@ -311,7 +311,7 @@ def test_deploy_runs_terraform_apply(aws):
     console.jobs.wait(5)
 
     assert status == 202
-    assert calls == [["terraform", "-chdir=envs/demo", "apply", "-auto-approve", "-input=false"]]
+    assert calls == [["terraform", "-chdir=envs/demo", "apply", "-auto-approve", "-input=false", "-no-color"]]
 
 
 def test_go_live_and_go_off_air_drive_the_real_workflow(aws):

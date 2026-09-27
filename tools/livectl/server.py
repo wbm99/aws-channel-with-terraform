@@ -96,8 +96,9 @@ class Console:
         self._targets = None
 
     def terraform(self, *args: str) -> Sequence[str]:
-        # -input=false so Terraform can never wait on a prompt nobody can see from a browser.
-        return ["terraform", f"-chdir={self.tf_dir}", *args, "-input=false"]
+        # -input=false so Terraform can never wait on a prompt nobody can see from a browser;
+        # -no-color because the output is read in a page, not a terminal.
+        return ["terraform", f"-chdir={self.tf_dir}", *args, "-input=false", "-no-color"]
 
 
 def _json(status: int, payload: dict) -> Response:
