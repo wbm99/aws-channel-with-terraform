@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 from urllib.parse import parse_qs, urlparse
 
-from livectl.actions import Situation, refusals
+from livectl.actions import Situation, next_action, refusals
 from livectl.clean import find_informational, find_leftovers
 from livectl.control import start as start_workflow
 from livectl.control import stop as stop_workflow
@@ -194,6 +194,9 @@ def _pipeline_payload(console: Console, offset: int = 0) -> dict:
     payload, situation = _snapshot(console, offset)
     payload["actions"] = {name: (r.message if r else None)
                           for name, r in refusals(situation).items() if name in ROUTED_ACTIONS}
+    source = next((n for n in payload["nodes"] if n["id"] == "srt_source"), None)
+    connected = bool(source) and source["state"] == "CONNECTED"
+    payload["next"] = next_action(situation, source_connected=connected)
     return payload
 
 

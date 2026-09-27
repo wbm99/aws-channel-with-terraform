@@ -462,3 +462,9 @@ def test_the_srt_tab_includes_the_redacted_ffmpeg_output(aws):
     assert any("passphrase=***" in t for t in texts)
     assert SECRET not in json.dumps(payload)
     process.finish()
+
+
+def test_the_payload_names_the_next_step(aws):
+    assert call(make_console(), "GET", "/api/pipeline")[1]["next"] == "deploy"
+    assert call(stub_console(), "GET", "/api/pipeline")[1]["next"] == "go-live"
+    assert call(stub_console(flow="ACTIVE", channel="RUNNING"), "GET", "/api/pipeline")[1]["next"] == "source-start"

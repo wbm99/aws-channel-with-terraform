@@ -55,3 +55,20 @@ def refusals(s: Situation) -> dict[str, Optional[Refusal]]:
         ),
         "source-stop": None,
     }
+
+
+def next_action(s: Situation, source_connected: bool = False) -> Optional[str]:
+    """The step a person would take next on the way to a playing stream, or None when there is nothing to suggest.
+
+    Deploy, then go live, then send the test source. A source pushed from elsewhere (`just send`, a real encoder)
+    counts as connected, so the console does not suggest a second one.
+    """
+    if s.job_running:
+        return None
+    if not s.deployed:
+        return "deploy"
+    if s.flow_state == "STANDBY" and s.channel_state == "IDLE":
+        return "go-live"
+    if s.flow_state == "ACTIVE" and s.channel_state == "RUNNING" and not (s.source_running or source_connected):
+        return "source-start"
+    return None

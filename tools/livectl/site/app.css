@@ -148,17 +148,18 @@ button.act.danger:hover:not(:disabled) { background: #fef4f2; }
 .endpoints dt { color: var(--muted); } .endpoints dd { margin: 0; display: flex; gap: 8px; align-items: center; min-width: 0; }
 .endpoints .value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.panel { position: sticky; top: 16px; align-self: start; display: grid; gap: 10px; max-height: calc(100vh - 32px); }
+.panel { position: sticky; top: 16px; align-self: start; display: flex; flex-direction: column; gap: 10px;
+  height: calc(100vh - 32px); min-height: 320px; }
 .tabs { display: flex; flex-wrap: wrap; gap: 4px; }
 .tabs [role="tab"] { font: inherit; font-size: 12px; border: 1px solid var(--border); background: var(--surface);
   border-radius: 999px; padding: 4px 10px; cursor: pointer; }
 .tabs [aria-selected="true"] { background: var(--accent-tint); border-color: #cfdcfa; color: var(--accent); }
-.panel .log { max-height: none; overflow: auto; margin: 0; }
+.panel .log { flex: 1; min-height: 0; overflow: auto; margin: 0; }
 
 @media (max-width: 1000px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
   .stage { grid-template-columns: minmax(0, 1fr); }
-  .panel { position: static; max-height: 60vh; }
+  .panel { position: static; height: 60vh; }
 }
 
 .log .line { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: pre-wrap; }
@@ -167,3 +168,19 @@ button.act.danger:hover:not(:disabled) { background: #fef4f2; }
 .log .raw { margin: 6px 0 8px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border);
   border-radius: 8px; font-size: 11px; color: var(--text-2); white-space: pre-wrap; }
 .log .note { margin: 0 0 8px; font-family: Inter, sans-serif; }
+
+.job-state { font-size: 12px; font-weight: 600; color: var(--muted); }
+.job-state[data-health="ok"] { color: var(--ok); }
+.job-state[data-health="bad"] { color: var(--danger); }
+.job-state[data-health="busy"] { color: var(--accent); }
+#job-toggle { margin-left: auto; }
+.job-log { margin: 0; max-height: 13.5em; overflow: auto; }
+.job-log.expanded { max-height: 60vh; }
+
+/* The recommended next step: a soft pulse, or a steady ring for people who ask for less motion. */
+button.act.next { box-shadow: 0 0 0 3px var(--accent-tint), 0 0 0 4px #cfdcfa; animation: next-pulse 1.6s ease-in-out infinite; }
+@keyframes next-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px var(--accent-tint), 0 0 0 4px #cfdcfa; }
+  50% { box-shadow: 0 0 0 6px var(--accent-tint), 0 0 0 7px #b6cbf6; }
+}
+@media (prefers-reduced-motion: reduce) { button.act.next { animation: none; } }

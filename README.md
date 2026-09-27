@@ -87,7 +87,8 @@ browser modules, so it adds no dependency to the project.
   key figure. The Player node fetches the playlist through CloudFront and checks that its media sequence advances, the
   only end-to-end proof that viewers get video. Clicking a node shows everything known about it, with a link to the
   AWS console.
-- **Player:** the deployed hls.js page, embedded next to the selected node.
+- **Player:** the deployed hls.js page, embedded next to the selected node. It is reloaded once when the playlist
+  starts advancing, because the page gives up on the 404s it receives before the first segment exists.
 - **Controls,** named for what they do and shown only when they can work:
 
   | Control | Runs |
@@ -105,6 +106,10 @@ browser modules, so it adds no dependency to the project.
   with its TR 101 290 flags) reach a log group through an EventBridge rule (`modules/observability`); MediaLive's own
   encoder and as-run logs are read from `ElementalMediaLive`; the SRT Source tab also shows the test source's output.
   MediaPackage and CloudFront access logs are not enabled; their figures are in the node details.
+- **Last job:** the output of the latest Deploy, Tear down, Go live, Go off air or Scan, full width under the
+  endpoints, showing the newest lines with a *Show all* toggle.
+- **Next step:** the button for the next step towards a playing stream (Deploy stack, then Go live, then Send test
+  source) pulses, and stops once the stream plays or a source is already connected.
 
 It is deliberately blunt about its limits:
 
@@ -133,7 +138,8 @@ the new outputs exist), open `just ui` and check:
 3. **Send test source**: within about two minutes the SRT node reads *connected*, the verdict *On air · playing*,
    and the player shows the burned-in clock.
 4. The **MediaLive** tab shows channel state events (proves the EventBridge rule and the log resource policy) and
-   encoder log lines (proves the `ElementalMediaLive` stream prefix is the channel ARN).
+   encoder log lines (the `ElementalMediaLive` streams are named after the channel ARN with `_` for `:`, confirmed
+   in the first live run).
 5. The **SRT Source** tab shows FFmpeg output with `passphrase=***`.
 6. The **CloudFront** node shows requests per minute (proves the metric dimensions).
 7. Stop the test source while on air: the channel node lists an input-loss alert (proves `list_alerts` with

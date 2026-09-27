@@ -4,18 +4,21 @@ import { renderChain } from './chain.js';
 import { renderControls } from './controls.js';
 import { renderEndpoints } from './endpoints.js';
 import { ago } from './format.js';
+import { JobsCard } from './jobs-card.js';
 import { LogsPanel, TAB_FOR_NODE } from './logs-panel.js';
 import { renderDetail } from './node-detail.js';
 
 const POLL_MS = 2000;
 const $ = (id) => document.getElementById(id);
 const logs = new LogsPanel($('tabs'), $('log'));
+const jobs = new JobsCard({ title: $('job-title'), state: $('job-state'), log: $('job-log'), toggle: $('job-toggle') });
 const seen = {};
 let data = null;
 let selected = 'medialive_channel';
 let lastUpdate = null;
 let billingSince = null;
 let lastFailedJob = null;
+let playerHealth = null;
 
 function changed(key, value) {
   const json = JSON.stringify(value);
@@ -46,6 +49,15 @@ function renderPlayer() {
   const frame = $('player-frame');
   const url = data.endpoints.player;
   if (url && frame.getAttribute('src') !== url) frame.setAttribute('src', url);
+  // The player page gives up on the 404s it gets before the first segment exists. When the console sees the
+  // playlist start advancing, it reloads the frame once so the player picks the stream up without a manual refresh.
+  const node = data.nodes.find((n) => n.id === 'player');
+  const health = node ? node.health : null;
+  if (url && playerHealth !== null && playerHealth !== 'ok' && health === 'ok') {
+    frame.setAttribute('src', url);
+    frame.dataset.reloads = String(Number(frame.dataset.reloads || 0) + 1);
+  }
+  playerHealth = health;
   frame.hidden = !url;
   $('player-empty').hidden = Boolean(url);
 }
@@ -65,20 +77,22 @@ function render() {
   }
   renderPlayer();
   const sourceRunning = Boolean(data.source && data.source.state === 'running');
-  if (changed('actions', [data.actions, sourceRunning])) renderControls($('controls'), data.actions, sourceRunning, act);
+  if (changed('actions', [data.actions, sourceRunning, data.next])) {
+    renderControls($('controls'), data.actions, sourceRunning, data.next, act);
+  }
   if (changed('endpoints', data.endpoints)) renderEndpoints($('endpoints'), data.endpoints);
 
-  logs.showJob(data.job);
+  jobs.show(data.job);
   const job = data.job;
   if (job && job.state === 'failed' && lastFailedJob !== job.started_at) {
     lastFailedJob = job.started_at;
-    banner(job.name + ' failed: ' + (job.error || 'see the Jobs tab'));
+    banner(job.name + ' failed: ' + (job.error || 'see Last job below'));
   }
 }
 
 async function poll() {
   try {
-    data = await getPipeline(logs.offset);
+    data = await getPipeline(jobs.offset);
     lastUpdate = Date.now();
     render();
   } catch (error) {
@@ -98,9 +112,8 @@ async function act(name, body) {
     return;
   }
   banner('');
-  // Show the output of what was just started: the job log, or the source's own tab.
+  // The test source's output is in its log tab; everything else runs as a job, shown in the Last job card.
   if (name === 'source-start' || name === 'source-stop') logs.select('srt');
-  else logs.select('jobs');
   delete seen.actions;
   poll();
 }

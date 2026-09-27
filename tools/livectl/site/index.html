@@ -45,6 +45,14 @@
       <h2 class="card-title" id="endpoints-title">Endpoints</h2>
       <dl class="endpoints" id="endpoints"></dl>
     </section>
+    <section class="card" aria-labelledby="job-title" id="job-card">
+      <h2 class="card-title">
+        <span id="job-title">Last job</span>
+        <span class="job-state" id="job-state"></span>
+        <button class="copy" id="job-toggle" type="button" aria-expanded="false" aria-controls="job-log">Show all</button>
+      </h2>
+      <pre class="log job-log" id="job-log" tabindex="0"></pre>
+    </section>
   </main>
   <aside class="card panel" id="panel" aria-label="Logs">
     <div class="tabs" role="tablist" id="tabs"></div>

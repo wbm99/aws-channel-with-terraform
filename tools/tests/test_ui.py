@@ -143,9 +143,9 @@ def test_teardown_needs_the_typed_word_then_runs_terraform(open_scenario):
     page.locator('#controls button[data-action="teardown"]').click()
     page.locator("#confirm-input").fill("destroy")
     page.locator("#confirm-go").click()
-    page.locator('[data-tab="jobs"]').click()
 
-    expect(page.locator("#log")).to_contain_text("terraform -chdir=envs/demo destroy")
+    expect(page.locator("#job-log")).to_contain_text("terraform -chdir=envs/demo destroy")
+    expect(page.locator("#job-title")).to_have_text("Last job: teardown")
     assert scenario.commands[0][2] == "destroy"
 
 
@@ -225,3 +225,80 @@ def test_mediapackage_says_plainly_that_it_has_no_access_logs(open_scenario):
     page.locator('[data-tab="mediapackage"]').click()
 
     expect(page.locator("#log")).to_contain_text("access logs are not enabled")
+
+
+
+# --- feedback from the first live run (2026-09-27) ---------------------------------------
+
+
+def test_job_output_sits_under_the_endpoints_not_in_the_side_panel(open_scenario):
+    page, _ = open_scenario("off-air")
+
+    endpoints = page.locator("#endpoints").bounding_box()
+    job = page.locator("#job-card").bounding_box()
+
+    assert job["y"] > endpoints["y"]
+    assert job["width"] > 600, "the job log runs the width of the main column"
+    expect(page.locator('[data-tab="jobs"]')).to_have_count(0)
+
+
+def test_the_side_panel_never_grows_past_the_window(open_scenario):
+    page, _ = open_scenario("on-air-playing")
+
+    height = page.locator("#panel").bounding_box()["height"]
+
+    assert height <= page.viewport_size["height"]
+
+
+@pytest.mark.parametrize("name, step", [
+    ("not-deployed", "deploy"),
+    ("off-air", "go-live"),
+    ("on-air-no-source", "source-start"),
+])
+def test_the_next_step_is_highlighted(open_scenario, name, step):
+    page, _ = open_scenario(name)
+
+    highlighted = page.locator("#controls button[data-next]")
+
+    expect(highlighted).to_have_count(1)
+    expect(highlighted).to_have_attribute("data-action", step)
+
+
+def test_nothing_is_highlighted_once_the_stream_plays(open_scenario):
+    page, _ = open_scenario("on-air-playing")
+
+    expect(page.locator("#verdict-text")).to_have_text("On air · playing", timeout=15000)
+    expect(page.locator("#controls button[data-next]")).to_have_count(0)
+
+
+def test_the_player_reloads_once_when_the_stream_starts_playing(open_scenario):
+    page, _ = open_scenario("on-air-playing")
+
+    expect(page.locator("#player-frame")).to_have_attribute("data-reloads", "1", timeout=15000)
+
+
+def test_the_player_is_not_reloaded_while_nothing_changes(open_scenario):
+    page, _ = open_scenario("off-air")
+    page.wait_for_timeout(4500)
+
+    assert page.locator("#player-frame").get_attribute("data-reloads") is None
+
+
+def test_overlapping_log_reads_never_duplicate_lines(open_scenario):
+    """Live, a log read takes about a second, so a tab click and the timer can both read from the same cursor.
+
+    Stub reads are instant, so the page's fetch is slowed down here to make the reads overlap.
+    """
+    page, _ = open_scenario("off-air")
+    page.evaluate("""() => {
+        const original = window.fetch;
+        window.fetch = (url, options) => String(url).includes('api/logs')
+            ? new Promise((resolve) => setTimeout(() => resolve(original(url, options)), 800))
+            : original(url, options);
+    }""")
+
+    page.locator('[data-tab="mediaconnect"]').click()  # first read of this tab, still in flight...
+    page.locator('[data-tab="mediaconnect"]').click()  # ...when the second one starts from the same cursor
+    page.wait_for_timeout(2500)
+
+    assert page.locator("#log .line", has_text="flow STANDBY → ACTIVE").count() == 1

@@ -63,3 +63,35 @@ def test_messages_never_leak_cli_flags():
     for situation in everything:
         for refusal in refusals(situation).values():
             assert refusal is None or "--" not in refusal.message
+
+
+# --- the recommended next step --------------------------------------------------
+
+from livectl.actions import next_action  # noqa: E402
+
+
+def test_with_nothing_deployed_the_next_step_is_deploy():
+    assert next_action(Situation(deployed=False, job_running=None, flow_state=None, channel_state=None)) == "deploy"
+
+
+def test_deployed_and_off_air_the_next_step_is_going_live():
+    assert next_action(OFF_AIR) == "go-live"
+
+
+def test_on_air_without_a_source_the_next_step_is_the_test_source():
+    assert next_action(ON_AIR, source_connected=False) == "source-start"
+
+
+def test_on_air_with_a_source_there_is_nothing_to_suggest():
+    assert next_action(ON_AIR, source_connected=True) is None
+    running = Situation(deployed=True, job_running=None, flow_state="ACTIVE", channel_state="RUNNING",
+                        source_running=True)
+    assert next_action(running, source_connected=False) is None, "it is starting; do not nag"
+
+
+def test_nothing_is_suggested_while_a_job_runs_or_halfway_up():
+    busy = Situation(deployed=True, job_running="go-live", flow_state="STANDBY", channel_state="IDLE")
+    partly = Situation(deployed=True, job_running=None, flow_state="ACTIVE", channel_state="IDLE")
+
+    assert next_action(busy) is None
+    assert next_action(partly) is None

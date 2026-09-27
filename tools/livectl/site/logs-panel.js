@@ -1,10 +1,10 @@
-// The right-hand panel: one tab per resource, plus Jobs. Only the visible tab is polled.
+// The right-hand panel: one tab per resource. Only the visible tab is polled. Job output has its own card.
 import { getLogs } from './api.js';
 import { el } from './format.js';
 
 const TABS = [
   ['all', 'All'], ['srt', 'SRT Source'], ['mediaconnect', 'MediaConnect'], ['medialive', 'MediaLive'],
-  ['mediapackage', 'MediaPackage'], ['cloudfront', 'CloudFront'], ['jobs', 'Jobs'],
+  ['mediapackage', 'MediaPackage'], ['cloudfront', 'CloudFront'],
 ];
 const NO_LOGS = {
   mediapackage: 'MediaPackage access logs are not enabled in this project. Its ingest rate and 5xx count are in the node details.',
@@ -15,16 +15,14 @@ export const TAB_FOR_NODE = {
   mediapackage_channel: 'mediapackage', cloudfront_cdn: 'cloudfront', player: 'all',
 };
 const LOG_POLL_MS = 5000;
+const KEEP_LINES = 1000;
 
 export class LogsPanel {
   constructor(tabs, list) {
     this.tabs = tabs;
     this.list = list;
     this.active = 'all';
-    this.buffers = {};       // tab -> { after, lines: [line], notes: [str] }
-    this.jobText = '';
-    this.jobKey = null;
-    this.offset = 0;
+    this.buffers = {};       // tab -> { after, lines: [line], keys: Set, notes: [str], busy: bool }
     this.tabs.replaceChildren(...TABS.map(([id, label]) => el('button', {
       type: 'button', role: 'tab', 'data-tab': id, onclick: () => this.select(id),
     }, label)));
@@ -41,36 +39,51 @@ export class LogsPanel {
     this.refresh();
   }
 
+  buffer(tab) {
+    return this.buffers[tab] || (this.buffers[tab] = { after: 0, lines: [], keys: new Set(), notes: [], busy: false });
+  }
+
   async refresh() {
     const tab = this.active;
-    if (tab === 'jobs' || NO_LOGS[tab]) return;
-    const buffer = this.buffers[tab] || (this.buffers[tab] = { after: 0, lines: [], notes: [] });
+    if (NO_LOGS[tab]) return;
+    const buffer = this.buffer(tab);
+    // Selecting a tab and the timer can both ask at once; two answers from the same cursor would append twice.
+    if (buffer.busy) return;
+    buffer.busy = true;
     try {
       const data = await getLogs(tab, buffer.after);
-      buffer.lines = buffer.lines.concat(data.lines).slice(-1000);
+      for (const line of data.lines) {
+        const key = line.at_ms + '|' + line.text;
+        if (buffer.keys.has(key)) continue;
+        buffer.keys.add(key);
+        buffer.lines.push(line);
+      }
+      buffer.lines = buffer.lines.slice(-KEEP_LINES);
       buffer.after = data.after;
       buffer.notes = data.notes;
     } catch (error) {
       buffer.notes = ['Could not read logs: ' + error.message];
+    } finally {
+      buffer.busy = false;
     }
     if (this.active === tab) this.draw();
   }
 
   draw() {
     const tab = this.active;
-    if (tab === 'jobs') {
-      this.list.replaceChildren(el('div', { class: 'line' }, this.jobText || 'No job has run since the console started.'));
-    } else if (NO_LOGS[tab]) {
+    const atBottom = this.list.scrollHeight - this.list.scrollTop - this.list.clientHeight < 24;
+    if (NO_LOGS[tab]) {
       this.list.replaceChildren(el('p', { class: 'note' }, NO_LOGS[tab]));
     } else {
-      const buffer = this.buffers[tab] || { lines: [], notes: [] };
+      const buffer = this.buffer(tab);
       this.list.replaceChildren(
         ...buffer.notes.map((note) => el('p', { class: 'note' }, note)),
         ...(buffer.lines.length ? buffer.lines.map((line) => this.line(line))
           : [el('p', { class: 'note' }, 'No events in the last 30 minutes.')]),
       );
     }
-    this.list.scrollTop = this.list.scrollHeight;
+    // Follow new lines only if the reader was already at the bottom, so scrolling back to read is not undone.
+    if (atBottom) this.list.scrollTop = this.list.scrollHeight;
   }
 
   line(line) {
@@ -83,17 +96,5 @@ export class LogsPanel {
       });
     }
     return node;
-  }
-
-  showJob(job) {
-    if (!job) return;
-    const key = job.name + '@' + job.started_at;
-    if (key !== this.jobKey) {
-      this.jobKey = key;
-      this.jobText = '';
-    }
-    if (job.lines.length) this.jobText += job.lines.join('\n') + '\n';
-    this.offset = job.offset;
-    if (this.active === 'jobs') this.draw();
   }
 }

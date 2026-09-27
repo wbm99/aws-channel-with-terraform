@@ -15,7 +15,7 @@ export const GROUPS = [
   ]],
 ];
 
-export function renderControls(container, actions, sourceRunning, onAction) {
+export function renderControls(container, actions, sourceRunning, next, onAction) {
   const visible = (name) => actions[name] === null && (name !== 'source-stop' || sourceRunning);
   container.replaceChildren(el('div', { class: 'groups' }, GROUPS.map(([title, items]) => {
     const shown = items.filter(([name]) => visible(name));
@@ -23,7 +23,10 @@ export function renderControls(container, actions, sourceRunning, onAction) {
       el('h3', {}, title),
       shown.length
         ? el('div', { class: 'actions' }, shown.map(([name, label, kind, help]) => el('button', {
-          class: 'act ' + kind, type: 'button', 'data-action': name, title: help, onclick: () => onAction(name),
+          // The recommended next step pulses: deploy, then go live, then send the test source.
+          class: 'act ' + kind + (name === next ? ' next' : ''), type: 'button', 'data-action': name,
+          'data-next': name === next ? 'true' : null, title: name === next ? 'Next step: ' + help : help,
+          onclick: () => onAction(name),
         }, label)))
         : el('p', { class: 'none' }, 'Nothing to do here right now.'));
   })));
