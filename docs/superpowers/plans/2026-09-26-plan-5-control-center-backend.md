@@ -1402,7 +1402,7 @@ RUNNING = {"name": "go-live", "state": "running"}
     (chain(medialive_channel=("RUNNING", OK)), None, "Partly on", "bad"),
     (chain(**ON, srt_source=("DISCONNECTED", BAD)), None, "On air · no source", "bad"),
     (chain(**ON, srt_source=("CONNECTED", WARN)), None, "On air · source degraded", "warn"),
-    (chain(**ON, srt_source=("CONNECTED", OK), medialive_channel=("RUNNING", WARN)), None,
+    (chain(**{**ON, "srt_source": ("CONNECTED", OK), "medialive_channel": ("RUNNING", WARN)}), None,
      "On air · source degraded", "warn"),
     (chain(**ON, srt_source=("CONNECTED", OK), player=("STALLED", WARN)), None,
      "On air · not reaching viewers", "warn"),
@@ -1460,7 +1460,7 @@ def test_off_air_offers_going_live_but_not_going_off_air():
 
 def test_on_air_refuses_deploy_and_teardown_and_offers_the_source():
     assert allowed(ON_AIR) == {"scan", "go-off-air", "source-start", "source-stop"}
-    assert "go off air first" in refusals(ON_AIR)["teardown"].message
+    assert "Go off air first" in refusals(ON_AIR)["teardown"].message
     assert refusals(ON_AIR)["deploy"].status == 409
 
 
@@ -1481,7 +1481,7 @@ def test_a_running_test_source_blocks_teardown():
     situation = Situation(deployed=True, job_running=None, flow_state="STANDBY", channel_state="IDLE",
                           source_running=True)
 
-    assert "stop the test source first" in refusals(situation)["teardown"].message
+    assert "Stop the test source first" in refusals(situation)["teardown"].message
 
 
 def test_the_source_needs_an_active_flow():
