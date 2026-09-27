@@ -14,6 +14,10 @@ class TargetError(RuntimeError):
     """Raised when the target resources cannot be determined."""
 
 
+class NotDeployed(TargetError):
+    """Raised when Terraform has no outputs for the environment: nothing is deployed."""
+
+
 @dataclass(frozen=True)
 class Targets:
     flow_arn: str
@@ -21,6 +25,15 @@ class Targets:
     player_url: Optional[str] = None
     ingest_ip: Optional[str] = None
     ingest_port: Optional[int] = None
+    input_id: Optional[str] = None
+    channel_arn: Optional[str] = None
+    channel_group: Optional[str] = None
+    mediapackage_channel: Optional[str] = None
+    mediapackage_endpoint: Optional[str] = None
+    distribution_id: Optional[str] = None
+    manifest_url: Optional[str] = None
+    passphrase_secret_arn: Optional[str] = None
+    events_log_group: Optional[str] = None
 
 
 def run_command(args: Sequence[str]) -> str:
@@ -59,10 +72,14 @@ def resolve_targets(
     channel = channel_id or outputs.get("medialive_channel_id")
     missing = [label for label, value in (("flow ARN", flow), ("channel ID", channel)) if not value]
     if missing:
-        raise TargetError(
+        raise NotDeployed(
             "could not determine " + " and ".join(missing)
             + "; pass --flow-arn/--channel-id or run against a deployed environment"
         )
+
+    def text(name: str) -> Optional[str]:
+        value = outputs.get(name)
+        return None if value is None else str(value)
 
     return Targets(
         flow_arn=flow,
@@ -70,4 +87,13 @@ def resolve_targets(
         player_url=outputs.get("player_url"),
         ingest_ip=outputs.get("ingest_ip"),
         ingest_port=outputs.get("ingest_port"),
+        input_id=text("medialive_input_id"),
+        channel_arn=text("medialive_channel_arn"),
+        channel_group=text("mediapackage_channel_group"),
+        mediapackage_channel=text("mediapackage_channel"),
+        mediapackage_endpoint=text("mediapackage_endpoint"),
+        distribution_id=text("distribution_id"),
+        manifest_url=text("cdn_manifest_url"),
+        passphrase_secret_arn=text("passphrase_secret_arn"),
+        events_log_group=text("events_log_group"),
     )
