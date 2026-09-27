@@ -91,3 +91,22 @@ run "rejects_duplicate_rendition_names" {
 
   expect_failures = [var.renditions]
 }
+
+run "writes_encoder_logs_at_info_by_default" {
+  command = plan
+
+  assert {
+    condition     = aws_medialive_channel.this.log_level == "INFO"
+    error_message = "Encoder logs default to INFO."
+  }
+}
+
+run "rejects_an_unknown_log_level" {
+  command = plan
+
+  variables {
+    log_level = "VERBOSE"
+  }
+
+  expect_failures = [var.log_level]
+}

@@ -53,3 +53,14 @@ variable "renditions" {
     error_message = "Rendition names must be unique."
   }
 }
+
+variable "log_level" {
+  description = "MediaLive encoder log level, written to the ElementalMediaLive log group. As-run logs are written regardless and are free."
+  type        = string
+  default     = "INFO"
+
+  validation {
+    condition     = contains(["ERROR", "WARNING", "INFO", "DEBUG", "DISABLED"], var.log_level)
+    error_message = "log_level must be ERROR, WARNING, INFO, DEBUG or DISABLED."
+  }
+}

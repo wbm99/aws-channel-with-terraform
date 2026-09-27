@@ -13,6 +13,7 @@ resource "aws_medialive_channel" "this" {
   channel_class = var.channel_class
   role_arn      = var.role_arn
   start_channel = false
+  log_level     = var.log_level
 
   input_specification {
     codec            = "AVC"
