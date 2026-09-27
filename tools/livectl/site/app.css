@@ -228,3 +228,8 @@ button.act.next { box-shadow: 0 0 0 3px var(--accent-tint), 0 0 0 4px #cfdcfa; a
   50% { box-shadow: 0 0 0 6px var(--accent-tint), 0 0 0 7px #b6cbf6; }
 }
 @media (prefers-reduced-motion: reduce) { button.act.next { animation: none; } }
+
+.notice {
+  margin: 0 20px 16px; padding: 10px 14px; border-radius: 10px; border: 1px solid #fbdca7; background: #fffcf5;
+  color: #7a4a00; font-size: 13px; font-weight: 500;
+}

@@ -173,6 +173,7 @@ def _snapshot(console: Console, offset: int = 0, job_key: Optional[str] = None) 
         "verdict": asdict(verdict(by_id, job)),
         "rate": hourly_rate(by_id),
         "metrics_age": console.pipeline.metrics_age(),
+        "aws_note": console.pipeline.unreachable(),
         "nodes": [node.to_dict() for node in nodes],
         "endpoints": {
             "ingest": f"srt://{targets.ingest_ip}:{targets.ingest_port}" if targets.ingest_ip else None,

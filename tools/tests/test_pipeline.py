@@ -216,3 +216,23 @@ def test_a_disabled_distribution_is_off_not_an_error():
     node = by_id(make(clients).nodes(TARGETS))["cloudfront_cdn"]
 
     assert (node.health, node.summary) == (OFF, "disabled")
+
+
+def test_while_aws_is_unreachable_the_last_state_is_kept_and_the_problem_is_named():
+    """Live: switching Wi-Fi off and on left the console answering nothing until a reload."""
+    clients, clock = stub_aws(flow="ACTIVE", channel="RUNNING"), Clock()
+    pipeline = make(clients, clock=clock)
+    pipeline.nodes(TARGETS)
+    assert pipeline.unreachable() is None
+
+    down = ConnectionError("Could not connect to the endpoint URL")
+    for client in clients.values():
+        for operation in list(client._responses):
+            client._responses[operation] = down
+    clock.now += 70
+
+    nodes = by_id(pipeline.nodes(TARGETS))
+
+    assert nodes["mediaconnect_flow"].state == "ACTIVE", "the last known state, not a screen of unknowns"
+    note = pipeline.unreachable()
+    assert "Could not connect" in note and "70 s ago" in note

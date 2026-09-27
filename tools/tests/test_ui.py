@@ -440,3 +440,23 @@ def test_figures_of_resources_that_are_off_show_nothing(open_scenario):
     expect(page.locator("#verdict-text")).to_have_text("Off air")
     expect(page.locator('[data-metric="mp_ingress_bytes"] dd')).to_have_text("—")
     expect(page.locator('[data-metric="src_bitrate"] dd')).to_have_text("—")
+
+
+def test_the_page_recovers_by_itself_when_the_console_comes_back(open_scenario):
+    """Live: after switching Wi-Fi off and on, the page needed a reload."""
+    page, _ = open_scenario("off-air")
+    expect(page.locator("#verdict-text")).to_have_text("Off air")
+
+    page.route("**/api/pipeline*", lambda route: route.abort("internetdisconnected"))
+    expect(page.locator("#banner")).to_contain_text("Lost contact", timeout=10000)
+
+    page.unroute("**/api/pipeline*")
+    expect(page.locator("#banner")).to_be_hidden(timeout=10000)
+    expect(page.locator("#freshness")).to_contain_text("Updated", timeout=5000)
+
+
+def test_stale_aws_data_is_labelled(open_scenario):
+    page, scenario = open_scenario("off-air")
+    scenario.console.pipeline.unreachable = lambda: "AWS is not answering (EndpointConnectionError). Showing what it said 40 s ago."
+
+    expect(page.locator("#aws-note")).to_contain_text("Showing what it said 40 s ago", timeout=10000)

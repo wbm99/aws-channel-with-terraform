@@ -21,6 +21,8 @@ from livectl.targets import Targets
 
 OK, WARN, BAD, OFF, UNKNOWN = "ok", "warn", "bad", "off", "unknown"
 STATE_TTL, MANIFEST_TTL, METRICS_TTL = 5.0, 4.0, 60.0
+# While AWS does not answer (the network dropped), show what it last said for up to this long, and say so.
+STALE_FOR = 600.0
 # Source Health events come only on change, so the newest may be hours old while the source stays connected.
 SOURCE_EVENTS_LOOKBACK_MS = 12 * 60 * 60 * 1000
 
@@ -222,9 +224,17 @@ class Pipeline:
     def metrics_age(self) -> Optional[float]:
         return self._cache.age("metrics")
 
+    def unreachable(self) -> Optional[str]:
+        """A sentence for the page when some of what it shows is older than it looks, else None."""
+        problems = self._cache.problems()
+        if not problems:
+            return None
+        error, age = max(problems.values(), key=lambda item: item[1])
+        return f"AWS is not answering ({error}). Showing what it said {age:.0f} s ago."
+
     def _read(self, key: str, ttl: float, load: Callable[[], Any]) -> tuple[Any, Optional[str]]:
         try:
-            return self._cache.get(key, ttl, load), None
+            return self._cache.get(key, ttl, load, stale_for=STALE_FOR), None
         except Exception as error:  # a denied or throttled call becomes one unknown node
             return None, f"{type(error).__name__}: {error}"
 

@@ -5,7 +5,8 @@ const PATHS = { 'source-start': 'source/start', 'source-stop': 'source/stop' };
 export async function getPipeline(offset, jobKey) {
   // The offset only means something for the job it was counted on, so the job's key travels with it.
   const job = jobKey ? '&job=' + encodeURIComponent(jobKey) : '';
-  const response = await fetch('api/pipeline?offset=' + offset + job, { cache: 'no-store' });
+  // A request that never answers (the network changed under it) would otherwise hold up every poll after it.
+  const response = await fetch('api/pipeline?offset=' + offset + job, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
   if (!response.ok) throw new Error('the console answered ' + response.status);
   return response.json();
 }

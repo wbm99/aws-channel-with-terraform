@@ -22,6 +22,8 @@ let lastUpdate = null;
 let billingSince = null;
 let lastFailedJob = null;
 let playerHealth = null;
+let polling = false;         // a poll in flight; the next tick waits for it instead of piling up
+let lostContact = false;     // the banner currently says the console is not answering
 
 function changed(key, value) {
   const json = JSON.stringify(value);
@@ -120,6 +122,8 @@ function select(id) {
 }
 
 function render() {
+  $('aws-note').textContent = data.aws_note || '';
+  $('aws-note').hidden = !data.aws_note;
   jobs.show(data.job);           // first, so the header's job pill shows this poll's latest line
   renderHeader();
   const note = $('deploy-note');
@@ -158,12 +162,22 @@ function render() {
 }
 
 async function poll() {
+  if (polling) return;
+  polling = true;
   try {
     data = await getPipeline(jobs.offset, jobs.key);
     lastUpdate = Date.now();
+    if (lostContact) {           // back in touch: take the warning down without a reload
+      lostContact = false;
+      banner('');
+    }
     render();
   } catch (error) {
-    banner('The console is not answering (' + error.message + '). Is livectl ui still running?');
+    lostContact = true;
+    banner('Lost contact with the console (' + error.message + '). Retrying every few seconds; '
+      + 'if it does not come back, check that livectl ui is still running.');
+  } finally {
+    polling = false;
   }
 }
 
