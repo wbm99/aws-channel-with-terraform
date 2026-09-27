@@ -152,6 +152,14 @@ test-tf:
 test-py:
     {{venv}}/bin/pytest -q tools
 
+# Serve the console in a named fake state, with no AWS (see tools/tests/scenarios.py)
+ui-scenario name="on-air-playing" port="8766":
+    {{python}} tools/tests/scenarios.py {{name}} {{port}}
+
+# Drive the console in Chrome through every scenario (needs: .venv/bin/pip install -e "tools[dev,ui]")
+test-ui:
+    {{venv}}/bin/pytest -q tools/tests/test_ui.py
+
 # Look up on-demand prices behind docs/cost-estimate.md
 cost service="AWSElementalMediaLive" pattern="Single Pipeline (HD|SD) AVC":
     {{python}} scripts/price_lookup.py {{quote(service)}} {{quote(pattern)}}
