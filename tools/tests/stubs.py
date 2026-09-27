@@ -95,9 +95,12 @@ def logs_client(events: list[tuple[int, str]]) -> StubClient:
     The ElementalMediaLive group does not exist, as on an account whose channel has never run.
     """
 
-    def filter_log_events(logGroupName, startTime, **_):
+    def filter_log_events(logGroupName, startTime, filterPattern=None, **_):
         if logGroupName == "ElementalMediaLive":
             raise RuntimeError("ResourceNotFoundException: The specified log group does not exist.")
-        return {"events": [{"timestamp": t, "logStreamName": "s", "message": m} for t, m in events if t >= startTime]}
+        # Enough of CloudWatch's `?"a" ?"b"` pattern for these fixtures: keep messages containing any quoted term.
+        terms = [term.strip('?"') for term in filterPattern.split('" ?')] if filterPattern else []
+        return {"events": [{"timestamp": t, "logStreamName": "s", "message": m} for t, m in events
+                           if t >= startTime and (not terms or any(term in m for term in terms))]}
 
     return StubClient(filter_log_events=filter_log_events)

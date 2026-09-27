@@ -162,3 +162,56 @@ def test_an_input_change_names_the_input():
 
     assert text_of("aws.medialive", "MediaLive Channel Input Change", detail, (CHANNEL,)) == (
         "MediaLive · input switched to mediaconnect-srt")
+
+
+# --- the SRT source's state from events, not from a metric minutes behind ------------------------
+
+from livectl.logs import SOURCE_PATTERN, latest_source_state  # noqa: E402
+
+OTHER_FLOW = "arn:aws:mediaconnect:us-east-1:123456789012:flow:1-zzz:someone-else"
+
+
+def health(state, resources=(FLOW,)):
+    return event("aws.mediaconnect", "MediaConnect Source Health",
+                 {"current": {"state": state}, "unhealthy": state != "CONNECTED"}, resources)
+
+
+def flow_change(current):
+    return event("aws.mediaconnect", "MediaConnect Flow Status Change",
+                 {"previousStatus": "STARTING", "currentStatus": current})
+
+
+def test_the_newest_source_health_event_gives_the_state():
+    events = [(T, flow_change("ACTIVE")), (T + 10, health("CONNECTED")), (T + 20, health("DISCONNECTED"))]
+
+    assert latest_source_state(events, FLOW) == ("DISCONNECTED", T + 20)
+
+
+def test_events_from_before_the_flow_last_started_do_not_count():
+    """A CONNECTED from yesterday's session must not make today's empty ingest look connected."""
+    events = [(T, health("CONNECTED")), (T + 50, flow_change("ACTIVE"))]
+
+    assert latest_source_state(events, FLOW) is None
+
+
+def test_other_flows_and_order_of_arrival_do_not_matter():
+    events = [(T + 20, health("DISCONNECTED", (OTHER_FLOW,))), (T + 10, health("CONNECTED")), (T, flow_change("ACTIVE"))]
+
+    assert latest_source_state(events, FLOW) == ("CONNECTED", T + 10)
+
+
+def test_no_events_means_no_answer():
+    assert latest_source_state([], FLOW) is None
+
+
+def test_the_reader_passes_the_filter_pattern_to_cloudwatch():
+    calls = []
+
+    class Logs:
+        def filter_log_events(self, **request):
+            calls.append(request)
+            return {"events": []}
+
+    LogReader(Logs()).events("/aws/events/demo", after_ms=T, pattern=SOURCE_PATTERN)
+
+    assert calls[0]["filterPattern"] == '?"MediaConnect Source Health" ?"MediaConnect Flow Status Change"'

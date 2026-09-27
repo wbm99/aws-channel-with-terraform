@@ -25,6 +25,7 @@ EXPECTED = {
     "partly-on": ("Partly on", ["scan", "go-live", "go-off-air", "source-start"]),
     "probe-error": ("Unknown", ["deploy", "teardown", "scan", "go-live", "go-off-air"]),
     "source-running": ("On air · playing", ["scan", "go-off-air", "source-stop"]),
+    "source-dropped": ("On air · no source", ["scan", "go-off-air", "source-start"]),
 }
 
 
@@ -388,3 +389,15 @@ def test_details_open_in_a_drawer_that_escape_closes(open_scenario):
 
     page.keyboard.press("Escape")
     expect(page.locator("#drawer")).to_be_hidden()
+
+
+
+def test_a_dropped_source_shows_at_once_not_when_cloudwatch_catches_up(open_scenario):
+    """The metric still says connected at 6 Mbps; the MediaConnect event a second ago says it dropped."""
+    page, _ = open_scenario("source-dropped", "live")
+
+    expect(page.locator("#verdict-text")).to_have_text("On air · no source")
+    expect(page.locator('#chain button[data-node="srt_source"]')).to_have_attribute("data-health", "bad")
+
+    page.locator('#chain button[data-node="srt_source"]').click()
+    expect(page.locator("#detail")).to_contain_text("MediaConnect event at")

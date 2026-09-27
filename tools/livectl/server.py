@@ -83,7 +83,7 @@ class Console:
             self.pipeline = Pipeline(
                 mediaconnect=self.mediaconnect, medialive=self.medialive, mediapackagev2=self.mediapackagev2,
                 cloudfront=self.cloudfront, cloudwatch=self.cloudwatch, region=self.region,
-                source_status=self.source.status,
+                source_status=self.source.status, logs=self.logs,
             )
 
     def targets(self) -> Targets:

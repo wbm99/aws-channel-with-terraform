@@ -18,6 +18,8 @@ from livectl.targets import Targets
 LOG_TABS = ("all", "srt", "mediaconnect", "medialive")
 ELEMENTAL_GROUP = "ElementalMediaLive"
 LOOKBACK_MS = 30 * 60 * 1000
+# The two event types that say whether an SRT source is connected right now, as a CloudWatch Logs filter pattern.
+SOURCE_PATTERN = '?"MediaConnect Source Health" ?"MediaConnect Flow Status Change"'
 MAX_PAGES = 5
 
 
@@ -119,11 +121,14 @@ class LogReader:
     def __init__(self, logs) -> None:
         self._logs = logs
 
-    def events(self, group: str, *, after_ms: int, stream_prefix: Optional[str] = None) -> list[tuple[int, str, str]]:
+    def events(self, group: str, *, after_ms: int, stream_prefix: Optional[str] = None,
+               pattern: Optional[str] = None) -> list[tuple[int, str, str]]:
         """(timestamp, stream, message) newer than after_ms, oldest first, at most a few pages per call."""
         request: dict = {"logGroupName": group, "startTime": after_ms + 1}
         if stream_prefix:
             request["logStreamNamePrefix"] = stream_prefix
+        if pattern:
+            request["filterPattern"] = pattern
         found: list[tuple[int, str, str]] = []
         for _ in range(MAX_PAGES):
             response = self._logs.filter_log_events(**request)
@@ -151,3 +156,29 @@ def medialive_lines(reader: LogReader, channel_arn: str, after_ms: int) -> list[
         kind = "as-run" if stream.endswith("_as_run") else "encoder"
         lines.append(LogLine(at_ms, "medialive", f"{clock_label(at_ms)} {kind} · {message.strip()}"))
     return lines
+
+
+def latest_source_state(events: list[tuple[int, str]], flow_arn: str) -> Optional[tuple[str, int]]:
+    """(state, at_ms) of the newest Source Health event for this flow since it last became ACTIVE, else None.
+
+    MediaConnect sends Source Health within about a second of a source connecting or dropping (seen live on
+    2026-09-27), while the SourceConnected metric arrives minutes later. Events from before the flow's latest start
+    belong to an earlier session and say nothing about now.
+    """
+    latest: Optional[tuple[str, int]] = None
+    for at_ms, message in sorted(events):
+        try:
+            event = json.loads(message)
+        except ValueError:
+            continue
+        if not any(r.startswith(flow_arn) for r in event.get("resources") or []):
+            continue
+        detail = event.get("detail") or {}
+        kind = event.get("detail-type")
+        if kind == "MediaConnect Flow Status Change" and detail.get("currentStatus") == "ACTIVE":
+            latest = None
+        elif kind == "MediaConnect Source Health":
+            state = (detail.get("current") or {}).get("state")
+            if state:
+                latest = (str(state).upper(), at_ms)
+    return latest

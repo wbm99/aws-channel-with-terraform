@@ -145,3 +145,54 @@ def test_nodes_serialise_to_plain_json_types():
     import json
 
     json.dumps([n.to_dict() for n in make(stub_aws()).nodes(TARGETS)])
+
+
+# --- source state from MediaConnect events (live run, 2026-09-27: the metric lagged by minutes) -------------
+
+import json  # noqa: E402
+
+from stubs import StubClient  # noqa: E402
+
+EVENTS_TARGETS = Targets(**{**TARGETS.__dict__, "events_log_group": "/aws/events/demo"})
+
+
+def events_logs(*states):
+    """A logs stub whose events group holds a flow start followed by Source Health events in these states."""
+    now = int(NOW.timestamp() * 1000)
+
+    def message(kind, detail):
+        return json.dumps({"source": "aws.mediaconnect", "detail-type": kind, "detail": detail, "resources": [FLOW_ARN]})
+
+    events = [(now - 60_000, message("MediaConnect Flow Status Change", {"currentStatus": "ACTIVE"}))]
+    events += [(now - 30_000 + i, message("MediaConnect Source Health", {"current": {"state": s}}))
+               for i, s in enumerate(states)]
+    return StubClient(filter_log_events=lambda **request: {
+        "events": [{"timestamp": t, "message": m, "logStreamName": "s"} for t, m in events]})
+
+
+def with_logs(clients, logs):
+    return Pipeline(**clients, logs=logs, fetch=playing_fetch(), clock=Clock(), now=lambda: NOW)
+
+
+def test_a_disconnect_event_beats_a_metric_that_still_says_connected():
+    node = by_id(with_logs(stub_aws(flow="ACTIVE", channel="RUNNING", metrics=LIVE_METRICS),
+                           events_logs("CONNECTED", "DISCONNECTED")).nodes(EVENTS_TARGETS))["srt_source"]
+
+    assert (node.state, node.health, node.summary) == ("DISCONNECTED", BAD, "not connected")
+    assert node.details["state from"].startswith("MediaConnect event")
+
+
+def test_a_connect_event_beats_a_metric_that_still_says_disconnected():
+    metrics = dict(LIVE_METRICS, src_connected=0.0)
+    node = by_id(with_logs(stub_aws(flow="ACTIVE", channel="RUNNING", metrics=metrics),
+                           events_logs("DISCONNECTED", "CONNECTED")).nodes(EVENTS_TARGETS))["srt_source"]
+
+    assert (node.state, node.health) == ("CONNECTED", OK)
+
+
+def test_without_events_the_metric_still_decides():
+    node = by_id(with_logs(stub_aws(flow="ACTIVE", channel="RUNNING", metrics=LIVE_METRICS),
+                           StubClient(filter_log_events={"events": []})).nodes(EVENTS_TARGETS))["srt_source"]
+
+    assert node.state == "CONNECTED"
+    assert node.details["state from"].startswith("CloudWatch")

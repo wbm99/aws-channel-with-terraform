@@ -48,16 +48,18 @@ SCENARIOS: dict[str, dict] = {
     "deploying": dict(deployed=False, job="deploy"),
     "off-air": dict(),
     "going-live": dict(job="go-live"),
-    "on-air-no-source": dict(**ON, metrics=dict(LIVE, src_connected=0.0, src_bitrate=None)),
+    "on-air-no-source": dict(**ON, metrics=dict(LIVE, src_connected=0.0, src_bitrate=None), health="DISCONNECTED"),
     "on-air-playing": dict(**ON, metrics=LIVE, playing=True),
     "degraded": dict(**ON, metrics=dict(LIVE, src_not_recovered=12.0), playing=True),
     "partly-on": dict(flow="ACTIVE"),
     "probe-error": dict(fail=("describe_flow", "describe_channel")),
     "source-running": dict(**ON, metrics=LIVE, playing=True, source="running"),
+    # The live run of 2026-09-27: the source has just stopped, MediaConnect has said so, CloudWatch has not yet.
+    "source-dropped": dict(**ON, metrics=LIVE, playing=True, health="DISCONNECTED"),
 }
 
 
-def recent_events() -> list[tuple[int, str]]:
+def recent_events(health: str = "CONNECTED") -> list[tuple[int, str]]:
     """Three events a person would see around going live, the last one a second ago."""
     now = int(time.time() * 1000)
 
@@ -69,7 +71,7 @@ def recent_events() -> list[tuple[int, str]]:
                            {"previousStatus": "STANDBY", "currentStatus": "ACTIVE"}, FLOW_ARN)),
         (now - 2000, event("aws.medialive", "MediaLive Channel State Change", {"state": "RUNNING"}, CHANNEL_ARN)),
         (now - 1000, event("aws.mediaconnect", "MediaConnect Source Health", {"unhealthy": True, "current": {
-            "state": "CONNECTED", "tr101": {"ts_sync_loss": False, "continuity_count_error": True}}}, FLOW_ARN)),
+            "state": health, "tr101": {"ts_sync_loss": False, "continuity_count_error": True}}}, FLOW_ARN)),
     ]
 
 
@@ -125,6 +127,7 @@ def build(name: str) -> Scenario:
     job = spec.pop("job", None)
     playing = spec.pop("playing", False)
     source = spec.pop("source", None)
+    health = spec.pop("health", "CONNECTED")
     clients = stub_aws(**spec)
     commands: list = []
 
@@ -135,11 +138,12 @@ def build(name: str) -> Scenario:
         commands.append(list(args))
         return lambda log: log("$ " + " ".join(args))
 
-    console = Console(**clients, jobs=JobRunner(), runner=runner, command=command, logs=logs_client(recent_events()))
+    console = Console(**clients, jobs=JobRunner(), runner=runner, command=command,
+                      logs=logs_client(recent_events(health)))
     if source == "running":
         console.source = FakeSource()
     console.pipeline = Pipeline(**clients, fetch=growing_playlist() if playing else no_playlist,
-                                source_status=console.source.status)
+                                source_status=console.source.status, logs=console.logs)
     scenario = Scenario(console=console, commands=commands)
     if job:
         console.jobs.submit(job, lambda log: (log(f"{job} in progress…"), scenario.release.wait(120)))

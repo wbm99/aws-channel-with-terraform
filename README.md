@@ -89,8 +89,9 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
 - **Pipeline:** one node per resource, left to right: SRT Input Source → MediaConnect Flow → MediaLive Input →
   MediaLive Channel → MediaPackage Channel → CloudFront CDN → Player. Each shows its AWS state, a health colour and a
   key figure. The Player node fetches the playlist through CloudFront and checks that its media sequence advances, the
-  only end-to-end proof that viewers get video. Clicking a node opens its details in a drawer, with a link to the AWS
-  console.
+  only end-to-end proof that viewers get video. Whether the SRT source is connected comes from MediaConnect's Source
+  Health events, which arrive within about a second; the `SourceConnected` metric is one to three minutes behind and
+  is only the fallback. Clicking a node opens its details in a drawer, with a link to the AWS console.
 
 **Control** is for setting up and tearing down:
 
@@ -145,8 +146,9 @@ the new outputs exist), open `just ui` and check:
 
 1. Every node shows a state; none says "not in the Terraform outputs yet".
 2. **Go live**: the verdict goes *Going live…* then *On air · no source*; the cost shows about $1.49 / h.
-3. **Send test source**: within about two minutes the SRT node reads *connected*, the verdict *On air · playing*,
-   and the player shows the burned-in clock.
+3. **Send test source**: within seconds the SRT node reads *connected* (its details say *state from MediaConnect
+   event*), the verdict *On air · playing* follows once segments reach CloudFront, and the player shows the
+   burned-in clock. Stop the source and the node turns *not connected* within seconds as well.
 4. The **MediaLive** tab shows channel state events (proves the EventBridge rule and the log resource policy) and
    encoder log lines (the `ElementalMediaLive` streams are named after the channel ARN with `_` for `:`, confirmed
    in the first live run).
@@ -213,6 +215,9 @@ channel. When nothing is running, cost is close to zero. Details, assumptions an
   (ACTIVE → UPDATING → ACTIVE). My stop logic checked during that window, saw UPDATING, never sent `stop_flow`, and
   waited ten minutes for STANDBY while the flow kept billing. `livectl` now waits for each resource to settle before
   deciding what to do, and logs every state it passes through.
+- **Metrics are for trends, events are for state.** The console first read "is the source connected?" from the
+  `SourceConnected` metric, so a stopped source still showed as connected minutes later. MediaConnect's Source Health
+  event had said so within a second.
 - **IAM is eventually consistent, so dependencies must say so.** A rehearsal from scratch failed with a 403 because the MediaLive input was created before its role's policy existed. The role's `role_arn` output now depends on the policy. Earlier runs had only been lucky.
 
 ## Known limitations
