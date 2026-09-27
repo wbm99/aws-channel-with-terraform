@@ -98,13 +98,13 @@ A button is rendered only when the action rules allow it. The server enforces th
 
 | Action | Allowed when | Otherwise |
 |---|---|---|
-| Deploy stack | No job running | 409 "*job* is still running" |
-| Tear down stack | No job running, test source stopped, and neither flow ACTIVE nor channel RUNNING is known (a failed probe does not block teardown) | 409 "go off air first" |
+| Deploy stack | No job running, and not on air (Terraform cannot update a running MediaLive channel) | 409 "go off air first" |
+| Tear down stack | No job running, test source stopped, and neither flow ACTIVE nor channel RUNNING is known. Allowed even when outputs are missing, because a failed apply can leave billable resources without complete outputs; a failed probe does not block it either | 409 "go off air first" |
 | Scan for leftovers | No job running | 409 |
-| Go live | Deployed, no job running | 400 not deployed / 409 busy; idempotent as today |
-| Go off air | Deployed, no job running | idempotent |
+| Go live | Deployed, no job running, not already fully on air (flow ACTIVE and channel RUNNING) | 400 not deployed / 409 busy or "already on air" |
+| Go off air | Deployed, no job running, not already fully off air (flow STANDBY and channel IDLE) | 400 / 409 "already off air" |
 | Send test source | Flow ACTIVE, source stopped | 409 "the flow is not active" |
-| Stop test source | Always | no-op if already stopped |
+| Stop test source | Always (the button is shown only while the source runs) | no-op if already stopped |
 
 Error texts are written for the person reading the page, never passed through from the CLI layer (for example, never
 "pass --flow-arn/--channel-id").
