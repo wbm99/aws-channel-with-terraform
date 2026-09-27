@@ -106,6 +106,7 @@ def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) 
                     runner=runner,
                     flow_arn=args.flow_arn,
                     channel_id=args.channel_id,
+                    region=args.region,
                 ),
                 host=args.host,
                 port=args.port,

@@ -327,3 +327,131 @@ def test_an_unexpected_error_is_still_reported(capsys):
         server.handle_error(None, ("127.0.0.1", 51964))
 
     assert "something actually broke" in capsys.readouterr().err
+
+
+# --- control center ------------------------------------------------------------
+
+from livectl.pipeline import Pipeline
+from stubs import stub_aws
+
+
+def stub_console(runner=None, **state):
+    """A console whose pipeline reads stub clients: any chain state, no moto needed."""
+    clients = stub_aws(**state)
+    console = make_console(runner=runner or counting_runner(), command=recording_command([]))
+    console.pipeline = Pipeline(**clients, fetch=lambda url: "", source_status=lambda: None)
+    return console
+
+
+def test_pipeline_when_nothing_is_deployed_says_so_in_plain_words(aws):
+    status, payload = call(make_console(), "GET", "/api/pipeline")
+
+    assert status == 200
+    assert payload["deployed"] is False
+    assert payload["verdict"] == {"text": "Not deployed", "health": "off"}
+    assert payload["note"] is None, "the ordinary empty stack needs no error text"
+    assert payload["actions"]["deploy"] is None
+    assert "Deploy stack" in payload["actions"]["go-live"]
+
+
+def test_pipeline_reports_seven_nodes_a_verdict_and_endpoints(aws):
+    status, payload = call(stub_console(), "GET", "/api/pipeline")
+
+    assert status == 200 and payload["deployed"] is True
+    assert len(payload["nodes"]) == 7
+    assert payload["verdict"]["text"] == "Off air"
+    assert payload["rate"] == 0.0
+    assert payload["endpoints"]["ingest"] == "srt://203.0.113.20:5000"
+    assert payload["endpoints"]["player"] == "https://example.cloudfront.net/"
+
+
+def test_pipeline_on_air_refuses_teardown_with_a_readable_reason(aws):
+    _, payload = call(stub_console(flow="ACTIVE", channel="RUNNING"), "GET", "/api/pipeline")
+
+    assert payload["actions"]["go-off-air"] is None
+    assert payload["actions"]["teardown"].startswith("Go off air first")
+    assert "source-start" not in payload["actions"], "no route for it until plan 7"
+
+
+def test_teardown_is_refused_on_air_and_terraform_never_runs(aws):
+    calls = []
+    console = stub_console(flow="ACTIVE", channel="RUNNING")
+    console.command = recording_command(calls)
+
+    status, payload = call(console, "POST", "/api/teardown", body={"confirm": "destroy"})
+
+    assert status == 409 and payload["error"].startswith("Go off air first")
+    assert calls == []
+
+
+def test_teardown_still_needs_the_typed_confirmation(aws):
+    calls = []
+    console = stub_console()
+    console.command = recording_command(calls)
+
+    status, _ = call(console, "POST", "/api/teardown", body={"confirm": "yes"})
+
+    assert status == 400 and calls == []
+
+
+def test_teardown_runs_terraform_destroy_off_air(aws):
+    calls = []
+    console = stub_console()
+    console.command = recording_command(calls)
+
+    status, payload = call(console, "POST", "/api/teardown", body={"confirm": "destroy"})
+    console.jobs.wait(5)
+
+    assert (status, payload) == (202, {"started": "teardown"})
+    assert calls == [["terraform", "-chdir=envs/demo", "destroy", "-auto-approve", "-input=false"]]
+
+
+def test_deploy_runs_terraform_apply(aws):
+    calls = []
+    console = make_console(command=recording_command(calls))
+
+    status, _ = call(console, "POST", "/api/deploy")
+    console.jobs.wait(5)
+
+    assert status == 202
+    assert calls == [["terraform", "-chdir=envs/demo", "apply", "-auto-approve", "-input=false"]]
+
+
+def test_go_live_and_go_off_air_drive_the_real_workflow(aws):
+    console = deployed_console()
+
+    assert call(console, "POST", "/api/go-live")[0] == 202
+    console.jobs.wait(10)
+    assert console.jobs.summary()["state"] == SUCCEEDED
+
+    assert call(console, "POST", "/api/go-off-air")[0] == 202
+    console.jobs.wait(10)
+    assert console.jobs.summary()["state"] == SUCCEEDED
+
+
+def test_go_live_without_a_stack_speaks_to_the_person_not_the_cli(aws):
+    status, payload = call(make_console(), "POST", "/api/go-live")
+
+    assert status == 400
+    assert "--flow-arn" not in payload["error"]
+    assert "Deploy stack" in payload["error"]
+
+
+def test_scan_is_the_old_check_clean(aws):
+    console = make_console()
+
+    assert call(console, "POST", "/api/scan")[0] == 202
+    console.jobs.wait(10)
+    assert console.jobs.summary()["lines"] == ["clean: nothing left"]
+
+
+def test_a_finished_job_clears_the_cached_pipeline(aws):
+    console = stub_console()
+    call(console, "GET", "/api/pipeline")
+    cleared = []
+    console.pipeline.forget = lambda: cleared.append(True)
+
+    call(console, "POST", "/api/scan")
+    console.jobs.wait(10)
+
+    assert cleared == [True]

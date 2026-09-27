@@ -13,18 +13,21 @@ from __future__ import annotations
 import json
 import sys
 import webbrowser
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 from urllib.parse import parse_qs, urlparse
 
+from livectl.actions import Situation, refusals
 from livectl.clean import find_leftovers
 from livectl.control import start as start_workflow
 from livectl.control import stop as stop_workflow
-from livectl.jobs import JobBusy, JobRunner, Work, command_job
+from livectl.jobs import RUNNING, JobBusy, JobRunner, Work, command_job
+from livectl.pipeline import Pipeline
 from livectl.status import get_status
-from livectl.targets import Runner, TargetError, Targets, resolve_targets, run_command
+from livectl.targets import NotDeployed, Runner, TargetError, Targets, resolve_targets, run_command
+from livectl.verdict import hourly_rate, verdict
 
 SITE = Path(__file__).parent / "site"
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
@@ -54,7 +57,16 @@ class Console:
     command: Callable[[Sequence[str]], Work] = command_job
     flow_arn: Optional[str] = None
     channel_id: Optional[str] = None
+    region: str = "us-east-1"
+    pipeline: Optional[Pipeline] = None
     _targets: Optional[Targets] = None
+
+    def __post_init__(self) -> None:
+        if self.pipeline is None:
+            self.pipeline = Pipeline(
+                mediaconnect=self.mediaconnect, medialive=self.medialive, mediapackagev2=self.mediapackagev2,
+                cloudfront=self.cloudfront, cloudwatch=self.cloudwatch, region=self.region,
+            )
 
     def targets(self) -> Targets:
         """Terraform outputs, read once and cached until an apply or destroy invalidates them."""
@@ -116,16 +128,75 @@ def _check_clean_work(console: Console) -> Work:
     return work
 
 
-def _forgetting_targets(console: Console, work: Work) -> Work:
-    """Terraform changed the stack, so the cached outputs must not survive the job."""
+def _after_job(console: Console, work: Work, *, stack_changed: bool = False) -> Work:
+    """Whatever a job did, the cached state is stale once it ends; Terraform also changes the outputs."""
 
     def wrapped(log) -> None:
         try:
             work(log)
         finally:
-            console.forget_targets()
+            if stack_changed:
+                console.forget_targets()
+            console.pipeline.forget()
 
     return wrapped
+
+
+def _snapshot(console: Console, offset: int = 0) -> tuple[dict, Situation]:
+    """Everything the page shows, plus the situation the action rules judge."""
+    job = console.jobs.summary(offset)
+    running = job["name"] if job and job["state"] == RUNNING else None
+    note: Optional[str] = None
+    try:
+        targets: Optional[Targets] = console.targets()
+    except NotDeployed:
+        targets = None
+    except TargetError as error:  # terraform missing, not initialised: worth showing verbatim
+        targets, note = None, str(error)
+
+    if targets is None:
+        situation = Situation(deployed=False, job_running=running, flow_state=None, channel_state=None)
+        payload = {"deployed": False, "note": note, "verdict": asdict(verdict(None, job)), "rate": 0.0,
+                   "metrics_age": None, "nodes": [], "endpoints": {}, "job": job}
+        return payload, situation
+
+    nodes = console.pipeline.nodes(targets)
+    by_id = {node.id: node for node in nodes}
+    situation = Situation(deployed=True, job_running=running, flow_state=by_id["mediaconnect_flow"].state,
+                          channel_state=by_id["medialive_channel"].state)
+    payload = {
+        "deployed": True,
+        "note": None,
+        "verdict": asdict(verdict(by_id, job)),
+        "rate": hourly_rate(by_id),
+        "metrics_age": console.pipeline.metrics_age(),
+        "nodes": [node.to_dict() for node in nodes],
+        "endpoints": {
+            "ingest": f"srt://{targets.ingest_ip}:{targets.ingest_port}" if targets.ingest_ip else None,
+            "player": targets.player_url,
+            "manifest": targets.manifest_url,
+            "passphrase_secret_arn": targets.passphrase_secret_arn,
+        },
+        "job": job,
+    }
+    return payload, situation
+
+
+# Actions the server has routes for. Plan 7 adds the test source; until then the page must not offer it.
+ROUTED_ACTIONS = ("deploy", "teardown", "scan", "go-live", "go-off-air")
+
+
+def _pipeline_payload(console: Console, offset: int = 0) -> dict:
+    payload, situation = _snapshot(console, offset)
+    payload["actions"] = {name: (r.message if r else None)
+                          for name, r in refusals(situation).items() if name in ROUTED_ACTIONS}
+    return payload
+
+
+def _refused(console: Console, action: str) -> Optional[Response]:
+    _, situation = _snapshot(console)
+    refusal = refusals(situation)[action]
+    return _json(refusal.status, {"error": refusal.message}) if refusal else None
 
 
 def _submit(console: Console, name: str, work: Work) -> Response:
@@ -143,6 +214,9 @@ def route(method: str, path: str, query: dict, body: dict, console: Console) -> 
             return _static("index.html")
         if path.startswith("/fonts/"):
             return _static(path.lstrip("/"))
+        if path == "/api/pipeline":
+            offset = int(query.get("offset", ["0"])[0] or 0)
+            return _json(200, _pipeline_payload(console, offset))
         if path == "/api/status":
             offset = int(query.get("offset", ["0"])[0] or 0)
             return _json(200, _status_payload(console, offset))
@@ -150,6 +224,29 @@ def route(method: str, path: str, query: dict, body: dict, console: Console) -> 
 
     if method != "POST":
         return _json(405, {"error": f"method not allowed: {method}"})
+
+    if path == "/api/deploy":
+        return _refused(console, "deploy") or _submit(console, "deploy", _after_job(
+            console, console.command(console.terraform("apply", "-auto-approve")), stack_changed=True))
+
+    if path == "/api/teardown":
+        if body.get("confirm") != DESTROY_TOKEN:
+            return _json(400, {"error": 'Type "destroy" to confirm the teardown.'})
+        return _refused(console, "teardown") or _submit(console, "teardown", _after_job(
+            console, console.command(console.terraform("destroy", "-auto-approve")), stack_changed=True))
+
+    if path == "/api/scan":
+        return _refused(console, "scan") or _submit(console, "scan", _after_job(console, _check_clean_work(console)))
+
+    if path in ("/api/go-live", "/api/go-off-air"):
+        name = path.rsplit("/", 1)[1]
+        refused = _refused(console, name)
+        if refused:
+            return refused
+        targets = console.targets()
+        action = start_workflow if name == "go-live" else stop_workflow
+        return _submit(console, name, _after_job(
+            console, lambda log: action(console.mediaconnect, console.medialive, targets, log=log)))
 
     if path == "/api/check-clean":
         return _submit(console, "check-clean", _check_clean_work(console))
@@ -159,7 +256,7 @@ def route(method: str, path: str, query: dict, body: dict, console: Console) -> 
         if action == "destroy" and body.get("confirm") != DESTROY_TOKEN:
             return _json(400, {"error": f'destroy requires {{"confirm": "{DESTROY_TOKEN}"}}'})
         work = console.command(console.terraform(action, "-auto-approve"))
-        return _submit(console, action, _forgetting_targets(console, work))
+        return _submit(console, action, _after_job(console, work, stack_changed=True))
 
     if path in ("/api/start", "/api/stop"):
         try:
