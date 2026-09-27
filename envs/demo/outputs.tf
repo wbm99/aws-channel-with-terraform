@@ -67,3 +67,8 @@ output "cdn_manifest_url" {
   description = "HLS master manifest URL through CloudFront, as viewers fetch it."
   value       = "https://${module.delivery.distribution_domain_name}${module.package.hls_manifest_path}"
 }
+
+output "events_log_group" {
+  description = "Log group holding MediaLive and MediaConnect events, read by the console."
+  value       = module.observability.log_group_name
+}
