@@ -147,11 +147,15 @@ def channel_node(channel: dict, alerts: Optional[list], alerts_error: Optional[s
                  details=details, console_url=url)
 
 
-def package_node(targets: Targets, metrics: dict, channel_running: bool, at: str) -> NodeStatus:
+def package_node(targets: Targets, metrics: dict, channel_running: bool, at: str,
+                 source_lost: bool = False) -> NodeStatus:
     ingress = metrics.get("mp_ingress_bytes")
     mbps = None if ingress is None else ingress * 8 / 60
     # The newest IngressBytes datapoint can be minutes old; with the channel stopped nothing is arriving, whatever it says.
-    if mbps and channel_running:
+    if mbps and channel_running and source_lost:
+        # With no input, MediaLive keeps encoding its input-loss slate (black), and MediaPackage really receives it.
+        health, summary, state = WARN, f"receiving the input-loss slate · {_mbps(mbps)}", "RECEIVING"
+    elif mbps and channel_running:
         health, summary, state = OK, f"receiving · {_mbps(mbps)}", "RECEIVING"
     elif channel_running:
         health, summary, state = WARN, "no ingest from MediaLive yet", "WAITING"
@@ -185,12 +189,15 @@ def cdn_node(distribution: dict, metrics: dict, at: str) -> NodeStatus:
 
 
 def player_node(check: Optional[ManifestCheck], channel_running: bool, manifest_url: Optional[str],
-                at: str) -> NodeStatus:
+                at: str, source_lost: bool = False) -> NodeStatus:
     details = {"Manifest": manifest_url}
     if not channel_running:
         return _node("player", at, state=None, health=OFF, summary="nothing to play", details=details)
     if check is None:
         return unknown("player", at, f"cdn_manifest_url {REDEPLOY_HINT}")
+    if check.advancing and source_lost:
+        return _node("player", at, state="PLAYING", health=WARN, summary="playing the input-loss slate (no source)",
+                     details=details)
     if check.advancing:
         return _node("player", at, state="PLAYING", health=OK, summary=f"playing · segment {check.sequence}",
                      details=details)
@@ -259,6 +266,7 @@ class Pipeline:
         source = source_node(flow_status, metrics, self._source_status(), at, event)
         if metrics_error:
             source = NodeStatus(**{**source.to_dict(), "error": f"metrics: {metrics_error}"})
+        source_lost = source.health == BAD  # known to be disconnected, not merely unknown
         nodes = [source, flow_node(flow, self._region, at) if flow else unknown("mediaconnect_flow", at, flow_error)]
 
         if targets.input_id:
@@ -288,7 +296,7 @@ class Pipeline:
                                                          ChannelName=targets.mediapackage_channel,
                                                          OriginEndpointName=targets.mediapackage_endpoint)))
             nodes.append(unknown("mediapackage_channel", at, error) if error
-                         else package_node(targets, metrics, channel_running, at))
+                         else package_node(targets, metrics, channel_running, at, source_lost))
         else:
             nodes.append(unknown("mediapackage_channel", at, f"MediaPackage names {REDEPLOY_HINT}"))
 
@@ -302,5 +310,5 @@ class Pipeline:
         check = None
         if channel_running and targets.manifest_url:
             check, _ = self._read("manifest", MANIFEST_TTL, lambda: self._watcher.check(targets.manifest_url))
-        nodes.append(player_node(check, channel_running, targets.manifest_url, at))
+        nodes.append(player_node(check, channel_running, targets.manifest_url, at, source_lost))
         return nodes

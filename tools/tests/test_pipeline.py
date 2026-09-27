@@ -236,3 +236,18 @@ def test_while_aws_is_unreachable_the_last_state_is_kept_and_the_problem_is_name
     assert nodes["mediaconnect_flow"].state == "ACTIVE", "the last known state, not a screen of unknowns"
     note = pipeline.unreachable()
     assert "Could not connect" in note and "70 s ago" in note
+
+
+def test_without_a_source_mediapackage_and_the_player_say_they_carry_the_slate():
+    """Live: 10.1 Mbps into MediaPackage with no input. True, but it is MediaLive's input-loss slate, not a picture."""
+    clock = Clock()
+    metrics = dict(LIVE_METRICS, src_connected=0.0)
+    pipeline = make(stub_aws(flow="ACTIVE", channel="RUNNING", metrics=metrics), clock=clock)
+    pipeline.nodes(TARGETS)
+    clock.now += 5
+
+    nodes = by_id(pipeline.nodes(TARGETS))
+
+    assert (nodes["mediapackage_channel"].health, nodes["mediapackage_channel"].summary) == (
+        WARN, "receiving the input-loss slate · 9.9 Mbps")
+    assert (nodes["player"].health, nodes["player"].summary) == (WARN, "playing the input-loss slate (no source)")
