@@ -24,3 +24,18 @@ output "cdn_identifier" {
   value       = random_uuid.cdn_identifier.result
   sensitive   = true
 }
+
+output "channel_group_name" {
+  description = "Name of the MediaPackage v2 channel group."
+  value       = awscc_mediapackagev2_channel_group.this.channel_group_name
+}
+
+output "channel_name" {
+  description = "Name of the MediaPackage v2 channel."
+  value       = awscc_mediapackagev2_channel.this.channel_name
+}
+
+output "origin_endpoint_name" {
+  description = "Name of the HLS origin endpoint."
+  value       = awscc_mediapackagev2_origin_endpoint.hls.origin_endpoint_name
+}
