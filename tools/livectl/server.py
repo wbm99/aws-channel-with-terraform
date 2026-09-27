@@ -25,7 +25,9 @@ from livectl.clean import find_informational, find_leftovers
 from livectl.control import start as start_workflow
 from livectl.control import stop as stop_workflow
 from livectl.jobs import RUNNING, JobBusy, JobRunner, Work, command_job
-from livectl.pipeline import Pipeline
+from livectl.logs import LOG_TABS, LOOKBACK_MS, LogLine, LogReader, clock_label, event_lines, medialive_lines
+from livectl.pipeline import REDEPLOY_HINT, Pipeline
+from livectl.source import SourceBusy, SourceProcess, now_ms
 from livectl.targets import NotDeployed, Runner, TargetError, Targets, resolve_targets, run_command
 from livectl.verdict import hourly_rate, verdict
 
@@ -48,6 +50,10 @@ class ConsoleError(RuntimeError):
     """Raised when the console cannot be served."""
 
 
+def _no_passphrase(arn: str) -> str:
+    raise RuntimeError("no Secrets Manager client configured")
+
+
 @dataclass
 class Console:
     """Everything a request needs. Clients and launchers are injected, as everywhere in livectl."""
@@ -66,6 +72,9 @@ class Console:
     channel_id: Optional[str] = None
     region: str = "us-east-1"
     logs: Any = None
+    source: SourceProcess = field(default_factory=SourceProcess)
+    read_passphrase: Callable[[str], str] = _no_passphrase
+    clock_ms: Callable[[], int] = now_ms
     pipeline: Optional[Pipeline] = None
     _targets: Optional[Targets] = None
 
@@ -74,6 +83,7 @@ class Console:
             self.pipeline = Pipeline(
                 mediaconnect=self.mediaconnect, medialive=self.medialive, mediapackagev2=self.mediapackagev2,
                 cloudfront=self.cloudfront, cloudwatch=self.cloudwatch, region=self.region,
+                source_status=self.source.status,
             )
 
     def targets(self) -> Targets:
@@ -145,15 +155,17 @@ def _snapshot(console: Console, offset: int = 0) -> tuple[dict, Situation]:
         targets, note = None, str(error)
 
     if targets is None:
-        situation = Situation(deployed=False, job_running=running, flow_state=None, channel_state=None)
+        situation = Situation(deployed=False, job_running=running, flow_state=None, channel_state=None,
+                              source_running=console.source.running)
         payload = {"deployed": False, "note": note, "verdict": asdict(verdict(None, job)), "rate": 0.0,
-                   "metrics_age": None, "nodes": [], "endpoints": {}, "job": job}
+                   "metrics_age": None, "nodes": [], "endpoints": {}, "job": job,
+                   "source": console.source.status()}
         return payload, situation
 
     nodes = console.pipeline.nodes(targets)
     by_id = {node.id: node for node in nodes}
     situation = Situation(deployed=True, job_running=running, flow_state=by_id["mediaconnect_flow"].state,
-                          channel_state=by_id["medialive_channel"].state)
+                          channel_state=by_id["medialive_channel"].state, source_running=console.source.running)
     payload = {
         "deployed": True,
         "note": None,
@@ -168,12 +180,13 @@ def _snapshot(console: Console, offset: int = 0) -> tuple[dict, Situation]:
             "passphrase_secret_arn": targets.passphrase_secret_arn,
         },
         "job": job,
+        "source": console.source.status(),
     }
     return payload, situation
 
 
-# Actions the server has routes for. Plan 7 adds the test source; until then the page must not offer it.
-ROUTED_ACTIONS = ("deploy", "teardown", "scan", "go-live", "go-off-air")
+# Actions the server has routes for; the page is only offered these.
+ROUTED_ACTIONS = ("deploy", "teardown", "scan", "go-live", "go-off-air", "source-start", "source-stop")
 
 
 def _pipeline_payload(console: Console, offset: int = 0) -> dict:
@@ -181,6 +194,37 @@ def _pipeline_payload(console: Console, offset: int = 0) -> dict:
     payload["actions"] = {name: (r.message if r else None)
                           for name, r in refusals(situation).items() if name in ROUTED_ACTIONS}
     return payload
+
+
+def _logs_payload(console: Console, tab: str, after: int) -> dict:
+    lines: list[LogLine] = []
+    notes: list[str] = []
+    if tab == "srt":
+        lines += [LogLine(at, "srt", f"{clock_label(at)} ffmpeg · {text}") for at, text in console.source.lines(after)]
+    try:
+        targets: Optional[Targets] = console.targets()
+    except TargetError:
+        notes.append("Nothing is deployed, so there are no AWS logs to read.")
+        targets = None
+    if targets is not None and console.logs is not None:
+        reader = LogReader(console.logs)
+        if targets.events_log_group:
+            try:
+                lines += event_lines(reader, targets, tab, after)
+            except Exception as error:
+                notes.append(f"Could not read the event log ({type(error).__name__}).")
+        else:
+            notes.append(f"events_log_group {REDEPLOY_HINT}")
+        if tab == "medialive" and targets.channel_arn:
+            try:
+                lines += medialive_lines(reader, targets.channel_arn, after)
+            except Exception as error:
+                missing = "ResourceNotFound" in type(error).__name__ + str(error)
+                notes.append("MediaLive has not written channel logs yet." if missing
+                             else f"Could not read MediaLive logs ({type(error).__name__}).")
+    lines.sort(key=lambda line: line.at_ms)
+    return {"lines": [line.to_dict() for line in lines],
+            "after": max([after] + [line.at_ms for line in lines]), "notes": notes}
 
 
 def _refused(console: Console, action: str) -> Optional[Response]:
@@ -206,6 +250,12 @@ def route(method: str, path: str, query: dict, body: dict, console: Console) -> 
             return _static(path.lstrip("/"))
         if path.startswith("/fonts/"):
             return _static(path.lstrip("/"))
+        if path == "/api/logs":
+            tab = query.get("tab", ["all"])[0]
+            if tab not in LOG_TABS:
+                return _json(400, {"error": f"unknown log tab: {tab}"})
+            after = int(query.get("after", ["0"])[0] or 0) or console.clock_ms() - LOOKBACK_MS
+            return _json(200, _logs_payload(console, tab, after))
         if path == "/api/pipeline":
             offset = int(query.get("offset", ["0"])[0] or 0)
             return _json(200, _pipeline_payload(console, offset))
@@ -233,9 +283,42 @@ def route(method: str, path: str, query: dict, body: dict, console: Console) -> 
         if refused:
             return refused
         targets = console.targets()
-        action = start_workflow if name == "go-live" else stop_workflow
-        return _submit(console, name, _after_job(
-            console, lambda log: action(console.mediaconnect, console.medialive, targets, log=log)))
+
+        def go_live(log) -> None:
+            start_workflow(console.mediaconnect, console.medialive, targets, log=log)
+
+        def off_air(log) -> None:
+            if console.source.running:
+                console.source.stop()
+                log("test source stopped")
+            stop_workflow(console.mediaconnect, console.medialive, targets, log=log)
+
+        return _submit(console, name, _after_job(console, go_live if name == "go-live" else off_air))
+
+    if path == "/api/source/start":
+        refused = _refused(console, "source-start")
+        if refused:
+            return refused
+        targets = console.targets()
+        if not (targets.ingest_ip and targets.passphrase_secret_arn):
+            return _json(409, {"error": "The ingest address or the passphrase is missing from the Terraform "
+                                        "outputs. Run Deploy stack once to add them."})
+        try:
+            passphrase = console.read_passphrase(targets.passphrase_secret_arn)
+        except Exception as error:  # never echo the error body: keep secrets out of responses on principle
+            return _json(502, {"error": "Could not read the SRT passphrase from Secrets Manager "
+                                        f"({type(error).__name__})."})
+        try:
+            console.source.start(host=targets.ingest_ip, port=int(targets.ingest_port or 5000), passphrase=passphrase)
+        except SourceBusy:
+            return _json(409, {"error": "The test source is already running."})
+        console.pipeline.forget()
+        return _json(202, {"started": "source"})
+
+    if path == "/api/source/stop":
+        console.source.stop()
+        console.pipeline.forget()
+        return _json(200, {"stopped": "source"})
 
     return _json(404, {"error": f"not found: {path}"})
 
@@ -306,3 +389,5 @@ def serve(console: Console, *, host: str = "127.0.0.1", port: int = 8765, open_b
             httpd.serve_forever()
         except KeyboardInterrupt:
             print("\nstopped")
+        finally:
+            console.source.stop()  # never leave FFmpeg pushing into a flow nobody is watching

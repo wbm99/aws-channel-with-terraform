@@ -267,7 +267,7 @@ def test_pipeline_on_air_refuses_teardown_with_a_readable_reason(aws):
 
     assert payload["actions"]["go-off-air"] is None
     assert payload["actions"]["teardown"].startswith("Go off air first")
-    assert "source-start" not in payload["actions"], "no route for it until plan 7"
+    assert payload["actions"]["source-start"] is None, "on air, the test source can be sent"
 
 
 def test_teardown_is_refused_on_air_and_terraform_never_runs(aws):
@@ -372,3 +372,93 @@ def test_make_server_refuses_a_network_interface(aws):
 
     with pytest.raises(ConsoleError):
         make_server(make_console(), host="0.0.0.0", port=0)
+
+
+# --- logs and the test source --------------------------------------------------
+
+from livectl.source import SourceProcess
+from test_source import SECRET, FakeProcess, launcher
+
+
+def source_console(flow="ACTIVE", channel="RUNNING", process=None, passphrase=SECRET):
+    console = stub_console(flow=flow, channel=channel)
+    console.source = SourceProcess(popen=launcher(process or FakeProcess(["frame= 1"])), script="send-srt.sh")
+    console.read_passphrase = lambda arn: passphrase
+    console.forget_targets()
+    return console
+
+
+def test_source_start_is_refused_while_the_flow_is_off(aws):
+    status, payload = call(source_console(flow="STANDBY", channel="IDLE"), "POST", "/api/source/start")
+
+    assert status == 409 and "go live first" in payload["error"]
+
+
+def test_source_start_reads_the_passphrase_and_never_returns_it(aws):
+    console = source_console()
+    console.runner = lambda args: json.dumps(dict(OUTPUTS, passphrase_secret_arn={"value": "arn:secret"}))
+    console.forget_targets()
+
+    status, payload = call(console, "POST", "/api/source/start")
+    _, pipeline = call(console, "GET", "/api/pipeline")
+
+    assert status == 202
+    assert SECRET not in json.dumps(payload) + json.dumps(pipeline)
+    assert pipeline["source"]["state"] in ("starting", "running")
+    console.source.stop()
+
+
+def test_a_passphrase_that_cannot_be_read_is_a_readable_error(aws):
+    console = source_console()
+    console.runner = lambda args: json.dumps(dict(OUTPUTS, passphrase_secret_arn={"value": "arn:secret"}))
+    console.forget_targets()
+
+    def denied(arn):
+        raise RuntimeError("AccessDeniedException")
+
+    console.read_passphrase = denied
+    status, payload = call(console, "POST", "/api/source/start")
+
+    assert status == 502 and "Secrets Manager" in payload["error"]
+
+
+def test_go_off_air_stops_the_source_first(aws):
+    process = FakeProcess(["frame= 1"])
+    console = deployed_console()
+    console.source = SourceProcess(popen=launcher(process), script="send-srt.sh")
+    console.source.start(host="h", port=5000, passphrase=SECRET)
+    call(console, "POST", "/api/go-live")
+    console.jobs.wait(10)
+
+    call(console, "POST", "/api/go-off-air")
+    console.jobs.wait(10)
+
+    assert process.signals == ["TERM"]
+    assert "test source stopped" in console.jobs.summary()["lines"][0]
+
+
+def test_logs_without_a_stack_say_so(aws):
+    status, payload = call(make_console(), "GET", "/api/logs", query={"tab": ["all"]})
+
+    assert status == 200 and payload["lines"] == []
+    assert "Nothing is deployed" in payload["notes"][0]
+
+
+def test_an_unknown_tab_is_a_400(aws):
+    assert call(make_console(), "GET", "/api/logs", query={"tab": ["nope"]})[0] == 400
+
+
+def test_the_srt_tab_includes_the_redacted_ffmpeg_output(aws):
+    from test_source import BANNER, settle
+
+    process = FakeProcess([BANNER, "frame= 1"])
+    console = source_console(process=process)
+    console.source.start(host="h", port=5000, passphrase=SECRET)
+    settle(console.source, "running")
+
+    _, payload = call(console, "GET", "/api/logs", query={"tab": ["srt"], "after": ["1"]})
+
+    texts = [line["text"] for line in payload["lines"]]
+    assert any("passphrase=***" in t for t in texts)
+    assert SECRET not in json.dumps(payload)
+    process.finish()

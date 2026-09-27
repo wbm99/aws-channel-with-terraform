@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import sys
 from typing import Optional, Sequence
 
@@ -97,24 +98,25 @@ def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) 
 
         if args.command == "ui":
             # Targets are resolved lazily, so the console still starts with nothing deployed.
-            serve(
-                Console(
-                    mediaconnect=session.client("mediaconnect"),
-                    medialive=session.client("medialive"),
-                    cloudwatch=session.client("cloudwatch"),
-                    mediapackagev2=session.client("mediapackagev2"),
-                    cloudfront=session.client("cloudfront"),
-                    tf_dir=args.tf_dir,
-                    prefix=args.prefix,
-                    runner=runner,
-                    flow_arn=args.flow_arn,
-                    channel_id=args.channel_id,
-                    region=args.region,
-                ),
-                host=args.host,
-                port=args.port,
-                open_browser=not args.no_browser,
+            console = Console(
+                mediaconnect=session.client("mediaconnect"),
+                medialive=session.client("medialive"),
+                cloudwatch=session.client("cloudwatch"),
+                mediapackagev2=session.client("mediapackagev2"),
+                cloudfront=session.client("cloudfront"),
+                tf_dir=args.tf_dir,
+                prefix=args.prefix,
+                runner=runner,
+                flow_arn=args.flow_arn,
+                channel_id=args.channel_id,
+                region=args.region,
+                logs=session.client("logs"),
+                # Read only when "Send test source" is clicked, and handed straight to the child's environment.
+                read_passphrase=lambda arn: session.client("secretsmanager").get_secret_value(
+                    SecretId=arn)["SecretString"],
             )
+            atexit.register(console.source.stop)
+            serve(console, host=args.host, port=args.port, open_browser=not args.no_browser)
             return 0
 
         targets = resolve_targets(args.flow_arn, args.channel_id, args.tf_dir, runner)
