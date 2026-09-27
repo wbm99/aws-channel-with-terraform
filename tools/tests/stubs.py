@@ -87,3 +87,17 @@ def stub_aws(
         ),
         "cloudwatch": StubClient(get_metric_data=maybe("get_metric_data", metric_response(metrics or {}))),
     }
+
+
+def logs_client(events: list[tuple[int, str]]) -> StubClient:
+    """A CloudWatch Logs stub serving (timestamp, message) events from the events group.
+
+    The ElementalMediaLive group does not exist, as on an account whose channel has never run.
+    """
+
+    def filter_log_events(logGroupName, startTime, **_):
+        if logGroupName == "ElementalMediaLive":
+            raise RuntimeError("ResourceNotFoundException: The specified log group does not exist.")
+        return {"events": [{"timestamp": t, "logStreamName": "s", "message": m} for t, m in events if t >= startTime]}
+
+    return StubClient(filter_log_events=filter_log_events)

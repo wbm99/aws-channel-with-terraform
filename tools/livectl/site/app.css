@@ -160,3 +160,10 @@ button.act.danger:hover:not(:disabled) { background: #fef4f2; }
   .stage { grid-template-columns: minmax(0, 1fr); }
   .panel { position: static; max-height: 60vh; }
 }
+
+.log .line { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: pre-wrap; }
+.log .has-raw { cursor: pointer; }
+.log .has-raw:hover { color: var(--text); }
+.log .raw { margin: 6px 0 8px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; font-size: 11px; color: var(--text-2); white-space: pre-wrap; }
+.log .note { margin: 0 0 8px; font-family: Inter, sans-serif; }

@@ -4,7 +4,7 @@ import { renderChain } from './chain.js';
 import { renderControls } from './controls.js';
 import { renderEndpoints } from './endpoints.js';
 import { ago } from './format.js';
-import { LogsPanel } from './logs-panel.js';
+import { LogsPanel, TAB_FOR_NODE } from './logs-panel.js';
 import { renderDetail } from './node-detail.js';
 
 const POLL_MS = 2000;
@@ -60,7 +60,7 @@ function render() {
   // checked_at moves every second; leaving it out keeps the chain from re-rendering (and losing focus) on each poll.
   const stable = data.nodes.map(({ checked_at, ...rest }) => rest);
   if (changed('nodes', [stable, selected])) {
-    renderChain($('chain'), data.nodes, selected, (id) => { selected = id; render(); });
+    renderChain($('chain'), data.nodes, selected, (id) => { selected = id; logs.select(TAB_FOR_NODE[id] || 'all'); render(); });
     renderDetail($('detail'), data.nodes.find((n) => n.id === selected), data.metrics_age);
   }
   renderPlayer();
@@ -98,6 +98,9 @@ async function act(name, body) {
     return;
   }
   banner('');
+  // Show the output of what was just started: the job log, or the source's own tab.
+  if (name === 'source-start' || name === 'source-stop') logs.select('srt');
+  else logs.select('jobs');
   delete seen.actions;
   poll();
 }

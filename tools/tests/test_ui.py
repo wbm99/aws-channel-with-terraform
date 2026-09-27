@@ -24,6 +24,7 @@ EXPECTED = {
     "degraded": ("On air · source degraded", ["scan", "go-off-air", "source-start"]),
     "partly-on": ("Partly on", ["scan", "go-live", "go-off-air", "source-start"]),
     "probe-error": ("Unknown", ["deploy", "teardown", "scan", "go-live", "go-off-air"]),
+    "source-running": ("On air · playing", ["scan", "go-off-air", "source-stop"]),
 }
 
 
@@ -142,6 +143,7 @@ def test_teardown_needs_the_typed_word_then_runs_terraform(open_scenario):
     page.locator('#controls button[data-action="teardown"]').click()
     page.locator("#confirm-input").fill("destroy")
     page.locator("#confirm-go").click()
+    page.locator('[data-tab="jobs"]').click()
 
     expect(page.locator("#log")).to_contain_text("terraform -chdir=envs/demo destroy")
     assert scenario.commands[0][2] == "destroy"
@@ -179,3 +181,47 @@ def test_a_poll_does_not_take_focus_off_the_selected_node(open_scenario):
     page.wait_for_timeout(4500)
 
     assert page.evaluate("document.activeElement.dataset.node") == "cloudfront_cdn"
+
+
+def test_the_mediaconnect_tab_reads_events_as_sentences(open_scenario):
+    page, _ = open_scenario("off-air")
+
+    page.locator('[data-tab="mediaconnect"]').click()
+
+    expect(page.locator("#log")).to_contain_text("MediaConnect · flow STANDBY → ACTIVE")
+
+
+def test_the_srt_tab_shows_tr_101_290_flags_and_never_the_passphrase(open_scenario):
+    page, _ = open_scenario("source-running")
+
+    page.locator('[data-tab="srt"]').click()
+
+    expect(page.locator("#log")).to_contain_text("TR 101 290: continuity_count_error")
+    expect(page.locator("#log")).to_contain_text("passphrase=***")
+
+
+def test_selecting_a_node_opens_its_log_tab(open_scenario):
+    page, _ = open_scenario("off-air")
+
+    page.locator('#chain button[data-node="medialive_channel"]').click()
+
+    expect(page.locator('[data-tab="medialive"]')).to_have_attribute("aria-selected", "true")
+    expect(page.locator("#log")).to_contain_text("MediaLive · channel RUNNING")
+    expect(page.locator("#log")).to_contain_text("has not written channel logs yet")
+
+
+def test_a_raw_event_opens_on_click(open_scenario):
+    page, _ = open_scenario("off-air")
+    page.locator('[data-tab="all"]').click()
+
+    page.locator("#log .has-raw").first.click()
+
+    expect(page.locator("#log .raw").first).to_contain_text('"detail-type"')
+
+
+def test_mediapackage_says_plainly_that_it_has_no_access_logs(open_scenario):
+    page, _ = open_scenario("off-air")
+
+    page.locator('[data-tab="mediapackage"]').click()
+
+    expect(page.locator("#log")).to_contain_text("access logs are not enabled")

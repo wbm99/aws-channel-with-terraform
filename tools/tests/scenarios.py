@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,7 +18,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from livectl.jobs import JobRunner  # noqa: E402
 from livectl.pipeline import Pipeline  # noqa: E402
 from livectl.server import Console, make_server  # noqa: E402
-from stubs import CHANNEL_ID, FLOW_ARN, stub_aws  # noqa: E402
+from stubs import CHANNEL_ID, FLOW_ARN, logs_client, stub_aws  # noqa: E402
+
+CHANNEL_ARN = f"arn:aws:medialive:us-east-1:123456789012:channel:{CHANNEL_ID}"
 
 OUTPUTS = {
     "flow_arn": FLOW_ARN,
@@ -33,6 +36,8 @@ OUTPUTS = {
     "ingest_ip": "203.0.113.20",
     "ingest_port": 5000,
     "passphrase_secret_arn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:live-sports-aws-demo-srt-AbC",
+    "events_log_group": "/aws/events/live-sports-aws-demo",
+    "medialive_channel_arn": CHANNEL_ARN,
 }
 LIVE = {"src_connected": 1.0, "src_bitrate": 6_000_000.0, "src_not_recovered": 0.0, "src_cc_errors": 0.0,
         "ml_alerts": 0.0, "ml_fps": 30.0, "mp_ingress_bytes": 74_000_000.0, "cf_requests": 42.0}
@@ -48,7 +53,44 @@ SCENARIOS: dict[str, dict] = {
     "degraded": dict(**ON, metrics=dict(LIVE, src_not_recovered=12.0), playing=True),
     "partly-on": dict(flow="ACTIVE"),
     "probe-error": dict(fail=("describe_flow", "describe_channel")),
+    "source-running": dict(**ON, metrics=LIVE, playing=True, source="running"),
 }
+
+
+def recent_events() -> list[tuple[int, str]]:
+    """Three events a person would see around going live, the last one a second ago."""
+    now = int(time.time() * 1000)
+
+    def event(source, kind, detail, resource):
+        return json.dumps({"source": source, "detail-type": kind, "detail": detail, "resources": [resource]})
+
+    return [
+        (now - 3000, event("aws.mediaconnect", "MediaConnect Flow Status Change",
+                           {"previousStatus": "STANDBY", "currentStatus": "ACTIVE"}, FLOW_ARN)),
+        (now - 2000, event("aws.medialive", "MediaLive Channel State Change", {"state": "RUNNING"}, CHANNEL_ARN)),
+        (now - 1000, event("aws.mediaconnect", "MediaConnect Source Health", {"unhealthy": True, "current": {
+            "state": "CONNECTED", "tr101": {"ts_sync_loss": False, "continuity_count_error": True}}}, FLOW_ARN)),
+    ]
+
+
+class FakeSource:
+    """Stands in for SourceProcess: a test source that is already running, with its redacted banner."""
+
+    running = True
+
+    def status(self) -> dict:
+        return {"state": "running", "exit_code": None, "last_error": None, "progress": "frame= 900 fps=30"}
+
+    def lines(self, after_ms: int) -> list[tuple[int, str]]:
+        at = int(time.time() * 1000) - 5000
+        banner = "Output #0, mpegts, to 'srt://203.0.113.20:5000?mode=caller&passphrase=***&pbkeylen=32':"
+        return [(at, banner)] if at > after_ms else []
+
+    def start(self, **_) -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
 
 
 def growing_playlist():
@@ -82,6 +124,7 @@ def build(name: str) -> Scenario:
     deployed = spec.pop("deployed", True)
     job = spec.pop("job", None)
     playing = spec.pop("playing", False)
+    source = spec.pop("source", None)
     clients = stub_aws(**spec)
     commands: list = []
 
@@ -92,8 +135,11 @@ def build(name: str) -> Scenario:
         commands.append(list(args))
         return lambda log: log("$ " + " ".join(args))
 
-    console = Console(**clients, jobs=JobRunner(), runner=runner, command=command,
-                      pipeline=Pipeline(**clients, fetch=growing_playlist() if playing else no_playlist))
+    console = Console(**clients, jobs=JobRunner(), runner=runner, command=command, logs=logs_client(recent_events()))
+    if source == "running":
+        console.source = FakeSource()
+    console.pipeline = Pipeline(**clients, fetch=growing_playlist() if playing else no_playlist,
+                                source_status=console.source.status)
     scenario = Scenario(console=console, commands=commands)
     if job:
         console.jobs.submit(job, lambda log: (log(f"{job} in progress…"), scenario.release.wait(120)))
