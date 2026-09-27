@@ -28,6 +28,7 @@ export class LogsPanel {
     this.active = 'all';
     this.buffers = {};       // tab -> { after, lines: [line], keys: Set, notes: [str], busy: bool }
     this.nodes = {};         // node id -> node, for the tabs that show figures
+    this.filter = '';
     this.tabs.replaceChildren(...TABS.map(([id, label]) => el('button', {
       type: 'button', role: 'tab', 'data-tab': id, onclick: () => this.select(id),
     }, label)));
@@ -42,6 +43,11 @@ export class LogsPanel {
     }
     this.draw();
     this.refresh();
+  }
+
+  setFilter(text) {
+    this.filter = text.trim();
+    this.draw();
   }
 
   setNodes(nodes) {
@@ -97,10 +103,12 @@ export class LogsPanel {
       this.list.replaceChildren(...this.figures(tab));
     } else {
       const buffer = this.buffer(tab);
+      const needle = this.filter.toLowerCase();
+      const shown = needle ? buffer.lines.filter((line) => line.text.toLowerCase().includes(needle)) : buffer.lines;
+      const empty = buffer.lines.length ? 'No line matches "' + this.filter + '".' : 'No events in the last 30 minutes.';
       this.list.replaceChildren(
         ...buffer.notes.map((note) => el('p', { class: 'note' }, note)),
-        ...(buffer.lines.length ? buffer.lines.slice().reverse().map((line) => this.line(line))
-          : [el('p', { class: 'note' }, 'No events in the last 30 minutes.')]),
+        ...(shown.length ? shown.slice().reverse().map((line) => this.line(line)) : [el('p', { class: 'note' }, empty)]),
       );
     }
     // Newest first: stay at the top for new lines, unless the reader has scrolled down to read older ones.

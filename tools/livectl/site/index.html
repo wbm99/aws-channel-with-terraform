@@ -23,6 +23,7 @@
   <nav class="menu" aria-label="Pages">
     <a href="#control" data-page="control">Control</a>
     <a href="#live" data-page="live">Live</a>
+    <a href="#logs" data-page="logs">Logs</a>
   </nav>
 
   <div class="content">
@@ -78,11 +79,22 @@
             <div class="live-actions" id="live-actions"></div>
           </section>
         </div>
-        <section class="card panel" id="panel" aria-label="Logs">
-          <div class="tabs" role="tablist" id="tabs"></div>
-          <div class="log" id="log" tabindex="0" role="log"></div>
-        </section>
+        <div id="live-logs-slot">
+          <section class="card panel" id="panel" aria-label="Logs">
+            <div class="panel-head">
+              <div class="tabs" role="tablist" id="tabs"></div>
+              <input class="filter" id="log-filter" type="search" placeholder="Filter lines" aria-label="Filter log lines">
+              <a class="copy" id="log-expand" href="#logs">Expand</a>
+            </div>
+            <div class="log" id="log" tabindex="0" role="log"></div>
+          </section>
+        </div>
       </div>
+    </main>
+
+    <!-- Logs: the same panel, full height, for reading and filtering at leisure. -->
+    <main class="view" id="view-logs" data-view="logs" hidden>
+      <div id="logs-home"></div>
     </main>
   </div>
 </div>

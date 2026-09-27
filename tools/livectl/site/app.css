@@ -234,3 +234,10 @@ button.act.next { box-shadow: 0 0 0 3px var(--accent-tint), 0 0 0 4px #cfdcfa; a
   color: #7a4a00; font-size: 13px; font-weight: 500;
 }
 .log .line time { color: var(--muted); }
+
+.panel-head { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.panel-head .tabs { flex: 1; }
+.filter { font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface); width: 200px; }
+#log-expand { text-decoration: none; }
+.panel.full { height: calc(100vh - 250px); }

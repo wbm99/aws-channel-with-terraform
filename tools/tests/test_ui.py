@@ -482,3 +482,32 @@ def test_the_cloudfront_tab_shows_delivery_figures(open_scenario):
     expect(page.locator("#log")).to_contain_text("Requests / min")
     expect(page.locator("#log")).to_contain_text("42")
     expect(page.locator("#log")).to_contain_text("Viewer counts and edge locations need")
+
+
+
+def test_logs_expand_into_their_own_page_and_come_back(open_scenario):
+    page, _ = open_scenario("source-running", "live")
+    page.locator('[data-tab="mediaconnect"]').click()
+
+    page.locator("#log-expand").click()
+
+    expect(page.locator("#view-logs")).to_be_visible()
+    expect(page.locator("#view-logs #panel")).to_be_visible()
+    expect(page.locator('[data-tab="mediaconnect"]')).to_have_attribute("aria-selected", "true")
+    assert page.locator("#panel").bounding_box()["height"] > page.viewport_size["height"] * 0.55
+
+    page.locator("#log-expand").click()
+    expect(page.locator("#view-live #panel")).to_be_visible()
+
+
+def test_the_filter_keeps_only_matching_lines(open_scenario):
+    page, _ = open_scenario("source-running", "logs")
+    expect(page.locator("#log .line")).to_have_count(3)
+
+    page.locator("#log-filter").fill("medialive")
+
+    expect(page.locator("#log .line")).to_have_count(1)
+    expect(page.locator("#log .line")).to_contain_text("channel RUNNING")
+
+    page.locator("#log-filter").fill("nothing like this")
+    expect(page.locator("#log")).to_contain_text('No line matches "nothing like this"')

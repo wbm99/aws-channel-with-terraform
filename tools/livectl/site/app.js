@@ -11,7 +11,7 @@ import { renderDetail } from './node-detail.js';
 import { renderLiveActions, renderMaintenance, renderSteps } from './steps.js';
 
 const POLL_MS = 2000;
-const PAGES = ['control', 'live'];
+const PAGES = ['control', 'live', 'logs'];
 const $ = (id) => document.getElementById(id);
 const logs = new LogsPanel($('tabs'), $('log'));
 const jobs = new JobsCard({ title: $('job-title'), state: $('job-state'), log: $('job-log'), toggle: $('job-toggle') });
@@ -46,6 +46,12 @@ function page() {
 
 function showPage() {
   const current = page();
+  // One log panel, moved between the Live page and the full-height Logs page, so tabs and filter carry over.
+  const panel = $('panel');
+  $(current === 'logs' ? 'logs-home' : 'live-logs-slot').append(panel);
+  panel.classList.toggle('full', current === 'logs');
+  $('log-expand').textContent = current === 'logs' ? 'Back to Live' : 'Expand';
+  $('log-expand').setAttribute('href', current === 'logs' ? '#live' : '#logs');
   for (const view of document.querySelectorAll('[data-view]')) view.hidden = view.dataset.view !== current;
   for (const link of document.querySelectorAll('.menu [data-page]')) {
     if (link.dataset.page === current) link.setAttribute('aria-current', 'page');
@@ -116,7 +122,7 @@ function renderDrawer() {
 
 function select(id) {
   selected = selected === id ? null : id;
-  if (selected && page() === 'live') logs.select(TAB_FOR_NODE[selected] || 'all');
+  if (selected && page() !== 'control') logs.select(TAB_FOR_NODE[selected] || 'all');
   delete seen.nodes;
   render();
 }
@@ -211,6 +217,7 @@ $('job-pill').addEventListener('click', () => {
   $('job-card').scrollIntoView({ block: 'nearest' });
 });
 $('drawer-close').addEventListener('click', () => select(selected));
+$('log-filter').addEventListener('input', (event) => logs.setFilter(event.target.value));
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && selected) select(selected); });
 window.addEventListener('hashchange', showPage);
 setInterval(() => {
