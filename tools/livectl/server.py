@@ -11,6 +11,7 @@ network interface.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import webbrowser
 from dataclasses import asdict, dataclass, field
@@ -25,14 +26,20 @@ from livectl.control import start as start_workflow
 from livectl.control import stop as stop_workflow
 from livectl.jobs import RUNNING, JobBusy, JobRunner, Work, command_job
 from livectl.pipeline import Pipeline
-from livectl.status import get_status
 from livectl.targets import NotDeployed, Runner, TargetError, Targets, resolve_targets, run_command
 from livectl.verdict import hourly_rate, verdict
 
 SITE = Path(__file__).parent / "site"
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 DESTROY_TOKEN = "destroy"
-CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8"}
+CONTENT_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".woff2": "font/woff2",
+    ".txt": "text/plain; charset=utf-8",
+}
+SITE_FILE = re.compile(r"/[a-z][a-z-]*\.(js|css)")
 
 Response = tuple[int, str, bytes]
 
@@ -91,27 +98,6 @@ def _static(name: str) -> Response:
     if not target.is_file() or SITE.resolve() not in target.parents:
         return _json(404, {"error": f"not found: {name}"})
     return 200, CONTENT_TYPES.get(target.suffix, "application/octet-stream"), target.read_bytes()
-
-
-def _status_payload(console: Console, offset: int = 0) -> dict:
-    job = console.jobs.summary(offset)
-    try:
-        targets = console.targets()
-    except TargetError as error:
-        return {"deployed": False, "error": str(error), "job": job}
-
-    payload: dict = {
-        "deployed": True,
-        "error": None,
-        "job": job,
-        "ingest": f"srt://{targets.ingest_ip}:{targets.ingest_port}" if targets.ingest_ip else None,
-        "player": targets.player_url,
-    }
-    try:
-        payload.update(get_status(console.mediaconnect, console.medialive, console.cloudwatch, targets))
-    except Exception as error:  # missing credentials, a deleted resource: report it, do not 500
-        payload["error"] = f"{type(error).__name__}: {error}"
-    return payload
 
 
 def _check_clean_work(console: Console) -> Work:
@@ -212,14 +198,13 @@ def route(method: str, path: str, query: dict, body: dict, console: Console) -> 
     if method == "GET":
         if path in ("/", "/index.html"):
             return _static("index.html")
+        if SITE_FILE.fullmatch(path):
+            return _static(path.lstrip("/"))
         if path.startswith("/fonts/"):
             return _static(path.lstrip("/"))
         if path == "/api/pipeline":
             offset = int(query.get("offset", ["0"])[0] or 0)
             return _json(200, _pipeline_payload(console, offset))
-        if path == "/api/status":
-            offset = int(query.get("offset", ["0"])[0] or 0)
-            return _json(200, _status_payload(console, offset))
         return _json(404, {"error": f"not found: {path}"})
 
     if method != "POST":
@@ -247,29 +232,6 @@ def route(method: str, path: str, query: dict, body: dict, console: Console) -> 
         action = start_workflow if name == "go-live" else stop_workflow
         return _submit(console, name, _after_job(
             console, lambda log: action(console.mediaconnect, console.medialive, targets, log=log)))
-
-    if path == "/api/check-clean":
-        return _submit(console, "check-clean", _check_clean_work(console))
-
-    if path in ("/api/apply", "/api/destroy"):
-        action = path.rsplit("/", 1)[1]
-        if action == "destroy" and body.get("confirm") != DESTROY_TOKEN:
-            return _json(400, {"error": f'destroy requires {{"confirm": "{DESTROY_TOKEN}"}}'})
-        work = console.command(console.terraform(action, "-auto-approve"))
-        return _submit(console, action, _after_job(console, work, stack_changed=True))
-
-    if path in ("/api/start", "/api/stop"):
-        try:
-            targets = console.targets()
-        except TargetError as error:
-            return _json(400, {"error": str(error)})
-        action = start_workflow if path.endswith("start") else stop_workflow
-        name = path.rsplit("/", 1)[1]
-        return _submit(
-            console,
-            name,
-            lambda log: action(console.mediaconnect, console.medialive, targets, log=log),
-        )
 
     return _json(404, {"error": f"not found: {path}"})
 
@@ -318,19 +280,21 @@ class _Server(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def serve(console: Console, *, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
-    """Run the console until interrupted. Refuses any address that is not loopback."""
+def make_server(console: Console, *, host: str = "127.0.0.1", port: int = 8765) -> "_Server":
+    """A bound console server. Refuses any address that is not loopback."""
     if host not in LOOPBACK:
         raise ConsoleError(f"the console binds to loopback only, not {host!r} (it can destroy infrastructure)")
-
     handler = type("ConsoleHandler", (_Handler,), {"console": console})
     try:
-        server = _Server((host, port), handler)
+        return _Server((host, port), handler)
     except OSError as error:
         raise ConsoleError(f"cannot listen on {host}:{port}: {error.strerror or error}") from error
 
-    with server as httpd:
-        url = f"http://{host}:{port}/"
+
+def serve(console: Console, *, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
+    """Run the console until interrupted."""
+    with make_server(console, host=host, port=port) as httpd:
+        url = f"http://{host}:{httpd.server_address[1]}/"
         print(f"livectl console on {url}  (Ctrl-C to stop)")
         if open_browser:
             webbrowser.open(url)
