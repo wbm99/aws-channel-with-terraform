@@ -37,6 +37,8 @@ def _noop(message: str) -> None:
 
 # States a resource settles in. Anything else (STARTING, STOPPING, UPDATING, ...) is on its way somewhere, and
 # acting on it is a guess: a flow seen as UPDATING for four seconds once meant stop_flow was never sent.
+# Names as the job log shows them, so a line says which service it is about.
+FLOW, CHANNEL = "MediaConnect flow", "MediaLive channel"
 FLOW_SETTLED = {"ACTIVE", "STANDBY", "ERROR"}
 CHANNEL_SETTLED = {"RUNNING", "IDLE", "CREATE_FAILED", "UPDATE_FAILED"}
 
@@ -89,19 +91,19 @@ def start(mediaconnect, medialive, targets: Targets, *, log: Callable[[str], Non
     read_flow = lambda: flow_status(mediaconnect, targets.flow_arn)  # noqa: E731
     read_channel = lambda: channel_state(medialive, targets.channel_id)  # noqa: E731
 
-    flow = _settle(read_flow, FLOW_SETTLED, "flow", log, **wait_kwargs)
+    flow = _settle(read_flow, FLOW_SETTLED, FLOW, log, **wait_kwargs)
     if flow == "ERROR":
-        raise WaitTimeout("the flow is in ERROR; check it in the MediaConnect console before going live")
+        raise WaitTimeout(f"the {FLOW} is in ERROR; check it in the MediaConnect console before going live")
     if flow == "STANDBY":
-        log("starting the flow")
+        log(f"starting the {FLOW}")
         mediaconnect.start_flow(FlowArn=targets.flow_arn)
-    _reach(read_flow, "ACTIVE", "flow", log, **wait_kwargs)
+    _reach(read_flow, "ACTIVE", FLOW, log, **wait_kwargs)
 
-    channel = _settle(read_channel, CHANNEL_SETTLED, "channel", log, **wait_kwargs)
+    channel = _settle(read_channel, CHANNEL_SETTLED, CHANNEL, log, **wait_kwargs)
     if channel == "IDLE":
-        log("starting the channel")
+        log(f"starting the {CHANNEL}")
         medialive.start_channel(ChannelId=targets.channel_id)
-    _reach(read_channel, "RUNNING", "channel", log, **wait_kwargs)
+    _reach(read_channel, "RUNNING", CHANNEL, log, **wait_kwargs)
 
 
 def stop(mediaconnect, medialive, targets: Targets, *, log: Callable[[str], None] = _noop, **wait_kwargs) -> None:
@@ -109,14 +111,14 @@ def stop(mediaconnect, medialive, targets: Targets, *, log: Callable[[str], None
     read_flow = lambda: flow_status(mediaconnect, targets.flow_arn)  # noqa: E731
     read_channel = lambda: channel_state(medialive, targets.channel_id)  # noqa: E731
 
-    channel = _settle(read_channel, CHANNEL_SETTLED, "channel", log, **wait_kwargs)
+    channel = _settle(read_channel, CHANNEL_SETTLED, CHANNEL, log, **wait_kwargs)
     if channel == "RUNNING":
-        log("stopping the channel")
+        log(f"stopping the {CHANNEL}")
         medialive.stop_channel(ChannelId=targets.channel_id)
-    _reach(read_channel, "IDLE", "channel", log, **wait_kwargs)
+    _reach(read_channel, "IDLE", CHANNEL, log, **wait_kwargs)
 
-    flow = _settle(read_flow, FLOW_SETTLED, "flow", log, **wait_kwargs)
+    flow = _settle(read_flow, FLOW_SETTLED, FLOW, log, **wait_kwargs)
     if flow != "STANDBY":  # ACTIVE, or ERROR: a flow in error still bills until it is stopped
-        log("stopping the flow")
+        log(f"stopping the {FLOW}")
         mediaconnect.stop_flow(FlowArn=targets.flow_arn)
-    _reach(read_flow, "STANDBY", "flow", log, **wait_kwargs)
+    _reach(read_flow, "STANDBY", FLOW, log, **wait_kwargs)

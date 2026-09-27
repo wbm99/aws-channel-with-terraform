@@ -148,7 +148,8 @@ def channel_node(channel: dict, alerts: Optional[list], alerts_error: Optional[s
 def package_node(targets: Targets, metrics: dict, channel_running: bool, at: str) -> NodeStatus:
     ingress = metrics.get("mp_ingress_bytes")
     mbps = None if ingress is None else ingress * 8 / 60
-    if mbps:
+    # The newest IngressBytes datapoint can be minutes old; with the channel stopped nothing is arriving, whatever it says.
+    if mbps and channel_running:
         health, summary, state = OK, f"receiving · {_mbps(mbps)}", "RECEIVING"
     elif channel_running:
         health, summary, state = WARN, "no ingest from MediaLive yet", "WAITING"
@@ -165,8 +166,8 @@ def cdn_node(distribution: dict, metrics: dict, at: str) -> NodeStatus:
     status = distribution["Status"]
     enabled = distribution.get("DistributionConfig", {}).get("Enabled", True)
     error_rate = metrics.get("cf_5xx_rate")
-    if not enabled:
-        health, summary = BAD, "disabled"
+    if not enabled:  # Terraform disables a distribution before deleting it
+        health, summary = OFF, "disabled"
     elif status != "Deployed":
         health, summary = WARN, "deploying changes"
     elif error_rate is not None and error_rate > 5:

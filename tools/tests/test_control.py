@@ -70,7 +70,8 @@ def test_start_logs_each_step(aws):
 
     start(boto3.client("mediaconnect"), boto3.client("medialive"), targets, log=messages.append, **NO_SLEEP)
 
-    assert [m for m in messages if m in ("flow ACTIVE", "channel RUNNING")] == ["flow ACTIVE", "channel RUNNING"]
+    assert [m for m in messages if m.endswith((" ACTIVE", " RUNNING"))] == [
+        "MediaConnect flow ACTIVE", "MediaLive channel RUNNING"]
 
 
 
@@ -165,14 +166,14 @@ def test_every_step_and_every_state_change_is_logged():
     stop(flow, channel, TARGETS, log=messages.append, **FAST)
 
     assert messages == [
-        "stopping the channel",
-        "channel STOPPING",
-        "channel IDLE",
-        "flow is UPDATING; waiting for it to settle",
-        "flow ACTIVE",
-        "stopping the flow",
-        "flow STOPPING",
-        "flow STANDBY",
+        "stopping the MediaLive channel",
+        "MediaLive channel STOPPING",
+        "MediaLive channel IDLE",
+        "MediaConnect flow is UPDATING; waiting for it to settle",
+        "MediaConnect flow ACTIVE",
+        "stopping the MediaConnect flow",
+        "MediaConnect flow STOPPING",
+        "MediaConnect flow STANDBY",
     ]
 
 

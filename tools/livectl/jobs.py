@@ -83,20 +83,28 @@ class JobRunner:
         self._thread.start()
         return job
 
-    def summary(self, offset: int = 0) -> Optional[dict]:
-        """The current job as plain data, with the log lines from `offset` onwards."""
+    def summary(self, offset: int = 0, job: Optional[str] = None) -> Optional[dict]:
+        """The current job as plain data, with the log lines from `offset` onwards.
+
+        `job` is the key of the job the caller's offset belongs to. When a different job is running now, the offset
+        means nothing for it and its lines are returned from the first one.
+        """
         with self._lock:
-            job = self._job
-            if job is None:
+            current = self._job
+            if current is None:
                 return None
+            key = f"{current.name}@{current.started_at}"
+            start = offset if job in (None, key) else 0
             return {
-                "name": job.name,
-                "state": job.state,
-                "started_at": job.started_at,
-                "finished_at": job.finished_at,
-                "error": job.error,
-                "offset": len(job.lines),
-                "lines": job.lines[offset:],
+                "key": key,
+                "name": current.name,
+                "state": current.state,
+                "started_at": current.started_at,
+                "finished_at": current.finished_at,
+                "error": current.error,
+                "start": start,
+                "offset": len(current.lines),
+                "lines": current.lines[start:],
             }
 
     def wait(self, timeout: Optional[float] = None) -> None:

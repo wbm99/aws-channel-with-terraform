@@ -143,9 +143,9 @@ def _after_job(console: Console, work: Work, *, stack_changed: bool = False) -> 
     return wrapped
 
 
-def _snapshot(console: Console, offset: int = 0) -> tuple[dict, Situation]:
+def _snapshot(console: Console, offset: int = 0, job_key: Optional[str] = None) -> tuple[dict, Situation]:
     """Everything the page shows, plus the situation the action rules judge."""
-    job = console.jobs.summary(offset)
+    job = console.jobs.summary(offset, job_key)
     running = job["name"] if job and job["state"] == RUNNING else None
     note: Optional[str] = None
     try:
@@ -190,8 +190,8 @@ def _snapshot(console: Console, offset: int = 0) -> tuple[dict, Situation]:
 ROUTED_ACTIONS = ("deploy", "teardown", "scan", "go-live", "go-off-air", "source-start", "source-stop")
 
 
-def _pipeline_payload(console: Console, offset: int = 0) -> dict:
-    payload, situation = _snapshot(console, offset)
+def _pipeline_payload(console: Console, offset: int = 0, job_key: Optional[str] = None) -> dict:
+    payload, situation = _snapshot(console, offset, job_key)
     payload["actions"] = {name: (r.message if r else None)
                           for name, r in refusals(situation).items() if name in ROUTED_ACTIONS}
     source = next((n for n in payload["nodes"] if n["id"] == "srt_source"), None)
@@ -262,7 +262,7 @@ def route(method: str, path: str, query: dict, body: dict, console: Console) -> 
             return _json(200, _logs_payload(console, tab, after))
         if path == "/api/pipeline":
             offset = int(query.get("offset", ["0"])[0] or 0)
-            return _json(200, _pipeline_payload(console, offset))
+            return _json(200, _pipeline_payload(console, offset, query.get("job", [None])[0]))
         return _json(404, {"error": f"not found: {path}"})
 
     if method != "POST":

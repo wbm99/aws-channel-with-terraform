@@ -196,3 +196,23 @@ def test_without_events_the_metric_still_decides():
 
     assert node.state == "CONNECTED"
     assert node.details["state from"].startswith("CloudWatch")
+
+
+def test_mediapackage_is_not_receiving_once_the_channel_stops_whatever_the_last_metric_says():
+    """Live: after going off air it still read RECEIVING 6.9 Mbps from a datapoint minutes old."""
+    node = by_id(make(stub_aws(flow="STANDBY", channel="IDLE", metrics=LIVE_METRICS)).nodes(TARGETS))["mediapackage_channel"]
+
+    assert (node.state, node.health) == ("IDLE", OFF)
+    assert "Mbps" not in node.summary
+
+
+def test_a_disabled_distribution_is_off_not_an_error():
+    """Terraform disables the distribution before deleting it; mid-teardown that is expected, not a fault."""
+    clients = stub_aws()
+    clients["cloudfront"] = StubClient(get_distribution={"Distribution": {
+        "Id": "E2EXAMPLE", "Status": "InProgress", "DomainName": "d1.cloudfront.net",
+        "DistributionConfig": {"Enabled": False}}})
+
+    node = by_id(make(clients).nodes(TARGETS))["cloudfront_cdn"]
+
+    assert (node.health, node.summary) == (OFF, "disabled")
