@@ -59,3 +59,9 @@ module "delivery" {
   player_bucket_arn                  = module.player.bucket_arn
   player_bucket_regional_domain_name = module.player.bucket_regional_domain_name
 }
+
+module "observability" {
+  source = "../../modules/observability"
+
+  name = "${var.project}-demo"
+}

@@ -103,3 +103,53 @@ def test_command_job_raises_on_a_non_zero_exit():
 
     with pytest.raises(RuntimeError, match="exited with status 1"):
         work(lambda line: None)
+
+
+def test_command_job_strips_terminal_colour_codes():
+    captured = []
+    coloured = "\x1b[0m\x1b[1mmodule.delivery.data.aws_cloudfront_cache_policy.disabled: Reading...\x1b[0m\x1b[0m"
+
+    command_job(["terraform", "apply"], popen=fake_popen([coloured, "  \x1b[32m+\x1b[0m create"]))(captured.append)
+
+    assert captured[1:] == ["module.delivery.data.aws_cloudfront_cache_policy.disabled: Reading...", "  + create"]
+
+
+def test_an_offset_from_another_job_starts_the_new_job_from_its_first_line():
+    """Live: the page asked for the teardown's lines from the previous job's offset and missed the first ones."""
+    runner = JobRunner(clock=lambda: "2026-09-27T01:00:00+00:00")
+    runner.submit("go-off-air", lambda log: [log(f"line {n}") for n in range(9)])
+    runner.wait(5)
+    old = runner.summary()["key"]
+    runner._clock = lambda: "2026-09-27T01:05:00+00:00"
+    runner.submit("teardown", lambda log: [log("$ terraform destroy"), log("Refreshing state...")])
+    runner.wait(5)
+
+    summary = runner.summary(offset=9, job=old)
+
+    assert summary["key"] == "teardown@2026-09-27T01:05:00+00:00"
+    assert summary["start"] == 0
+    assert summary["lines"] == ["$ terraform destroy", "Refreshing state..."]
+
+
+def test_an_offset_for_the_same_job_is_honoured_and_reported():
+    runner = JobRunner()
+    runner.submit("scan", lambda log: [log("a"), log("b"), log("c")])
+    runner.wait(5)
+    key = runner.summary()["key"]
+
+    summary = runner.summary(offset=2, job=key)
+
+    assert (summary["start"], summary["lines"]) == (2, ["c"])
+
+
+def test_every_job_line_has_the_time_it_was_written():
+    ticks = iter(["2026-09-27T02:00:00+00:00", "2026-09-27T02:00:01+00:00", "2026-09-27T02:00:05+00:00",
+                  "2026-09-27T02:00:09+00:00"])
+    runner = JobRunner(clock=lambda: next(ticks))
+    runner.submit("go-live", lambda log: [log("starting the MediaConnect flow"), log("MediaConnect flow ACTIVE")])
+    runner.wait(5)
+
+    summary = runner.summary()
+
+    assert summary["stamps"] == ["2026-09-27T02:00:01+00:00", "2026-09-27T02:00:05+00:00"]
+    assert runner.summary(offset=1, job=summary["key"])["stamps"] == ["2026-09-27T02:00:05+00:00"]

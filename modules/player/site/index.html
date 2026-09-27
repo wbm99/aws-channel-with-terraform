@@ -14,12 +14,28 @@
     .label { font-size: 12px; text-transform: uppercase; opacity: .7; }
     .value { font-size: 28px; font-variant-numeric: tabular-nums; }
     p.note { opacity: .7; font-size: 13px; }
+    .screen { position: relative; }
+    /* Like YouTube: a red LIVE badge at the live edge, a grey "Go live" button when behind or paused. */
+    #live-edge { position: absolute; top: 12px; right: 12px; display: inline-flex; align-items: center; gap: 6px;
+      font: 600 13px system-ui, sans-serif; letter-spacing: .03em; color: #fff; border: 0; border-radius: 4px;
+      padding: 5px 10px; background: rgba(0, 0, 0, .6); cursor: pointer; }
+    #live-edge::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #aaa; }
+    #live-edge[data-state="live"] { cursor: default; }
+    #live-edge[data-state="live"]::before { background: #ff3b30; }
+    /* ?embed=1 (the livectl console): only the video, filling the frame. */
+    body.embed { background: #000; }
+    body.embed main { max-width: none; padding: 0; }
+    body.embed h1, body.embed .stats, body.embed .note { display: none; }
+    body.embed video { width: 100vw; height: 100vh; border-radius: 0; object-fit: contain; display: block; }
   </style>
 </head>
 <body>
   <main>
     <h1>Live SRT to HLS</h1>
-    <video id="video" controls autoplay muted playsinline></video>
+    <div class="screen">
+      <video id="video" controls autoplay muted playsinline></video>
+      <button id="live-edge" type="button" data-state="behind" title="Jump to the live edge">Go live</button>
+    </div>
     <div class="stats">
       <div class="stat"><div class="label">Browser clock (UTC)</div><div class="value" id="clock">--</div></div>
       <div class="stat"><div class="label">Player-reported latency</div><div class="value" id="latency">n/a</div></div>
@@ -29,10 +45,62 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
   <script>
+    if (new URLSearchParams(location.search).has('embed')) document.body.classList.add('embed');
     const video = document.getElementById('video');
     const clock = document.getElementById('clock');
     const latency = document.getElementById('latency');
     const level = document.getElementById('level');
+    const liveEdge = document.getElementById('live-edge');
+    let hls = null;
+    // One segment (6 s) behind the edge still counts as live; further back, or paused, offers to catch up.
+    const LIVE_WINDOW_S = 6;
+
+    function edge() {
+      if (hls && hls.liveSyncPosition != null) return hls.liveSyncPosition;
+      const seekable = video.seekable;
+      return seekable.length ? seekable.end(seekable.length - 1) : null;
+    }
+
+    function showEdge() {
+      const at = edge();
+      const live = at != null && !video.paused && at - video.currentTime <= LIVE_WINDOW_S;
+      liveEdge.dataset.state = live ? 'live' : 'behind';
+      liveEdge.textContent = live ? 'LIVE' : 'Go live';
+      liveEdge.title = live ? 'Playing at the live edge' : 'Jump to the live edge';
+    }
+    setInterval(showEdge, 500);
+
+    function goLive() {
+      const at = edge();
+      if (at == null) return;
+      video.currentTime = at;
+      video.play().catch(() => {});   // autoplay rules may refuse; the position is right either way
+      showEdge();
+    }
+    liveEdge.addEventListener('click', goLive);
+
+    // Chrome pauses muted video that stops being visible (another tab, or the console showing another page), and
+    // resumes it from where it stopped: minutes behind, or at a segment that no longer exists. So when the video is
+    // visible again after a pause the browser made, jump back to the live edge. A pause the viewer made stays put.
+    let onScreen = true;
+    let viewerPaused = false;
+    const visible = () => onScreen && document.visibilityState === 'visible';
+
+    function becameVisible() {
+      if (!viewerPaused && edge() != null && edge() - video.currentTime > LIVE_WINDOW_S) goLive();
+    }
+
+    video.addEventListener('pause', () => {
+      // Chrome's pause arrives as the video is hidden; wait a moment to see whether it is still visible.
+      setTimeout(() => { if (visible()) viewerPaused = true; }, 300);
+    });
+    video.addEventListener('play', () => { viewerPaused = false; });
+    document.addEventListener('visibilitychange', () => { if (visible()) becameVisible(); });
+    new IntersectionObserver((entries) => {
+      const was = onScreen;
+      onScreen = entries[entries.length - 1].isIntersecting;
+      if (onScreen && !was && visible()) becameVisible();
+    }).observe(video);
 
     function tick() {
       clock.textContent = new Date().toISOString().slice(11, 23);
@@ -45,9 +113,16 @@
       .then((config) => {
         const url = config.manifestPath;
         if (window.Hls && Hls.isSupported()) {
-          const hls = new Hls({ liveSyncDurationCount: 3 });
+          hls = new Hls({ liveSyncDurationCount: 3 });
           hls.loadSource(url);
           hls.attachMedia(video);
+          // Before the first segment exists the playlist is a 404, and hls.js stops at a fatal error. Keep trying,
+          // so a page opened before going live starts playing on its own.
+          hls.on(Hls.Events.ERROR, (event, data) => {
+            if (!data.fatal) return;
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+            else setTimeout(() => hls.loadSource(url), 3000);
+          });
           hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
             level.textContent = hls.levels[data.level].height + 'p';
           });

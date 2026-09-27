@@ -57,3 +57,20 @@ def test_a_channel_that_is_being_deleted_is_not_a_leftover(aws):
     leftovers = find_leftovers(*clients(), prefix="live-sports-aws")
 
     assert not any("MediaLive channel" in item for item in leftovers)
+
+
+from livectl.clean import find_informational
+
+
+def test_the_medialive_log_group_is_reported_but_does_not_fail_the_check(aws):
+    logs = boto3.client("logs")
+    logs.create_log_group(logGroupName="ElementalMediaLive")
+
+    info = find_informational(logs, "live-sports-aws")
+
+    assert info == ["CloudWatch log group ElementalMediaLive (log storage only, not billed by the hour)"]
+    assert find_leftovers(*clients(), prefix="live-sports-aws") == []
+
+
+def test_no_log_group_means_no_information(aws):
+    assert find_informational(boto3.client("logs"), "live-sports-aws") == []

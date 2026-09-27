@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import sys
 from typing import Optional, Sequence
 
 import boto3
+from botocore.config import Config
 
-from livectl.clean import find_leftovers
+from livectl.clean import find_informational, find_leftovers
 from livectl.control import WaitTimeout, start, stop
 from livectl.server import LOOPBACK, Console, ConsoleError, serve
 from livectl.status import get_status
@@ -84,33 +86,42 @@ def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) 
                 session.client("cloudfront"),
                 args.prefix,
             )
+            info = find_informational(session.client("logs"), args.prefix)
             if leftovers:
                 print("Billable resources still exist:")
                 for line in leftovers:
                     print(f"  {line}")
-                return 1
-            print("clean: nothing left")
-            return 0
+            else:
+                print("clean: nothing left")
+            for line in info:
+                print(f"info: {line}")
+            return 1 if leftovers else 0
 
         if args.command == "ui":
+            # Short timeouts and few retries: with the defaults (60 s connect, 60 s read, several retries) a dropped
+            # network kept every poll blocked for minutes. The console would rather show stale data and say so.
+            session_config = Config(connect_timeout=3, read_timeout=8, retries={"max_attempts": 2, "mode": "standard"})
+            client = lambda name: session.client(name, config=session_config)  # noqa: E731
             # Targets are resolved lazily, so the console still starts with nothing deployed.
-            serve(
-                Console(
-                    mediaconnect=session.client("mediaconnect"),
-                    medialive=session.client("medialive"),
-                    cloudwatch=session.client("cloudwatch"),
-                    mediapackagev2=session.client("mediapackagev2"),
-                    cloudfront=session.client("cloudfront"),
-                    tf_dir=args.tf_dir,
-                    prefix=args.prefix,
-                    runner=runner,
-                    flow_arn=args.flow_arn,
-                    channel_id=args.channel_id,
-                ),
-                host=args.host,
-                port=args.port,
-                open_browser=not args.no_browser,
+            console = Console(
+                mediaconnect=client("mediaconnect"),
+                medialive=client("medialive"),
+                cloudwatch=client("cloudwatch"),
+                mediapackagev2=client("mediapackagev2"),
+                cloudfront=client("cloudfront"),
+                tf_dir=args.tf_dir,
+                prefix=args.prefix,
+                runner=runner,
+                flow_arn=args.flow_arn,
+                channel_id=args.channel_id,
+                region=args.region,
+                logs=client("logs"),
+                # Read only when "Send test source" is clicked, and handed straight to the child's environment.
+                read_passphrase=lambda arn: client("secretsmanager").get_secret_value(
+                    SecretId=arn)["SecretString"],
             )
+            atexit.register(console.source.stop)
+            serve(console, host=args.host, port=args.port, open_browser=not args.no_browser)
             return 0
 
         targets = resolve_targets(args.flow_arn, args.channel_id, args.tf_dir, runner)

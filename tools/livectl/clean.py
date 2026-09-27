@@ -40,3 +40,16 @@ def find_leftovers(mediaconnect, medialive, mediapackagev2, cloudfront, prefix: 
                 found.append(f"CloudFront distribution {distribution['Id']}")
 
     return found
+
+
+def find_informational(logs, prefix: str) -> list[str]:
+    """Things that outlive a destroy on purpose. Reported, never counted as leftovers.
+
+    MediaLive creates `ElementalMediaLive` itself and keeps writing to it, so Terraform does not manage it.
+    `prefix` is accepted for symmetry with find_leftovers.
+    """
+    found = []
+    for page in _pages(logs, "describe_log_groups", logGroupNamePrefix="ElementalMediaLive"):
+        for group in page.get("logGroups", []):
+            found.append(f"CloudWatch log group {group['logGroupName']} (log storage only, not billed by the hour)")
+    return found

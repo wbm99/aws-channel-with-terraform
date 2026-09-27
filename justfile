@@ -46,7 +46,7 @@ init:
 plan:
     terraform -chdir={{tf_dir}} plan -input=false
 
-# Create the demo stack (a few minutes, CloudFront included)
+# Deploy stack: create or update the demo stack (a few minutes, CloudFront included)
 up:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -54,7 +54,7 @@ up:
     echo
     echo "player: $(terraform -chdir={{tf_dir}} output -raw player_url)"
 
-# Destroy the demo stack, then verify nothing billable survived
+# Tear down stack: destroy the demo stack, then verify nothing billable survived
 down:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -63,11 +63,11 @@ down:
 
 # --- operating ---------------------------------------------------------------
 
-# Start the flow, then the channel (about 2 minutes; billing starts here)
+# Go live: start the flow, then the channel (about 2 minutes; billing starts here)
 start:
     {{livectl}} start
 
-# Stop the channel, then the flow
+# Go off air: stop the channel, then the flow
 stop:
     {{livectl}} stop
 
@@ -75,11 +75,11 @@ stop:
 status:
     {{livectl}} status
 
-# Fail if any billable resource was left behind
+# Scan for leftovers: fail if any billable resource was left behind
 check-clean:
     {{livectl}} check-clean
 
-# Serve the operations console on http://127.0.0.1:8765
+# Serve the control center on http://127.0.0.1:8765
 ui port="8765":
     {{livectl}} ui --port {{port}}
 
@@ -151,6 +151,14 @@ test-tf:
 # pytest over the livectl package (no AWS credentials needed)
 test-py:
     {{venv}}/bin/pytest -q tools
+
+# Serve the console in a named fake state, with no AWS (see tools/tests/scenarios.py)
+ui-scenario name="on-air-playing" port="8766":
+    {{python}} tools/tests/scenarios.py {{name}} {{port}}
+
+# Drive the console in Chrome through every scenario (needs: .venv/bin/pip install -e "tools[dev,ui]")
+test-ui:
+    {{venv}}/bin/pytest -q tools/tests/test_ui.py
 
 # Look up on-demand prices behind docs/cost-estimate.md
 cost service="AWSElementalMediaLive" pattern="Single Pipeline (HD|SD) AVC":

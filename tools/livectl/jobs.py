@@ -7,6 +7,7 @@ operations change the same resources, and two at once would race.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import threading
 from dataclasses import dataclass, field
@@ -14,6 +15,8 @@ from datetime import datetime, timezone
 from typing import Callable, Optional, Sequence
 
 RUNNING, SUCCEEDED, FAILED = "running", "succeeded", "failed"
+# Terminal colour and cursor codes. Terraform gets -no-color, but anything else a job runs may still send them.
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 Log = Callable[[str], None]
 Work = Callable[[Log], None]
@@ -37,6 +40,7 @@ class Job:
     finished_at: Optional[str] = None
     error: Optional[str] = None
     lines: list[str] = field(default_factory=list)
+    stamps: list[str] = field(default_factory=list)   # when each line was written, same length as lines
 
 
 def command_job(args: Sequence[str], *, popen=subprocess.Popen) -> Work:
@@ -51,7 +55,7 @@ def command_job(args: Sequence[str], *, popen=subprocess.Popen) -> Work:
         process = popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         with process.stdout:
             for line in process.stdout:
-                log(line.rstrip("\n"))
+                log(ANSI.sub("", line.rstrip("\n")))
         code = process.wait()
         if code != 0:
             raise RuntimeError(f"{args[0]} exited with status {code}")
@@ -80,21 +84,35 @@ class JobRunner:
         self._thread.start()
         return job
 
-    def summary(self, offset: int = 0) -> Optional[dict]:
-        """The current job as plain data, with the log lines from `offset` onwards."""
+    def summary(self, offset: int = 0, job: Optional[str] = None) -> Optional[dict]:
+        """The current job as plain data, with the log lines from `offset` onwards.
+
+        `job` is the key of the job the caller's offset belongs to. When a different job is running now, the offset
+        means nothing for it and its lines are returned from the first one.
+        """
         with self._lock:
-            job = self._job
-            if job is None:
+            current = self._job
+            if current is None:
                 return None
+            key = f"{current.name}@{current.started_at}"
+            start = offset if job in (None, key) else 0
             return {
-                "name": job.name,
-                "state": job.state,
-                "started_at": job.started_at,
-                "finished_at": job.finished_at,
-                "error": job.error,
-                "offset": len(job.lines),
-                "lines": job.lines[offset:],
+                "key": key,
+                "name": current.name,
+                "state": current.state,
+                "started_at": current.started_at,
+                "finished_at": current.finished_at,
+                "error": current.error,
+                "start": start,
+                "offset": len(current.lines),
+                "lines": current.lines[start:],
+                "stamps": current.stamps[start:],
             }
+
+    def lines(self) -> list[str]:
+        """Every line of the current job, for measuring its progress."""
+        with self._lock:
+            return list(self._job.lines) if self._job else []
 
     def wait(self, timeout: Optional[float] = None) -> None:
         """Block until the running job finishes. For tests and for shutdown."""
@@ -112,8 +130,10 @@ class JobRunner:
             self._finish(job, SUCCEEDED, None)
 
     def _append(self, job: Job, line: str) -> None:
+        stamp = self._clock()
         with self._lock:
             job.lines.append(line)
+            job.stamps.append(stamp)
 
     def _finish(self, job: Job, state: str, error: Optional[str]) -> None:
         with self._lock:

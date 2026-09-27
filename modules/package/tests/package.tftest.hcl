@@ -94,3 +94,17 @@ run "secret_stores_identifier_under_expected_key" {
     error_message = "Secret must be JSON with key MediaPackageV2CDNIdentifier."
   }
 }
+
+run "exposes_the_names_the_console_reads" {
+  command = plan
+
+  assert {
+    condition     = output.channel_group_name == "live-demo" && output.channel_name == "live-demo"
+    error_message = "Channel group and channel are both named after var.name."
+  }
+
+  assert {
+    condition     = output.origin_endpoint_name == "live-demo-hls"
+    error_message = "The HLS endpoint is named <name>-hls."
+  }
+}
