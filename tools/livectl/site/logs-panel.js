@@ -1,14 +1,18 @@
 // The Live page's log panel: one tab per resource, newest line first. Only the visible tab is polled.
 import { getLogs } from './api.js';
-import { el, stamp } from './format.js';
+import { el, metricRow, stamp } from './format.js';
 
 const TABS = [
   ['all', 'All'], ['srt', 'SRT Source'], ['mediaconnect', 'MediaConnect'], ['medialive', 'MediaLive'],
   ['mediapackage', 'MediaPackage'], ['cloudfront', 'CloudFront'],
 ];
+// Tabs without logs show their resource's CloudWatch figures instead.
 const NO_LOGS = {
-  mediapackage: 'MediaPackage access logs are not enabled in this project. Its ingest rate and 5xx count are in the node details.',
-  cloudfront: 'CloudFront access logs are not enabled in this project. Requests per minute and the 5xx rate are in the node details.',
+  mediapackage: ['mediapackage_channel', ['mp_ingress_bytes', 'mp_egress_bytes', 'mp_egress_requests', 'mp_egress_5xx'],
+    'Per-minute figures from CloudWatch, one to three minutes behind. MediaPackage access logs are not enabled.'],
+  cloudfront: ['cloudfront_cdn', ['cf_requests', 'cf_bytes_downloaded', 'cf_4xx_rate', 'cf_5xx_rate'],
+    'Per-minute figures from CloudWatch, one to three minutes behind. Viewer counts and edge locations need '
+    + 'CloudFront access logs, which are not enabled.'],
 };
 export const TAB_FOR_NODE = {
   srt_source: 'srt', mediaconnect_flow: 'mediaconnect', medialive_input: 'medialive', medialive_channel: 'medialive',
@@ -23,6 +27,7 @@ export class LogsPanel {
     this.list = list;
     this.active = 'all';
     this.buffers = {};       // tab -> { after, lines: [line], keys: Set, notes: [str], busy: bool }
+    this.nodes = {};         // node id -> node, for the tabs that show figures
     this.tabs.replaceChildren(...TABS.map(([id, label]) => el('button', {
       type: 'button', role: 'tab', 'data-tab': id, onclick: () => this.select(id),
     }, label)));
@@ -37,6 +42,22 @@ export class LogsPanel {
     }
     this.draw();
     this.refresh();
+  }
+
+  setNodes(nodes) {
+    this.nodes = Object.fromEntries(nodes.map((n) => [n.id, n]));
+    if (NO_LOGS[this.active]) this.draw();
+  }
+
+  figures(tab) {
+    const [nodeId, keys, note] = NO_LOGS[tab];
+    const node = this.nodes[nodeId];
+    const rows = keys.map((key) => {
+      const value = node && node.health !== 'off' ? node.metrics[key] : null;
+      return value === null || value === undefined ? [metricRow(key, 0)[0], '—'] : metricRow(key, value);
+    });
+    return [el('dl', { class: 'facts figures' }, rows.flatMap(([k, v]) => [el('dt', {}, k), el('dd', {}, v)])),
+      el('p', { class: 'note' }, note)];
   }
 
   buffer(tab) {
@@ -73,7 +94,7 @@ export class LogsPanel {
     const tab = this.active;
     const atTop = this.list.scrollTop < 24;
     if (NO_LOGS[tab]) {
-      this.list.replaceChildren(el('p', { class: 'note' }, NO_LOGS[tab]));
+      this.list.replaceChildren(...this.figures(tab));
     } else {
       const buffer = this.buffer(tab);
       this.list.replaceChildren(

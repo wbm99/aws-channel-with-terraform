@@ -43,12 +43,16 @@ def metric_specs(targets: Targets) -> list[MetricSpec]:
         specs += [
             MetricSpec("mp_ingress_bytes", "AWS/MediaPackage", "IngressBytes", package, "Sum"),
             MetricSpec("mp_egress_5xx", "AWS/MediaPackage", "EgressRequestCount", package + (("StatusCode", "5xx"),), "Sum"),
+            MetricSpec("mp_egress_bytes", "AWS/MediaPackage", "EgressBytes", package, "Sum"),
+            MetricSpec("mp_egress_requests", "AWS/MediaPackage", "EgressRequestCount", package, "Sum"),
         ]
     if targets.distribution_id:
         cdn = (("DistributionId", targets.distribution_id), ("Region", "Global"))
         specs += [
             MetricSpec("cf_requests", "AWS/CloudFront", "Requests", cdn, "Sum"),
             MetricSpec("cf_5xx_rate", "AWS/CloudFront", "5xxErrorRate", cdn, "Average"),
+            MetricSpec("cf_4xx_rate", "AWS/CloudFront", "4xxErrorRate", cdn, "Average"),
+            MetricSpec("cf_bytes_downloaded", "AWS/CloudFront", "BytesDownloaded", cdn, "Sum"),
         ]
     return specs
 

@@ -137,6 +137,7 @@ function render() {
     renderChain($('chain'), data.nodes, selected, select);
     renderDrawer();
     renderStats($('stats'), data.nodes);
+    logs.setNodes(data.nodes);
   }
 
   const sourceRunning = Boolean(data.source && ['starting', 'running'].includes(data.source.state));

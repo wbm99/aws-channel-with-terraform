@@ -50,3 +50,13 @@ def test_one_call_returns_the_newest_value_per_metric():
     assert values["src_connected"] == 1.0
     assert values["ml_alerts"] is None
     assert values["src_bitrate"] is None, "a metric missing from the response reads as no data"
+
+
+def test_delivery_figures_are_read_for_the_cdn_and_mediapackage_tabs():
+    by_id = {s.id: s for s in metric_specs(FULL)}
+
+    assert (by_id["cf_bytes_downloaded"].name, by_id["cf_bytes_downloaded"].stat) == ("BytesDownloaded", "Sum")
+    assert by_id["cf_4xx_rate"].name == "4xxErrorRate"
+    assert (by_id["mp_egress_bytes"].name, dims(by_id["mp_egress_bytes"])) == (
+        "EgressBytes", {"ChannelGroup": "g", "Channel": "c"})
+    assert by_id["mp_egress_requests"].name == "EgressRequestCount"

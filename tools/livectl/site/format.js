@@ -34,8 +34,12 @@ const METRICS = {
   ml_input_loss: ['Input loss', (v) => v.toFixed(0) + ' s / min'],
   mp_ingress_bytes: ['Ingest', (v) => ((v * 8) / 60 / 1e6).toFixed(1) + ' Mbps'],
   mp_egress_5xx: ['Egress 5xx / min', (v) => v.toFixed(0)],
+  mp_egress_bytes: ['Egress', (v) => ((v * 8) / 60 / 1e6).toFixed(1) + ' Mbps'],
+  mp_egress_requests: ['Egress requests / min', (v) => v.toFixed(0)],
   cf_requests: ['Requests / min', (v) => v.toFixed(0)],
   cf_5xx_rate: ['5xx rate', (v) => v.toFixed(1) + ' %'],
+  cf_4xx_rate: ['4xx rate', (v) => v.toFixed(1) + ' %'],
+  cf_bytes_downloaded: ['Delivered to viewers', (v) => ((v * 8) / 60 / 1e6).toFixed(1) + ' Mbps'],
 };
 
 export function metricRow(key, value) {

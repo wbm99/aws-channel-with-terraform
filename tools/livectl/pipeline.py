@@ -164,7 +164,9 @@ def package_node(targets: Targets, metrics: dict, channel_running: bool, at: str
     details = {"Channel group": targets.channel_group, "Channel": targets.mediapackage_channel,
                "Endpoint": targets.mediapackage_endpoint}
     return _node("mediapackage_channel", at, state=state, health=health, summary=summary,
-                 metrics={"mp_ingress_bytes": ingress, "mp_egress_5xx": metrics.get("mp_egress_5xx")},
+                 metrics={"mp_ingress_bytes": ingress, "mp_egress_bytes": metrics.get("mp_egress_bytes"),
+                          "mp_egress_requests": metrics.get("mp_egress_requests"),
+                          "mp_egress_5xx": metrics.get("mp_egress_5xx")},
                  details=details)
 
 
@@ -183,7 +185,9 @@ def cdn_node(distribution: dict, metrics: dict, at: str) -> NodeStatus:
         health, summary = OK, "deployed" + (f" · {requests:.0f} req/min" if requests else "")
     url = f"https://us-east-1.console.aws.amazon.com/cloudfront/v4/home#/distributions/{distribution.get('Id')}"
     return _node("cloudfront_cdn", at, state=status, health=health, summary=summary,
-                 metrics={"cf_requests": metrics.get("cf_requests"), "cf_5xx_rate": error_rate},
+                 metrics={"cf_requests": metrics.get("cf_requests"),
+                          "cf_bytes_downloaded": metrics.get("cf_bytes_downloaded"),
+                          "cf_4xx_rate": metrics.get("cf_4xx_rate"), "cf_5xx_rate": error_rate},
                  details={"Distribution ID": distribution.get("Id"), "Domain": distribution.get("DomainName")},
                  console_url=url)
 

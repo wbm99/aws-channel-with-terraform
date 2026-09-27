@@ -233,6 +233,7 @@ def test_mediapackage_says_plainly_that_it_has_no_access_logs(open_scenario):
     page.locator('[data-tab="mediapackage"]').click()
 
     expect(page.locator("#log")).to_contain_text("access logs are not enabled")
+    expect(page.locator("#log")).to_contain_text("Ingest")
 
 
 
@@ -470,3 +471,14 @@ def test_every_log_line_starts_with_its_date_and_time(open_scenario):
     first = page.locator("#log .line").first
     expect(first.locator("time")).to_have_text(re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$"))
     expect(first).to_contain_text("MediaConnect · source connected")
+
+
+
+def test_the_cloudfront_tab_shows_delivery_figures(open_scenario):
+    page, _ = open_scenario("source-running", "live")
+
+    page.locator('[data-tab="cloudfront"]').click()
+
+    expect(page.locator("#log")).to_contain_text("Requests / min")
+    expect(page.locator("#log")).to_contain_text("42")
+    expect(page.locator("#log")).to_contain_text("Viewer counts and edge locations need")
