@@ -53,24 +53,30 @@ class SourceProcess:
         self._exit_code: Optional[int] = None
         self._progress: Optional[str] = None
         self._last_line: Optional[str] = None
+        self._pattern: str = DEFAULT_PATTERN
+        self._reader: Optional[threading.Thread] = None
 
     @property
     def running(self) -> bool:
         with self._lock:
             return self._state in (STARTING, RUNNING)
 
-    def start(self, *, host: str, port: int, passphrase: str) -> None:
+    def start(self, *, host: str, port: int, passphrase: str, pattern: str = DEFAULT_PATTERN) -> None:
+        if pattern not in dict(PATTERNS):
+            raise ValueError(f"unknown pattern {pattern!r}")
         with self._lock:
             if self._state in (STARTING, RUNNING):
                 raise SourceBusy("the test source is already running")
             self._state, self._stopping, self._secret = STARTING, False, passphrase
             self._exit_code = self._progress = self._last_line = None
-        env = {**os.environ, "SRT_HOST": host, "SRT_PORT": str(port), "SRT_PASSPHRASE": passphrase}
+            self._pattern = pattern
+        env = {**os.environ, "SRT_HOST": host, "SRT_PORT": str(port), "SRT_PASSPHRASE": passphrase, "PATTERN": pattern}
         process = self._popen([self._script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True, bufsize=1, env=env)
         with self._lock:
             self._process = process
-        threading.Thread(target=self._pump, args=(process,), daemon=True, name="livectl-source").start()
+        self._reader = threading.Thread(target=self._pump, args=(process,), daemon=True, name="livectl-source")
+        self._reader.start()
 
     def _redact(self, line: str) -> str:
         return line.replace(self._secret, "***") if self._secret else line
@@ -106,6 +112,10 @@ class SourceProcess:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
+        # The reader thread records the stop once it has drained the output; wait for it, so that a start right
+        # after (switching pattern) does not find the source still marked as running.
+        if self._reader is not None:
+            self._reader.join(timeout=self._grace)
 
     def status(self) -> dict:
         with self._lock:
@@ -114,6 +124,7 @@ class SourceProcess:
                 "exit_code": self._exit_code,
                 "last_error": self._last_line if self._state == EXITED and self._exit_code else None,
                 "progress": self._progress,
+                "pattern": self._pattern,
             }
 
     def lines(self, after_ms: int) -> list[tuple[int, str]]:

@@ -159,3 +159,37 @@ def test_the_buffer_is_bounded():
 
     assert [line for _, line in source.lines(0)][-1] == "line 49"
     assert len(source.lines(0)) == 10
+
+
+def test_the_pattern_goes_to_the_script_and_is_reported():
+    process = FakeProcess(["frame= 1"])
+    popen = launcher(process)
+    source = SourceProcess(popen=popen, script="send-srt.sh")
+
+    source.start(host="h", port=5000, passphrase=SECRET, pattern="smpte")
+
+    assert popen.kwargs["env"]["PATTERN"] == "smpte"
+    assert source.status()["pattern"] == "smpte"
+    process.finish()
+
+
+def test_an_unknown_pattern_is_refused_before_anything_starts():
+    popen = launcher(FakeProcess([]))
+    source = SourceProcess(popen=popen, script="send-srt.sh")
+
+    with pytest.raises(ValueError, match="unknown pattern"):
+        source.start(host="h", port=5000, passphrase=SECRET, pattern="rainbow")
+    assert not hasattr(popen, "args")
+
+
+def test_a_stopped_source_can_be_started_again_at_once():
+    first, second = FakeProcess(["frame= 1"]), FakeProcess(["frame= 1"])
+    processes = iter([first, second])
+    source = SourceProcess(popen=lambda args, **kwargs: next(processes), script="send-srt.sh")
+    source.start(host="h", port=5000, passphrase=SECRET)
+
+    source.stop()
+    source.start(host="h", port=5000, passphrase=SECRET, pattern="black")   # no SourceBusy
+
+    assert source.status()["pattern"] == "black"
+    second.finish()

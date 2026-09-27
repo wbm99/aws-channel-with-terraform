@@ -492,3 +492,51 @@ def test_the_job_summary_says_how_far_terraform_has_got(aws):
     console.jobs.wait(5)
 
     assert progress == {"done": 1, "total": 2, "percent": 50, "label": "1 of 2 resources"}
+
+
+def test_the_payload_lists_the_patterns(aws):
+    patterns = call(make_console(), "GET", "/api/pipeline")[1]["patterns"]
+
+    assert patterns[0] == {"id": "testcard", "label": "Test card"}
+    assert {"id": "standby", "label": "Please stand by"} in patterns
+
+
+def test_send_test_source_starts_the_chosen_pattern(aws):
+    process = FakeProcess(["frame= 1"])
+    console = source_console(process=process)
+    console.runner = lambda args: json.dumps(dict(OUTPUTS, passphrase_secret_arn={"value": "arn:secret"}))
+    console.forget_targets()
+
+    status, _ = call(console, "POST", "/api/source/start", body={"pattern": "pal"})
+
+    assert status == 202 and console.source.status()["pattern"] == "pal"
+    process.finish()
+
+
+def test_switching_pattern_while_sending_restarts_the_source_on_the_new_one(aws):
+    first, second = FakeProcess(["frame= 1"]), FakeProcess(["frame= 1"])
+    processes = iter([first, second])
+    console = source_console()
+    console.source = SourceProcess(popen=lambda args, **kwargs: next(processes), script="send-srt.sh")
+    console.runner = lambda args: json.dumps(dict(OUTPUTS, passphrase_secret_arn={"value": "arn:secret"}))
+    console.forget_targets()
+    call(console, "POST", "/api/source/start", body={"pattern": "testcard"})
+
+    status, payload = call(console, "POST", "/api/source/pattern", body={"pattern": "black"})
+
+    assert (status, payload) == (202, {"switched": "black"})
+    assert first.signals == ["TERM"], "the old FFmpeg is stopped first"
+    assert console.source.status()["pattern"] == "black"
+    second.finish()
+
+
+def test_switching_pattern_needs_a_running_source(aws):
+    status, payload = call(source_console(), "POST", "/api/source/pattern", body={"pattern": "black"})
+
+    assert status == 409 and "not running" in payload["error"]
+
+
+def test_an_unknown_pattern_is_a_400(aws):
+    status, payload = call(source_console(), "POST", "/api/source/start", body={"pattern": "rainbow"})
+
+    assert status == 400 and "rainbow" in payload["error"]

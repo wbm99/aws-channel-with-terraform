@@ -28,7 +28,9 @@ from livectl.jobs import RUNNING, JobBusy, JobRunner, Work, command_job
 from livectl.logs import LOG_TABS, LOOKBACK_MS, LogLine, LogReader, event_lines, medialive_lines
 from livectl.pipeline import REDEPLOY_HINT, Pipeline
 from livectl.progress import job_progress
-from livectl.source import SourceBusy, SourceProcess, now_ms
+from livectl.source import DEFAULT_PATTERN, PATTERNS, SourceBusy, SourceProcess, now_ms
+
+PATTERN_IDS = [key for key, _ in PATTERNS]
 from livectl.targets import NotDeployed, Runner, TargetError, Targets, resolve_targets, run_command
 from livectl.verdict import hourly_rate, verdict
 
@@ -196,6 +198,7 @@ ROUTED_ACTIONS = ("deploy", "teardown", "scan", "go-live", "go-off-air", "source
 
 def _pipeline_payload(console: Console, offset: int = 0, job_key: Optional[str] = None) -> dict:
     payload, situation = _snapshot(console, offset, job_key)
+    payload["patterns"] = [{"id": key, "label": label} for key, label in PATTERNS]
     payload["actions"] = {name: (r.message if r else None)
                           for name, r in refusals(situation).items() if name in ROUTED_ACTIONS}
     source = next((n for n in payload["nodes"] if n["id"] == "srt_source"), None)
@@ -233,6 +236,28 @@ def _logs_payload(console: Console, tab: str, after: int) -> dict:
     lines.sort(key=lambda line: line.at_ms)
     return {"lines": [line.to_dict() for line in lines],
             "after": max([after] + [line.at_ms for line in lines]), "notes": notes}
+
+
+def _start_source(console: Console, pattern: str, *, switching: bool) -> Response:
+    """Start the test source on a pattern. Switching restarts FFmpeg: SRT reconnects, about two seconds of slate."""
+    targets = console.targets()
+    if not (targets.ingest_ip and targets.passphrase_secret_arn):
+        return _json(409, {"error": "The ingest address or the passphrase is missing from the Terraform "
+                                    "outputs. Run Deploy stack once to add them."})
+    try:
+        passphrase = console.read_passphrase(targets.passphrase_secret_arn)
+    except Exception as error:  # never echo the error body: keep secrets out of responses on principle
+        return _json(502, {"error": "Could not read the SRT passphrase from Secrets Manager "
+                                    f"({type(error).__name__})."})
+    if switching:
+        console.source.stop()
+    try:
+        console.source.start(host=targets.ingest_ip, port=int(targets.ingest_port or 5000), passphrase=passphrase,
+                             pattern=pattern)
+    except SourceBusy:
+        return _json(409, {"error": "The test source is already running."})
+    console.pipeline.forget()
+    return _json(202, {"switched": pattern} if switching else {"started": "source"})
 
 
 def _refused(console: Console, action: str) -> Optional[Response]:
@@ -303,25 +328,17 @@ def route(method: str, path: str, query: dict, body: dict, console: Console) -> 
 
         return _submit(console, name, _after_job(console, go_live if name == "go-live" else off_air))
 
-    if path == "/api/source/start":
-        refused = _refused(console, "source-start")
-        if refused:
-            return refused
-        targets = console.targets()
-        if not (targets.ingest_ip and targets.passphrase_secret_arn):
-            return _json(409, {"error": "The ingest address or the passphrase is missing from the Terraform "
-                                        "outputs. Run Deploy stack once to add them."})
-        try:
-            passphrase = console.read_passphrase(targets.passphrase_secret_arn)
-        except Exception as error:  # never echo the error body: keep secrets out of responses on principle
-            return _json(502, {"error": "Could not read the SRT passphrase from Secrets Manager "
-                                        f"({type(error).__name__})."})
-        try:
-            console.source.start(host=targets.ingest_ip, port=int(targets.ingest_port or 5000), passphrase=passphrase)
-        except SourceBusy:
-            return _json(409, {"error": "The test source is already running."})
-        console.pipeline.forget()
-        return _json(202, {"started": "source"})
+    if path in ("/api/source/start", "/api/source/pattern"):
+        pattern = body.get("pattern") or DEFAULT_PATTERN
+        if pattern not in PATTERN_IDS:
+            return _json(400, {"error": f"Unknown pattern {pattern!r}; choose one of {', '.join(PATTERN_IDS)}."})
+        if path.endswith("start"):
+            refused = _refused(console, "source-start")
+            if refused:
+                return refused
+        elif not console.source.running:
+            return _json(409, {"error": "The test source is not running; pick the pattern and press Send test source."})
+        return _start_source(console, pattern, switching=path.endswith("pattern"))
 
     if path == "/api/source/stop":
         console.source.stop()
