@@ -21,7 +21,7 @@ from typing import Any, Callable, Optional, Sequence
 from urllib.parse import parse_qs, urlparse
 
 from livectl.actions import Situation, refusals
-from livectl.clean import find_leftovers
+from livectl.clean import find_informational, find_leftovers
 from livectl.control import start as start_workflow
 from livectl.control import stop as stop_workflow
 from livectl.jobs import RUNNING, JobBusy, JobRunner, Work, command_job
@@ -65,6 +65,7 @@ class Console:
     flow_arn: Optional[str] = None
     channel_id: Optional[str] = None
     region: str = "us-east-1"
+    logs: Any = None
     pipeline: Optional[Pipeline] = None
     _targets: Optional[Targets] = None
 
@@ -107,6 +108,9 @@ def _check_clean_work(console: Console) -> Work:
         )
         for line in leftovers:
             log(line)
+        if console.logs is not None:
+            for line in find_informational(console.logs, console.prefix):
+                log("info: " + line)
         if leftovers:
             raise RuntimeError(f"{len(leftovers)} billable resource(s) still exist")
         log("clean: nothing left")

@@ -8,7 +8,7 @@ from typing import Optional, Sequence
 
 import boto3
 
-from livectl.clean import find_leftovers
+from livectl.clean import find_informational, find_leftovers
 from livectl.control import WaitTimeout, start, stop
 from livectl.server import LOOPBACK, Console, ConsoleError, serve
 from livectl.status import get_status
@@ -84,13 +84,16 @@ def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) 
                 session.client("cloudfront"),
                 args.prefix,
             )
+            info = find_informational(session.client("logs"), args.prefix)
             if leftovers:
                 print("Billable resources still exist:")
                 for line in leftovers:
                     print(f"  {line}")
-                return 1
-            print("clean: nothing left")
-            return 0
+            else:
+                print("clean: nothing left")
+            for line in info:
+                print(f"info: {line}")
+            return 1 if leftovers else 0
 
         if args.command == "ui":
             # Targets are resolved lazily, so the console still starts with nothing deployed.
