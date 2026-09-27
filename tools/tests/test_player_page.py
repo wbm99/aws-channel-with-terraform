@@ -115,3 +115,50 @@ def test_non_fatal_errors_are_left_to_hls_js(page, site_url):
     page.wait_for_timeout(3500)
 
     assert len(page.evaluate("window.hlsCalls")) == 1
+
+
+# --- the LIVE button (like YouTube's) -----------------------------------------------------------------
+
+
+def behind_edge(page, edge, current, paused):
+    """Put the fake stream's live edge and the video's position and play state where a test needs them."""
+    page.evaluate(f"""() => {{
+        window.hls.liveSyncPosition = {edge};
+        const video = document.getElementById('video');
+        video.currentTime = {current};
+        Object.defineProperty(video, 'paused', {{ configurable: true, get: () => {str(paused).lower()} }});
+    }}""")
+
+
+def test_at_the_live_edge_the_badge_says_live(page, site_url):
+    page.goto(site_url + "?embed=1")
+    page.wait_for_function("window.hlsCalls.length === 1")
+
+    behind_edge(page, edge=100, current=99, paused=False)
+
+    button = page.locator("#live-edge")
+    expect(button).to_have_attribute("data-state", "live")
+    expect(button).to_have_text("LIVE")
+
+
+def test_behind_the_edge_it_offers_to_go_live_and_jumps_there(page, site_url):
+    page.goto(site_url + "?embed=1")
+    page.wait_for_function("window.hlsCalls.length === 1")
+    behind_edge(page, edge=100, current=40, paused=False)
+
+    button = page.locator("#live-edge")
+    expect(button).to_have_attribute("data-state", "behind")
+    expect(button).to_have_text("Go live")
+
+    button.click()
+
+    assert page.evaluate("document.getElementById('video').currentTime") == 100
+
+
+def test_a_paused_player_is_not_live(page, site_url):
+    page.goto(site_url)
+    page.wait_for_function("window.hlsCalls.length === 1")
+
+    behind_edge(page, edge=100, current=100, paused=True)
+
+    expect(page.locator("#live-edge")).to_have_attribute("data-state", "behind")

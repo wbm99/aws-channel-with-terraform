@@ -104,7 +104,7 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
   | Go live / Go off air | starts the flow, then the channel / stops the test source, the channel, then the flow |
   | Send test source / Stop test source | runs `source/send-srt.sh` against the ingest |
 
-- **Last job:** the output of the latest job, full width, newest lines first in view, with *Show all*.
+- **Last job:** the output of the latest job, full width, each line with its UTC date and time, with *Show all*.
 - **Endpoints:** SRT ingest, player, HLS manifest and the Secrets Manager ARN of the passphrase, each with a Copy
   button that copies exactly the value.
 - **Maintenance,** apart from the steps: *Scan for leftovers* and *Tear down stack* (`terraform destroy`, after you
@@ -112,12 +112,16 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
 
 **Live** is for watching the broadcast:
 
-- **Player:** the deployed hls.js page in embed mode (`?embed=1`: the video alone, 16:9). The page retries when the
+- **Player:** the deployed hls.js page in embed mode (`?embed=1`: the video alone, 16:9), with a YouTube-style
+  badge: a red **LIVE** at the live edge, a grey **Go live** when paused or more than a segment behind, which jumps
+  back to the edge. The page retries when the
   playlist is still a 404 before the first segment, so a player opened before going live starts on its own. The *Live*
   menu item pulses once the stream plays.
 - **Figures** under it (a dash for a resource that is off, rather than its last stale datapoint): source bitrate, round trip, unrecovered packets, input frame rate, active alerts, ingest into
   MediaPackage and CloudFront requests, with *Stop test source* and *Go off air* so billing can be ended from here.
-- **Logs,** one tab per resource, full width under the player, newest line first. MediaLive and MediaConnect events (state
+- **Logs,** one tab per resource, full width under the player, newest line first, each with its UTC date and time.
+  *Expand* opens them as their own **Logs** page (also in the menu), full height, with a filter. The CloudFront and
+  MediaPackage tabs show their CloudWatch figures (requests, delivered Mbps, error rates; ingest and egress). MediaLive and MediaConnect events (state
   changes, alerts, SRT source health with its TR 101 290 flags) reach a log group through an EventBridge rule
   (`modules/observability`); MediaLive's own encoder and as-run logs are read from `ElementalMediaLive`; the SRT
   Source tab also shows the test source's output. MediaPackage and CloudFront access logs are not enabled; their
@@ -133,6 +137,8 @@ It is deliberately blunt about its limits:
 - **The test source's passphrase** is read from Secrets Manager when you click *Send test source*, handed to FFmpeg in
   its environment, and replaced by `***` in every output line before the console stores it. Closing the console stops
   the source.
+- **Survives a dropped network.** AWS calls time out in seconds, the last good data stays on screen with a note saying
+  how old it is, and the page reconnects by itself.
 - **Cheap to watch.** AWS state is cached for 5 s and CloudWatch metrics are read in one call a minute, so an open page
   polling every 2 s costs almost nothing.
 - Terraform runs with `-input=false`, so it can never stall on a prompt nobody can see.
