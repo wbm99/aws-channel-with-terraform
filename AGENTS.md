@@ -11,7 +11,7 @@ choice.
 
 This repository creates resources that bill **by the hour while running**, not by request.
 
-- A running demo costs **about 1.74 USD/hour** (MediaLive ~0.78, MediaConnect ~0.29, MediaPackage ~0.25, rest smaller).
+- A running demo costs **about 1.74 USD/hour** (MediaLive ~1.20, MediaConnect ~0.29, MediaPackage ~0.25, rest smaller).
   The breakdown is in `docs/cost-estimate.md`.
 - **Never leave a `just start` without a `just stop`.** The flow and channel keep billing until stopped, even with no
   viewers and no source connected.
@@ -43,7 +43,7 @@ The ones that matter: `just test` (full offline suite), `just fmt`, `just valida
 ## Terraform conventions
 
 - **One module per layer** under `modules/`: `ingest`, `medialive-role`, `encode`, `package`, `player`, `delivery`,
-  `guardrails`. `envs/demo/main.tf` wires them together and is the only place they meet.
+  `guardrails`, `observability`. `envs/demo/main.tf` wires them together and is the only place they meet.
 - Every module carries `versions.tf`, `variables.tf`, `outputs.tf`, `main.tf` and `tests/<name>.tftest.hcl`. A new
   module without a test file is incomplete.
 - `description` on **every** variable and output. No exceptions in this repo so far; keep it that way.
@@ -82,6 +82,11 @@ just test        # terraform test for bootstrap + all modules, then pytest over 
   defaults. They do **not** prove AWS accepts the request. Three things have passed mocked tests and been rejected live;
   they are listed under *Lessons learned* in `README.md`.
 - Python tests use `moto`. Fixtures are in `tools/tests/conftest.py`; `make_workflow()` builds a flow and a channel.
+  Where moto has no implementation (MediaLive alerts, MediaPackage v2 endpoints), `tools/tests/stubs.py` answers instead.
+- The console page is tested in a real browser: `tools/tests/scenarios.py` runs the server in named states against
+  stub clients, and `just test-ui` drives Chrome through each one with Playwright (a dev-only extra, `tools[ui]`).
+  `just test` runs these too when Playwright is installed and skips them otherwise. `just ui-scenario <name>` shows a
+  state by hand.
 
 ## Secrets
 

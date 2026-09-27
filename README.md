@@ -28,8 +28,9 @@ flowchart LR
 - **Infrastructure as code:** one module per layer, remote state in S3 with native locking, tagging, `terraform fmt` and mocked-provider `terraform test` suites that need no AWS access.
 - **Working around provider gaps:** the `hashicorp/aws` provider has no MediaConnect flow and no MediaPackage v2 resources, so those use `hashicorp/awscc` (the whole chain stays declarative).
 - **Security:** SRT encryption, an IP allow-list, no public origin (CDN authorization), private buckets with origin access control, no secrets in the repository.
-- **Operations:** a Python CLI (`livectl`) with `start`, `stop`, `status` and `check-clean`, a browser console for the
-  same operations, and `just` recipes for everything; tested with `pytest` and `moto`.
+- **Operations:** a Python CLI (`livectl`) with `start`, `stop`, `status` and `check-clean`, a browser control center
+  that shows every resource in the chain with its logs and runs the test source, and `just` recipes for everything;
+  tested with `pytest`, `moto` and browser tests driven through every state.
 - **Cost awareness:** a persistent budget with alerts, a priced estimate ([docs/cost-estimate.md](docs/cost-estimate.md)) and a leftover check.
 
 ## Prerequisites
@@ -76,18 +77,70 @@ pass them directly: `livectl stop --flow-arn <arn> --channel-id <id>`.
 
 ## Operating it
 
-`just ui` serves a console on <http://127.0.0.1:8765>: pipeline state, what it costs per hour while it runs, the ingest
-and player endpoints, and buttons for start, stop, check-clean, apply and destroy with the output streamed as it
-arrives. It is built on Python's standard library, so it adds no dependency to the project.
+`just ui` serves a control center on <http://127.0.0.1:8765>. It is built on Python's standard library and plain
+browser modules, so it adds no dependency to the project.
+
+- **Header:** a one-line verdict for the whole pipeline (*Not deployed*, *Off air*, *On air · playing*,
+  *On air · no source*, *Partly on*, …) and what is billing per hour right now, summed from the resources that are up.
+- **Pipeline:** one node per resource, left to right: SRT Input Source → MediaConnect Flow → MediaLive Input →
+  MediaLive Channel → MediaPackage Channel → CloudFront CDN → Player. Each shows its AWS state, a health colour and a
+  key figure. The Player node fetches the playlist through CloudFront and checks that its media sequence advances, the
+  only end-to-end proof that viewers get video. Clicking a node shows everything known about it, with a link to the
+  AWS console.
+- **Player:** the deployed hls.js page, embedded next to the selected node.
+- **Controls,** named for what they do and shown only when they can work:
+
+  | Control | Runs |
+  |---|---|
+  | Deploy stack | `terraform apply` (refused while on air: Terraform cannot update a running channel) |
+  | Tear down stack | `terraform destroy`, after you type `destroy` (refused while on air) |
+  | Scan for leftovers | lists billable resources still carrying the project name |
+  | Go live | starts the flow, then the channel |
+  | Go off air | stops the test source, then the channel, then the flow |
+  | Send test source / Stop test source | runs `source/send-srt.sh` against the ingest |
+
+- **Endpoints:** SRT ingest, player, HLS manifest and the Secrets Manager ARN of the passphrase, each with a Copy
+  button that copies exactly the value.
+- **Logs panel,** one tab per resource. MediaLive and MediaConnect events (state changes, alerts, SRT source health
+  with its TR 101 290 flags) reach a log group through an EventBridge rule (`modules/observability`); MediaLive's own
+  encoder and as-run logs are read from `ElementalMediaLive`; the SRT Source tab also shows the test source's output.
+  MediaPackage and CloudFront access logs are not enabled; their figures are in the node details.
 
 It is deliberately blunt about its limits:
 
 - **Loopback only.** It refuses any address that is not `127.0.0.1`, `localhost` or `::1`, because it can destroy
   infrastructure. There is no authentication and it is not meant to be exposed.
-- **Destroy needs confirmation.** You type `destroy` into the page, and the server checks that token as well, so calling
-  the API directly does not skip the guard.
+- **The server enforces the rules, not only the page.** Hidden buttons are a convenience; a direct API call to tear
+  down while on air, or without the typed word, is refused the same way.
 - **One operation at a time.** A second request while a job is running is refused rather than queued.
+- **The test source's passphrase** is read from Secrets Manager when you click *Send test source*, handed to FFmpeg in
+  its environment, and replaced by `***` in every output line before the console stores it. Closing the console stops
+  the source.
+- **Cheap to watch.** AWS state is cached for 5 s and CloudWatch metrics are read in one call a minute, so an open page
+  polling every 2 s costs almost nothing.
 - Terraform runs with `-input=false`, so it can never stall on a prompt nobody can see.
+
+To see every state without an AWS account, `just ui-scenario <name>` serves the console against stub clients
+(`not-deployed`, `off-air`, `on-air-playing`, `on-air-no-source`, `partly-on`, … listed in `tools/tests/scenarios.py`).
+
+### Verify the console live (costs money: about 1.74 USD/hour while on air)
+
+Offline tests prove the console's logic, not AWS's answers. After `just up` (re-run it once on an existing stack so
+the new outputs exist), open `just ui` and check:
+
+1. Every node shows a state; none says "not in the Terraform outputs yet".
+2. **Go live**: the verdict goes *Going live…* then *On air · no source*; the cost shows about $1.49 / h.
+3. **Send test source**: within about two minutes the SRT node reads *connected*, the verdict *On air · playing*,
+   and the player shows the burned-in clock.
+4. The **MediaLive** tab shows channel state events (proves the EventBridge rule and the log resource policy) and
+   encoder log lines (proves the `ElementalMediaLive` stream prefix is the channel ARN).
+5. The **SRT Source** tab shows FFmpeg output with `passphrase=***`.
+6. The **CloudFront** node shows requests per minute (proves the metric dimensions).
+7. Stop the test source while on air: the channel node lists an input-loss alert (proves `list_alerts` with
+   `StateFilter=SET`), and the player turns black.
+8. Each *Open in the AWS console* link opens the right page.
+9. **Go off air**: the source stops first, then channel and flow; the verdict reads *Off air* and the cost $0.00.
+10. **Tear down**, then **Scan for leftovers**: nothing billable, and `ElementalMediaLive` listed as information.
 
 ## Repository layout
 
@@ -103,6 +156,7 @@ modules/
   player/           private S3 bucket with the hls.js page
   delivery/         CloudFront distribution with the two origins
   guardrails/       AWS Budgets alerts
+  observability/    EventBridge rule and log group for MediaLive and MediaConnect events
 envs/demo/          wires the modules together
 tools/livectl/      Python CLI and the browser console (site/), with tests in tools/tests
 source/             FFmpeg SRT source script
@@ -116,6 +170,7 @@ Everything runs offline with no AWS credentials:
 
 ```bash
 just test          # terraform test for every root (mocked providers), then pytest over tools (moto)
+just test-ui       # drive the console in Chrome through every scenario (pip install -e "tools[dev,ui]")
 just validate      # formatting check and terraform validate for every root
 just frame         # renders one frame to /tmp/clock.png to check the burned-in clock
 ```
@@ -146,9 +201,12 @@ channel. When nothing is running, cost is close to zero. Details, assumptions an
 - The MediaLive role uses broad `Resource = "*"` on a few actions. It is fine for a demo and should be scoped before real use.
 - Delivery is MPEG-TS over HLS only.
 - The latency figure is approximate: the encoder clock and the browser clock are not synchronised.
-- The SRT passphrase is visible in the FFmpeg process arguments on a shared machine, and it is stored in Terraform state
-  (the state bucket is private, encrypted and versioned).
+- The SRT passphrase is visible in the FFmpeg process arguments on a shared machine, whether the source runs from
+  `just send` or from the console (FFmpeg takes it inside its SRT URL), and it is stored in Terraform state (the state
+  bucket is private, encrypted and versioned).
 - If your public IP changes, update `source_cidr` and re-apply, or the stream is rejected.
 - The browser console has no authentication. It binds to loopback only and refuses anything else, but anyone with an
   account on the same machine can reach it, and its apply and destroy run with `-auto-approve`.
+- MediaLive creates the `ElementalMediaLive` log group itself, so it outlives `terraform destroy`. The leftover scan
+  lists it as information (log storage only, not billed by the hour).
 - `livectl check-clean` covers the media resources and CloudFront (flows, channels, inputs, channel groups, distributions). It does not look at secrets, IAM roles or S3 buckets; `terraform destroy` removes those, and the README's teardown ends with it.

@@ -1,7 +1,7 @@
 # livectl Control Center: Design
 
 Date: 2026-09-26
-Status: Approved design, not implemented
+Status: Implemented (plans 5-7); see the README live checklist
 Branch: `feat/control-center` (stacked on `feat/agent-guide-just-and-ui`)
 
 This document has two parts: a product part (PRD: what and why) and a technical part (TRD: how).
@@ -287,8 +287,8 @@ informational (log storage only, not hourly billing) and does not fail on it.
 | SRT Source | Test source output (redacted) and `MediaConnect Source Health` events |
 | MediaConnect | Flow Status Change, Alert, Flow Health, Output Health events |
 | MediaLive | Channel State Change, Alert, Input Change events; encoder and as-run log lines |
-| MediaPackage | "Access logs are not enabled." plus an ingest chart from the metrics |
-| CloudFront | "Access logs are not enabled." plus requests and 5xx charts from the metrics |
+| MediaPackage | "Access logs are not enabled." and a pointer to the node's ingest and 5xx figures (charts deferred: the backend keeps only the newest value) |
+| CloudFront | "Access logs are not enabled." and a pointer to the node's requests and 5xx figures (charts deferred) |
 | Jobs | Terraform, go-live and go-off-air output |
 
 `livectl/logs.py` reads with `logs.filter_log_events` (start time plus `nextToken`) and turns each EventBridge event into
