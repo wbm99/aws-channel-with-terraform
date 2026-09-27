@@ -239,7 +239,7 @@ def _logs_payload(console: Console, tab: str, after: int) -> dict:
 
 
 def _start_source(console: Console, pattern: str, *, switching: bool) -> Response:
-    """Start the test source on a pattern. Switching restarts FFmpeg: SRT reconnects, about two seconds of slate."""
+    """Start the test source on a pattern. Switching restarts FFmpeg: SRT reconnects, a few seconds of slate."""
     targets = console.targets()
     if not (targets.ingest_ip and targets.passphrase_secret_arn):
         return _json(409, {"error": "The ingest address or the passphrase is missing from the Terraform "

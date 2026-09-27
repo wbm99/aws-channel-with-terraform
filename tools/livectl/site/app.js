@@ -27,6 +27,7 @@ let lastFailedJob = null;
 let playerHealth = null;
 let polling = false;         // a poll in flight; the next tick waits for it instead of piling up
 let lostContact = false;     // the banner currently says the console is not answering
+let chosenPattern = 'testcard';  // the pattern the next Send test source will use
 
 function changed(key, value) {
   const json = JSON.stringify(value);
@@ -150,7 +151,9 @@ function render() {
 
   const sourceRunning = Boolean(data.source && ['starting', 'running'].includes(data.source.state));
   const job = data.job && data.job.state === 'running' ? data.job.name : null;
-  const state = { actions: data.actions, next: data.next, nodes: stable, deployed: data.deployed, sourceRunning, job };
+  const pattern = sourceRunning && data.source.pattern ? data.source.pattern : chosenPattern;
+  const state = { actions: data.actions, next: data.next, nodes: stable, deployed: data.deployed, sourceRunning, job,
+    patterns: data.patterns || [], pattern };
   if (changed('actions', state)) {
     renderSteps($('steps'), state, act);
     renderMaintenance($('maintenance'), state, act);
@@ -191,6 +194,12 @@ async function poll() {
 }
 
 async function act(name, body) {
+  if (name === 'source-pattern') {
+    chosenPattern = body.pattern;
+    const running = data && data.source && ['starting', 'running'].includes(data.source.state);
+    if (!running) { delete seen.actions; render(); return; }   // just remembered for the next start
+  }
+  if (name === 'source-start' && !body) body = { pattern: chosenPattern };
   if (name === 'teardown' && !body) {
     $('confirm').hidden = false;
     $('confirm-input').focus();
@@ -203,7 +212,7 @@ async function act(name, body) {
   }
   banner('');
   // The test source's output is in its log tab; everything else runs as a job, shown on the Control page.
-  if (name === 'source-start' || name === 'source-stop') logs.select('srt');
+  if (name.startsWith('source-')) logs.select('srt');
   delete seen.actions;
   poll();
 }

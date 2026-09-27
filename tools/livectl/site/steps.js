@@ -61,6 +61,7 @@ export function renderSteps(list, state, onAction) {
     ['live', 'Go live', done.live, [['go-live', 'primary'], ['go-off-air', '']]],
     ['source', 'Send a source', done.source, [['source-start', 'primary'], ['source-stop', '']]],
   ];
+  // The test pattern picker sits in the source step: chosen before sending, or switched while sending.
   list.replaceChildren(...steps.map(([id, title, [complete, status], actions], index) => {
     const current = actions.some(([name]) => name === state.next);
     const busy = id === busyStep;
@@ -70,8 +71,20 @@ export function renderSteps(list, state, onAction) {
       el('div', { class: 'step-body' },
         el('h3', {}, title),
         el('p', { class: 'step-status' }, busy ? busyText + ' Progress is in Last job below.' : status),
+        id === 'source' && state.patterns.length ? patternPicker(state, onAction) : null,
         el('div', { class: 'actions' }, buttons(state, actions, onAction))));
   }));
+}
+
+function patternPicker(state, onAction) {
+  const select = el('select', { id: 'pattern', class: 'pattern', 'aria-label': 'Test pattern' },
+    state.patterns.map(({ id, label }) => el('option', { value: id, selected: id === state.pattern }, label)));
+  select.addEventListener('change', () => onAction('source-pattern', { pattern: select.value }));
+  return el('div', { class: 'picker' },
+    el('label', { for: 'pattern' }, 'Test pattern'), select,
+    state.sourceRunning
+      ? el('p', { class: 'step-status' }, 'Changing it restarts FFmpeg: a few seconds of black slate while SRT reconnects.')
+      : null);
 }
 
 export function renderMaintenance(container, state, onAction) {

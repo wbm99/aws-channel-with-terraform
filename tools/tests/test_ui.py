@@ -6,6 +6,7 @@ They check what a person sees and can click, in every state.
 
 import re
 import threading
+import time
 
 import pytest
 
@@ -563,3 +564,43 @@ def test_the_first_node_is_named_for_the_mediaconnect_source(open_scenario):
     page, _ = open_scenario("off-air")
 
     expect(page.locator('#chain button[data-node="srt_source"]')).to_contain_text("MediaConnect Source (SRT)")
+
+
+
+# --- test pattern ------------------------------------------------------------------------------------------
+
+
+def test_the_chosen_pattern_is_sent_with_send_test_source(open_scenario):
+    page, scenario = open_scenario("on-air-no-source")
+
+    page.locator("#pattern").select_option("smpte")
+    page.locator('#steps [data-action="source-start"]').click()
+
+    expect(page.locator('#steps [data-action="source-stop"]')).to_be_visible()
+    assert scenario.console.source.calls == [("start", "smpte")]
+    expect(page.locator("#pattern")).to_have_value("smpte")
+
+
+def test_changing_the_pattern_while_sending_switches_it_live(open_scenario):
+    page, scenario = open_scenario("source-running")
+    expect(page.locator("#pattern")).to_have_value("testcard")
+    expect(page.locator("#steps")).to_contain_text("restarts FFmpeg")
+
+    page.locator("#pattern").select_option("standby")
+
+    # The dropdown changes at once; the switch reaches the server a moment later, so wait for the calls themselves.
+    deadline = time.monotonic() + 5
+    while scenario.console.source.calls != [("stop",), ("start", "standby")] and time.monotonic() < deadline:
+        page.wait_for_timeout(100)
+    assert scenario.console.source.calls == [("stop",), ("start", "standby")]
+    expect(page.locator("#pattern")).to_have_value("standby")
+    expect(page.locator("#banner")).to_be_hidden()
+
+
+def test_choosing_a_pattern_while_not_sending_starts_nothing(open_scenario):
+    page, scenario = open_scenario("on-air-no-source")
+
+    page.locator("#pattern").select_option("black")
+
+    expect(page.locator("#pattern")).to_have_value("black")
+    assert scenario.console.source.calls == []

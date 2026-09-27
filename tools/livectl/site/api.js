@@ -1,6 +1,6 @@
 // The only module that talks to the livectl server.
 
-const PATHS = { 'source-start': 'source/start', 'source-stop': 'source/stop' };
+const PATHS = { 'source-start': 'source/start', 'source-stop': 'source/stop', 'source-pattern': 'source/pattern' };
 
 export async function getPipeline(offset, jobKey) {
   // The offset only means something for the job it was counted on, so the job's key travels with it.

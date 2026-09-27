@@ -104,6 +104,10 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
   | Go live / Go off air | starts the flow, then the channel / stops the test source, the channel, then the flow |
   | Send test source / Stop test source | runs `source/send-srt.sh` against the ingest |
 
+  The source step has a **test pattern** picker: test card, SMPTE HD colour bars, PAL/EBU 100% bars, black, or a
+  "Please stand by" slate, all with the UTC clock burned in. Changing it while sending restarts FFmpeg, so viewers see
+  a few seconds of MediaLive's black slate while SRT reconnects. From a terminal: `PATTERN=smpte just send`.
+
 - **Last job:** the output of the latest job, full width, each line with its UTC date and time, with *Show all*.
   A stopwatch and a progress bar show how far it has got: Terraform's own plan gives deploy and teardown an exact
   count (*12 of 31 resources · 39%*), and going live or off air counts the flow and channel reaching their states.

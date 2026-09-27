@@ -76,23 +76,35 @@ def recent_events(health: str = "CONNECTED") -> list[tuple[int, str]]:
 
 
 class FakeSource:
-    """Stands in for SourceProcess: a test source that is already running, with its redacted banner."""
+    """Stands in for SourceProcess in every scenario, so no browser test can start a real FFmpeg.
 
-    running = True
+    It starts, stops and switches pattern like the real one, records each call, and when running shows the banner
+    FFmpeg prints, already redacted.
+    """
+
+    def __init__(self, running: bool = False, pattern: str = "testcard") -> None:
+        self.running = running
+        self.pattern = pattern
+        self.calls: list[tuple] = []
 
     def status(self) -> dict:
-        return {"state": "running", "exit_code": None, "last_error": None, "progress": "frame= 900 fps=30"}
+        return {"state": "running" if self.running else "stopped", "exit_code": None, "last_error": None,
+                "progress": "frame= 900 fps=30" if self.running else None, "pattern": self.pattern}
 
     def lines(self, after_ms: int) -> list[tuple[int, str]]:
+        if not self.running:
+            return []
         at = int(time.time() * 1000) - 5000
         banner = "Output #0, mpegts, to 'srt://203.0.113.20:5000?mode=caller&passphrase=***&pbkeylen=32':"
         return [(at, banner)] if at > after_ms else []
 
-    def start(self, **_) -> None:
-        pass
+    def start(self, *, pattern: str = "testcard", **_) -> None:
+        self.calls.append(("start", pattern))
+        self.running, self.pattern = True, pattern
 
     def stop(self) -> None:
-        pass
+        self.calls.append(("stop",))
+        self.running = False
 
 
 def growing_playlist():
@@ -140,8 +152,8 @@ def build(name: str) -> Scenario:
 
     console = Console(**clients, jobs=JobRunner(), runner=runner, command=command,
                       logs=logs_client(recent_events(health)))
-    if source == "running":
-        console.source = FakeSource()
+    console.source = FakeSource(running=source == "running")
+    console.read_passphrase = lambda arn: "0123456789abcdef0123456789abcdef"
     console.pipeline = Pipeline(**clients, fetch=growing_playlist() if playing else no_playlist,
                                 source_status=console.source.status, logs=console.logs)
     scenario = Scenario(console=console, commands=commands)
