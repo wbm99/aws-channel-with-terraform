@@ -129,7 +129,7 @@ def test_a_failed_probe_shows_its_error_on_the_node(open_scenario):
 def test_the_player_frame_loads_the_deployed_player(open_scenario):
     page, _ = open_scenario("off-air")
 
-    expect(page.locator("#player-frame")).to_have_attribute("src", OUTPUTS["player_url"])
+    expect(page.locator("#player-frame")).to_have_attribute("src", OUTPUTS["player_url"] + "?embed=1")
 
 
 def test_teardown_needs_the_typed_word_then_runs_terraform(open_scenario):
@@ -401,3 +401,42 @@ def test_a_dropped_source_shows_at_once_not_when_cloudwatch_catches_up(open_scen
 
     page.locator('#chain button[data-node="srt_source"]').click()
     expect(page.locator("#detail")).to_contain_text("MediaConnect event at")
+
+
+
+# --- second live run (2026-09-27) ----------------------------------------------------------------
+
+
+def test_a_new_job_shows_its_output_from_the_first_line(open_scenario):
+    """Live: after go-off-air's nine lines, the teardown's output was read from line nine and looked empty."""
+    page, _ = open_scenario("off-air")
+    page.locator('#maintenance [data-action="scan"]').click()
+    expect(page.locator("#job-title")).to_have_text("Last job: scan")
+
+    page.locator('#maintenance [data-action="teardown"]').click()
+    page.locator("#confirm-input").fill("destroy")
+    page.locator("#confirm-go").click()
+
+    expect(page.locator("#job-title")).to_have_text("Last job: teardown")
+    expect(page.locator("#job-log")).to_have_text(
+        "$ terraform -chdir=envs/demo destroy -auto-approve -input=false -no-color\n")
+
+
+def test_live_logs_run_below_the_player_newest_first(open_scenario):
+    page, _ = open_scenario("source-running", "live")
+    lines = page.locator("#log .line")
+    expect(lines.first).to_contain_text("source connected")
+
+    player = page.locator(".player-card").bounding_box()
+    panel = page.locator("#panel").bounding_box()
+    assert panel["y"] >= player["y"] + player["height"], "the logs sit under the player, not beside it"
+    assert panel["width"] > 900, "and run the width of the page"
+    expect(lines.last).to_contain_text("flow STANDBY → ACTIVE")
+
+
+def test_figures_of_resources_that_are_off_show_nothing(open_scenario):
+    page, _ = open_scenario("off-air", "live")
+
+    expect(page.locator("#verdict-text")).to_have_text("Off air")
+    expect(page.locator('[data-metric="mp_ingress_bytes"] dd')).to_have_text("—")
+    expect(page.locator('[data-metric="src_bitrate"] dd')).to_have_text("—")

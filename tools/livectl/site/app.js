@@ -89,7 +89,9 @@ function renderHeader() {
 
 function renderPlayer() {
   const frame = $('player-frame');
-  const url = data.endpoints.player;
+  // embed=1 asks the player page for the video alone, without its title, clocks and notes.
+  const base = data.endpoints.player;
+  const url = base ? base + (base.includes('?') ? '&' : '?') + 'embed=1' : null;
   if (url && frame.getAttribute('src') !== url) frame.setAttribute('src', url);
   // The player page gives up on the 404s it gets before the first segment exists. When the console sees the
   // playlist start advancing, it reloads the frame once so the player picks the stream up without a manual refresh.
@@ -157,7 +159,7 @@ function render() {
 
 async function poll() {
   try {
-    data = await getPipeline(jobs.offset);
+    data = await getPipeline(jobs.offset, jobs.key);
     lastUpdate = Date.now();
     render();
   } catch (error) {

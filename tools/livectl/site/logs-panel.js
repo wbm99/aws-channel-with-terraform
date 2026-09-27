@@ -1,4 +1,4 @@
-// The right-hand panel: one tab per resource. Only the visible tab is polled. Job output has its own card.
+// The Live page's log panel: one tab per resource, newest line first. Only the visible tab is polled.
 import { getLogs } from './api.js';
 import { el } from './format.js';
 
@@ -71,19 +71,19 @@ export class LogsPanel {
 
   draw() {
     const tab = this.active;
-    const atBottom = this.list.scrollHeight - this.list.scrollTop - this.list.clientHeight < 24;
+    const atTop = this.list.scrollTop < 24;
     if (NO_LOGS[tab]) {
       this.list.replaceChildren(el('p', { class: 'note' }, NO_LOGS[tab]));
     } else {
       const buffer = this.buffer(tab);
       this.list.replaceChildren(
         ...buffer.notes.map((note) => el('p', { class: 'note' }, note)),
-        ...(buffer.lines.length ? buffer.lines.map((line) => this.line(line))
+        ...(buffer.lines.length ? buffer.lines.slice().reverse().map((line) => this.line(line))
           : [el('p', { class: 'note' }, 'No events in the last 30 minutes.')]),
       );
     }
-    // Follow new lines only if the reader was already at the bottom, so scrolling back to read is not undone.
-    if (atBottom) this.list.scrollTop = this.list.scrollHeight;
+    // Newest first: stay at the top for new lines, unless the reader has scrolled down to read older ones.
+    if (atTop) this.list.scrollTop = 0;
   }
 
   line(line) {

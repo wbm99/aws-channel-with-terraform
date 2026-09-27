@@ -2,8 +2,10 @@
 
 const PATHS = { 'source-start': 'source/start', 'source-stop': 'source/stop' };
 
-export async function getPipeline(offset) {
-  const response = await fetch('api/pipeline?offset=' + offset, { cache: 'no-store' });
+export async function getPipeline(offset, jobKey) {
+  // The offset only means something for the job it was counted on, so the job's key travels with it.
+  const job = jobKey ? '&job=' + encodeURIComponent(jobKey) : '';
+  const response = await fetch('api/pipeline?offset=' + offset + job, { cache: 'no-store' });
   if (!response.ok) throw new Error('the console answered ' + response.status);
   return response.json();
 }

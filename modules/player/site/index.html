@@ -14,6 +14,11 @@
     .label { font-size: 12px; text-transform: uppercase; opacity: .7; }
     .value { font-size: 28px; font-variant-numeric: tabular-nums; }
     p.note { opacity: .7; font-size: 13px; }
+    /* ?embed=1 (the livectl console): only the video, filling the frame. */
+    body.embed { background: #000; }
+    body.embed main { max-width: none; padding: 0; }
+    body.embed h1, body.embed .stats, body.embed .note { display: none; }
+    body.embed video { width: 100vw; height: 100vh; border-radius: 0; object-fit: contain; }
   </style>
 </head>
 <body>
@@ -29,6 +34,7 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
   <script>
+    if (new URLSearchParams(location.search).has('embed')) document.body.classList.add('embed');
     const video = document.getElementById('video');
     const clock = document.getElementById('clock');
     const latency = document.getElementById('latency');
@@ -48,6 +54,13 @@
           const hls = new Hls({ liveSyncDurationCount: 3 });
           hls.loadSource(url);
           hls.attachMedia(video);
+          // Before the first segment exists the playlist is a 404, and hls.js stops at a fatal error. Keep trying,
+          // so a page opened before going live starts playing on its own.
+          hls.on(Hls.Events.ERROR, (event, data) => {
+            if (!data.fatal) return;
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+            else setTimeout(() => hls.loadSource(url), 3000);
+          });
           hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
             level.textContent = hls.levels[data.level].height + 'p';
           });

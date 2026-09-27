@@ -112,11 +112,12 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
 
 **Live** is for watching the broadcast:
 
-- **Player:** the deployed hls.js page, large. It is reloaded once when the playlist starts advancing, because the page
-  gives up on the 404s it receives before the first segment exists. The *Live* menu item pulses once the stream plays.
-- **Figures** under it: source bitrate, round trip, unrecovered packets, input frame rate, active alerts, ingest into
+- **Player:** the deployed hls.js page in embed mode (`?embed=1`: the video alone, 16:9). The page retries when the
+  playlist is still a 404 before the first segment, so a player opened before going live starts on its own. The *Live*
+  menu item pulses once the stream plays.
+- **Figures** under it (a dash for a resource that is off, rather than its last stale datapoint): source bitrate, round trip, unrecovered packets, input frame rate, active alerts, ingest into
   MediaPackage and CloudFront requests, with *Stop test source* and *Go off air* so billing can be ended from here.
-- **Logs,** one tab per resource, filling the height beside the player. MediaLive and MediaConnect events (state
+- **Logs,** one tab per resource, full width under the player, newest line first. MediaLive and MediaConnect events (state
   changes, alerts, SRT source health with its TR 101 290 flags) reach a log group through an EventBridge rule
   (`modules/observability`); MediaLive's own encoder and as-run logs are read from `ElementalMediaLive`; the SRT
   Source tab also shows the test source's output. MediaPackage and CloudFront access logs are not enabled; their
