@@ -199,6 +199,10 @@ channel. When nothing is running, cost is close to zero. Details, assumptions an
   kept running. `%{gmtime\:%T}` works. The lesson is to render one frame locally before going live (`--frame`).
 - **A deleted MediaLive channel lingers in `DELETING`.** `livectl check-clean` ignores it, or it would raise a false alarm right after a destroy.
 - **Budgets belong outside the environment they watch.** Mine started in the demo and was destroyed with it.
+- **Never act on an in-between state.** Stopping the channel makes MediaConnect update the flow for a few seconds
+  (ACTIVE → UPDATING → ACTIVE). My stop logic checked during that window, saw UPDATING, never sent `stop_flow`, and
+  waited ten minutes for STANDBY while the flow kept billing. `livectl` now waits for each resource to settle before
+  deciding what to do, and logs every state it passes through.
 - **IAM is eventually consistent, so dependencies must say so.** A rehearsal from scratch failed with a 403 because the MediaLive input was created before its role's policy existed. The role's `role_arn` output now depends on the policy. Earlier runs had only been lucky.
 
 ## Known limitations
