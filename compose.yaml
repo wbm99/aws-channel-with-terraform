@@ -1,0 +1,23 @@
+# The console with every tool inside: `docker compose up`, then open http://127.0.0.1:8765.
+# One-off recipes: `docker compose run --rm console just <recipe>`. Settings: copy .env.example to .env.
+services:
+  console:
+    image: ghcr.io/wbm99/aws-channel-with-terraform:latest
+    build: { context: ., dockerfile: docker/Dockerfile, target: runtime }
+    # Files written into the checkout (state, provider caches) belong to the host user.
+    user: "${UID:-1000}:${GID:-1000}"
+    ports:
+      # Keep the 127.0.0.1 prefix: without it the console, which can destroy the stack, is reachable from the LAN.
+      - "127.0.0.1:${CONSOLE_PORT:-8765}:8765"
+    volumes:
+      - type: bind
+        source: .
+        target: /work
+      - type: bind
+        source: ${HOME}/.aws
+        target: /home/app/.aws
+        read_only: true
+        bind: { create_host_path: false }  # a missing ~/.aws is an error, not a new root-owned directory
+    environment:
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      CONSOLE_URL: http://127.0.0.1:${CONSOLE_PORT:-8765}/
