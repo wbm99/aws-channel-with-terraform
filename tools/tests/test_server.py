@@ -374,6 +374,21 @@ def test_make_server_refuses_a_network_interface(aws):
         make_server(make_console(), host="0.0.0.0", port=0)
 
 
+def test_a_container_may_bind_every_interface(aws):
+    from livectl.server import make_server
+
+    server = make_server(make_console(), host="0.0.0.0", port=0, container=True)
+    server.server_close()
+
+
+def test_a_container_still_refuses_a_specific_network_address(aws):
+    import pytest
+    from livectl.server import ConsoleError, make_server
+
+    with pytest.raises(ConsoleError):
+        make_server(make_console(), host="192.168.1.5", port=0, container=True)
+
+
 # --- logs and the test source --------------------------------------------------
 
 from livectl.source import SourceProcess

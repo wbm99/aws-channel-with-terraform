@@ -1,4 +1,5 @@
 import boto3
+import pytest
 
 from conftest import make_workflow
 from livectl.cli import main
@@ -48,3 +49,32 @@ def test_missing_targets_exit_with_code_2(aws, capsys):
 
     assert code == 2
     assert "could not determine" in capsys.readouterr().err
+
+
+def test_ui_refuses_every_interface_without_container(capsys):
+    with pytest.raises(SystemExit) as exit_:
+        main(["ui", "--host", "0.0.0.0", "--no-browser"])
+
+    assert exit_.value.code == 2
+    assert "loopback" in capsys.readouterr().err
+
+
+def test_ui_in_a_container_announces_the_host_url(aws, monkeypatch):
+    served = {}
+    monkeypatch.setattr("livectl.cli.serve", lambda console, **kwargs: served.update(kwargs))
+    monkeypatch.setenv("CONSOLE_URL", "http://127.0.0.1:9000/")
+
+    assert main(["ui", "--host", "0.0.0.0", "--container", "--no-browser"]) == 0
+
+    assert served["host"] == "0.0.0.0" and served["container"] is True
+    assert served["url"] == "http://127.0.0.1:9000/"
+
+
+def test_ui_outside_a_container_ignores_the_container_url(aws, monkeypatch):
+    served = {}
+    monkeypatch.setattr("livectl.cli.serve", lambda console, **kwargs: served.update(kwargs))
+    monkeypatch.setenv("CONSOLE_URL", "http://127.0.0.1:9000/")
+
+    assert main(["ui", "--no-browser"]) == 0
+
+    assert served["container"] is False and served["url"] is None

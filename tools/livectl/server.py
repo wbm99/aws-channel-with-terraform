@@ -5,7 +5,9 @@ clients and the job runner. The HTTP class around it is a thin shell, so the tes
 real routing with moto clients and a fake process launcher, without opening a socket.
 
 The console can destroy infrastructure, so it binds to loopback only and never listens on a
-network interface.
+network interface. The one exception is a container (`--container`): Docker delivers published ports to the
+container's own network interface, never to its loopback, so there it binds 0.0.0.0 and the guarantee moves to
+compose.yaml, which publishes the port on the host's 127.0.0.1 only.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from livectl.verdict import hourly_rate, verdict
 
 SITE = Path(__file__).parent / "site"
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+CONTAINER_HOST = "0.0.0.0"  # allowed only with container=True; see the module docstring
 DESTROY_TOKEN = "destroy"
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -392,9 +395,14 @@ class _Server(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def make_server(console: Console, *, host: str = "127.0.0.1", port: int = 8765) -> "_Server":
-    """A bound console server. Refuses any address that is not loopback."""
-    if host not in LOOPBACK:
+def allowed_hosts(container: bool = False) -> set[str]:
+    return LOOPBACK | {CONTAINER_HOST} if container else LOOPBACK
+
+
+def make_server(console: Console, *, host: str = "127.0.0.1", port: int = 8765,
+                container: bool = False) -> "_Server":
+    """A bound console server. Refuses any address that is not loopback, except 0.0.0.0 inside a container."""
+    if host not in allowed_hosts(container):
         raise ConsoleError(f"the console binds to loopback only, not {host!r} (it can destroy infrastructure)")
     handler = type("ConsoleHandler", (_Handler,), {"console": console})
     try:
@@ -403,10 +411,11 @@ def make_server(console: Console, *, host: str = "127.0.0.1", port: int = 8765) 
         raise ConsoleError(f"cannot listen on {host}:{port}: {error.strerror or error}") from error
 
 
-def serve(console: Console, *, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
-    """Run the console until interrupted."""
-    with make_server(console, host=host, port=port) as httpd:
-        url = f"http://{host}:{httpd.server_address[1]}/"
+def serve(console: Console, *, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True,
+          container: bool = False, url: Optional[str] = None) -> None:
+    """Run the console until interrupted. `url` is what to announce when the address people use differs (Docker)."""
+    with make_server(console, host=host, port=port, container=container) as httpd:
+        url = url or f"http://{host}:{httpd.server_address[1]}/"
         print(f"livectl console on {url}  (Ctrl-C to stop)")
         if open_browser:
             webbrowser.open(url)

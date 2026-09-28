@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import os
 import sys
 from typing import Optional, Sequence
 
@@ -12,7 +13,7 @@ from botocore.config import Config
 
 from livectl.clean import find_informational, find_leftovers
 from livectl.control import WaitTimeout, start, stop
-from livectl.server import LOOPBACK, Console, ConsoleError, serve
+from livectl.server import Console, ConsoleError, allowed_hosts, serve
 from livectl.status import get_status
 from livectl.targets import Runner, TargetError, resolve_targets, run_command
 
@@ -29,13 +30,6 @@ def _target_parent() -> argparse.ArgumentParser:
     parent.add_argument("--flow-arn", help="MediaConnect flow ARN (overrides Terraform output)")
     parent.add_argument("--channel-id", help="MediaLive channel ID (overrides Terraform output)")
     return parent
-
-
-def _loopback(value: str) -> str:
-    """Reject anything but a loopback address: the console can destroy infrastructure."""
-    if value not in LOOPBACK:
-        raise argparse.ArgumentTypeError(f"the console binds to loopback only, not {value!r}")
-    return value
 
 
 def _wait_parent() -> argparse.ArgumentParser:
@@ -56,7 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
     clean.add_argument("--prefix", default="live-sports-aws", help="name prefix of the resources to look for")
     ui = commands.add_parser("ui", parents=[region, target], help="serve the operations console on localhost")
     ui.add_argument("--port", type=int, default=8765, help="port to listen on (default: 8765)")
-    ui.add_argument("--host", type=_loopback, default="127.0.0.1", help="loopback address to bind")
+    ui.add_argument("--host", default="127.0.0.1", help="loopback address to bind")
+    ui.add_argument("--container", action="store_true",
+                    help="running in a container whose published port is bound to the host's loopback; "
+                         "allows --host 0.0.0.0")
     ui.add_argument("--no-browser", action="store_true", help="do not open a browser window")
     ui.add_argument("--prefix", default="live-sports-aws", help="name prefix used by the clean check")
     return parser
@@ -74,7 +71,12 @@ def _print_status(status: dict) -> None:
 
 
 def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    # The console can destroy infrastructure: loopback only, or every interface inside a container (see server.py).
+    if args.command == "ui" and args.host not in allowed_hosts(args.container):
+        parser.error(f"the console binds to loopback only, not {args.host!r}"
+                     + ("" if args.container else " (0.0.0.0 is allowed only with --container)"))
     session = boto3.Session(region_name=args.region)
 
     try:
@@ -121,7 +123,9 @@ def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) 
                     SecretId=arn)["SecretString"],
             )
             atexit.register(console.source.stop)
-            serve(console, host=args.host, port=args.port, open_browser=not args.no_browser)
+            # Inside a container the address people open is the host's published one, which compose passes in.
+            serve(console, host=args.host, port=args.port, open_browser=not args.no_browser,
+                  container=args.container, url=os.environ.get("CONSOLE_URL") if args.container else None)
             return 0
 
         targets = resolve_targets(args.flow_arn, args.channel_id, args.tf_dir, runner)
