@@ -66,7 +66,7 @@ def next_action(s: Situation, source_connected: bool = False) -> Optional[str]:
     Deploy, then go live, then send the test source. A source pushed from elsewhere (`just send`, a real encoder)
     counts as connected, so the console does not suggest a second one.
     """
-    if s.job_running:
+    if s.job_running or s.credentials:
         return None
     if not s.deployed:
         return "deploy"

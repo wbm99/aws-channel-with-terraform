@@ -1,4 +1,4 @@
-from livectl.actions import ACTIONS, Situation, refusals
+from livectl.actions import ACTIONS, Situation, next_action, refusals
 
 
 def allowed(situation):
@@ -107,3 +107,10 @@ def test_without_credentials_every_aws_action_is_refused_with_the_reason():
             assert answers[action] is None
         else:
             assert answers[action].status == 403 and answers[action].message == message, action
+
+
+def test_without_credentials_no_step_is_suggested():
+    situation = Situation(deployed=False, job_running=None, flow_state=None, channel_state=None,
+                          credentials="No AWS credentials found.")
+
+    assert next_action(situation) is None

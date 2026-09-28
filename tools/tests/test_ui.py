@@ -28,6 +28,8 @@ EXPECTED = {
     "probe-error": ("Unknown", ["deploy", "teardown", "scan", "go-live", "go-off-air"]),
     "source-running": ("On air · playing", ["scan", "go-off-air", "source-stop"]),
     "source-dropped": ("On air · no source", ["scan", "go-off-air", "source-start"]),
+    "no-credentials": ("No AWS credentials", []),
+    "root-identity": ("Off air", ["deploy", "teardown", "scan", "go-live"]),
 }
 
 
@@ -604,3 +606,32 @@ def test_choosing_a_pattern_while_not_sending_starts_nothing(open_scenario):
 
     expect(page.locator("#pattern")).to_have_value("black")
     assert scenario.console.source.calls == []
+
+
+def test_the_header_says_who_the_console_acts_as(open_scenario):
+    page, _ = open_scenario("on-air-playing")
+
+    expect(page.locator("#identity")).to_have_text(
+        "acting as role LiveOps (william) · account 123456789012 · us-east-1")
+    expect(page.locator("#identity-banner")).to_be_hidden()
+
+
+def test_root_credentials_raise_a_red_banner(open_scenario):
+    page, _ = open_scenario("root-identity")
+
+    banner = page.locator("#identity-banner")
+    expect(banner).to_be_visible()
+    expect(banner).to_have_text(re.compile(r"^You are using the account's root user"))
+    expect(banner).to_have_attribute("data-kind", "root")
+    expect(page.locator("#identity")).to_contain_text("acting as root")
+
+
+def test_no_credentials_shows_one_banner_and_no_chain(open_scenario):
+    page, _ = open_scenario("no-credentials")
+
+    expect(page.locator("#identity-banner")).to_contain_text("aws configure")
+    expect(page.locator("#identity")).to_be_hidden()
+    expect(page.locator("#chain button[data-node]")).to_have_count(0)
+    expect(page.locator("#deploy-note")).to_have_text(
+        "The pipeline appears here once the console can use your AWS credentials (see above).")
+    expect(page.locator('#steps [data-status="current"]')).to_have_count(0)

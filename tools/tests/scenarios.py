@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from livectl.jobs import JobRunner  # noqa: E402
 from livectl.pipeline import Pipeline  # noqa: E402
 from livectl.server import Console, make_server  # noqa: E402
-from stubs import CHANNEL_ID, FLOW_ARN, logs_client, stub_aws  # noqa: E402
+from stubs import CHANNEL_ID, FLOW_ARN, logs_client, sts_client, stub_aws  # noqa: E402
 
 CHANNEL_ARN = f"arn:aws:medialive:us-east-1:123456789012:channel:{CHANNEL_ID}"
 
@@ -56,6 +56,8 @@ SCENARIOS: dict[str, dict] = {
     "source-running": dict(**ON, metrics=LIVE, playing=True, source="running"),
     # The live run of 2026-09-27: the source has just stopped, MediaConnect has said so, CloudWatch has not yet.
     "source-dropped": dict(**ON, metrics=LIVE, playing=True, health="DISCONNECTED"),
+    "no-credentials": dict(identity="no-credentials"),
+    "root-identity": dict(identity="root"),
 }
 
 
@@ -140,6 +142,7 @@ def build(name: str) -> Scenario:
     playing = spec.pop("playing", False)
     source = spec.pop("source", None)
     health = spec.pop("health", "CONNECTED")
+    identity = spec.pop("identity", "ok")
     clients = stub_aws(**spec)
     commands: list = []
 
@@ -151,7 +154,7 @@ def build(name: str) -> Scenario:
         return lambda log: log("$ " + " ".join(args))
 
     console = Console(**clients, jobs=JobRunner(), runner=runner, command=command,
-                      logs=logs_client(recent_events(health)))
+                      logs=logs_client(recent_events(health)), sts=sts_client(identity))
     console.source = FakeSource(running=source == "running")
     console.read_passphrase = lambda arn: "0123456789abcdef0123456789abcdef"
     console.pipeline = Pipeline(**clients, fetch=growing_playlist() if playing else no_playlist,
