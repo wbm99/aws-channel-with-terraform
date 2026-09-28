@@ -77,7 +77,7 @@ Terraform data directories) belong to the host user. `HOME=/home/app` is writabl
 Alpine has no bash; the image adds it, because the justfile and `source/send-srt.sh` need it. Verified on 2026-09-28:
 Alpine's FFmpeg has `srt` and every test-pattern filter, and `hashicorp/terraform:1.16` ships amd64 and arm64.
 
-The image sets `LIVECTL=livectl` and `PYTHON=python`; the `test` target also sets `PYTEST=pytest` (see *justfile*).
+The image sets `LIVECTL=livectl` and `LIVECTL_PYTHON=python`; the `test` target also sets `LIVECTL_PYTEST=pytest` (see *justfile*).
 
 ### Targets
 - `runtime`: what users pull.
@@ -101,7 +101,7 @@ services:
       - "127.0.0.1:${CONSOLE_PORT:-8765}:8765"
     volumes:
       - .:/work
-      - ${HOME}/.aws:/home/app/.aws:ro
+      - ${HOME}/.aws:/home/app/.aws
     environment:
       AWS_PROFILE: ${AWS_PROFILE:-default}
       CONSOLE_URL: http://127.0.0.1:${CONSOLE_PORT:-8765}/
@@ -114,11 +114,12 @@ creating a root-owned directory on the host. `CONSOLE_URL` lets the console prin
 - **Port configuration.** `.env` is optional and already gitignored. `${CONSOLE_PORT:-8765}` means "`CONSOLE_PORT` if
   set, else 8765". The port inside the container is always 8765. `.env.example` documents `CONSOLE_PORT`,
   `AWS_PROFILE`, `UID` and `GID`.
-- **Credentials.** `~/.aws` is mounted read-only; `AWS_PROFILE` passes through from the host or `.env`. The region is
+- **Credentials.** `~/.aws` is mounted read-write, because SSO saves refreshed tokens in `~/.aws/sso/cache` (a
+  read-only mount was tried and broke the refresh; see plan 8's review fixes); `AWS_PROFILE` passes through from the host or `.env`. The region is
   not an environment setting here: it is Terraform's `region` variable and livectl's `--region` (both `us-east-1`).
   Static keys, profiles and IAM Identity Center all work; for SSO the user runs `aws sso login` on the host, and the
   cached token is read from the mount. Users without the AWS CLI configure the profile once with
-  `docker run --rm -it -v ~/.aws:/root/.aws amazon/aws-cli configure sso` (or `configure`). Environment-variable keys
+  `amazon/aws-cli` run as their own UID with `HOME` pointing at the mount (the README has the exact command). Environment-variable keys
   work through the SDK's normal chain but are not the documented path.
 - **Terraform data directory.** `TF_DATA_DIR=.terraform-docker` (set in the image, so `docker compose run` and CI get it) gives each Terraform root a separate provider directory
   for the container, because provider binaries in `.terraform/` are built for the host OS. `.terraform-docker/` is
@@ -191,12 +192,12 @@ Every other error keeps its current text.
 ### justfile
 ```
 livectl := env("LIVECTL", ".venv/bin/livectl")
-python  := env("PYTHON", ".venv/bin/python")
-pytest  := env("PYTEST", ".venv/bin/pytest")
+python  := env("LIVECTL_PYTHON", ".venv/bin/python")
+pytest  := env("LIVECTL_PYTEST", ".venv/bin/pytest")
 ```
 
 `test-py` and `test-ui` use `{{pytest}}` instead of `{{venv}}/bin/pytest`. The `runtime` target sets
-`LIVECTL=livectl` and `PYTHON=python`; the `test` target adds `PYTEST=pytest`, since only it has pytest. On the host,
+`LIVECTL=livectl` and `LIVECTL_PYTHON=python`; the `test` target adds `LIVECTL_PYTEST=pytest`, since only it has pytest. On the host,
 nothing changes.
 
 ### Test source script path

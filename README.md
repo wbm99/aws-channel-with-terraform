@@ -48,19 +48,21 @@ With Docker, you need only Docker and an AWS profile: see [Run with Docker](#run
 One image carries Terraform, Python with `livectl`, FFmpeg and `just` (about 360 MB). Your checkout is mounted into
 it, so state and configuration stay in the same files as the host path below, and the two can be mixed.
 
-You need Docker with Compose v2 and an AWS profile in `~/.aws` for an IAM user or role (never the root user). Without
-the AWS CLI, create the profile with AWS's own image:
+You need Docker with Compose v2 and an AWS profile in `~/.aws` for an IAM user or role (never the root user). With
+the AWS CLI installed, use `aws configure` or `aws configure sso` and `aws sso login` as usual. Without it, run the
+same commands from AWS's own image, as yourself so the files stay readable to you and to the console:
 
 ```bash
-docker run --rm -it -v ~/.aws:/root/.aws amazon/aws-cli configure sso   # or: configure
+mkdir -p ~/.aws
+aws() { docker run --rm -it -u "$(id -u):$(id -g)" -e HOME=/aws -v ~/.aws:/aws/.aws amazon/aws-cli "$@"; }
+aws configure sso                                  # or: aws configure (access keys)
+aws sso login --profile <name> --use-device-code   # SSO only: again whenever the console says the session expired
 ```
-
-For SSO, log in on the host (`aws sso login --profile <name>`) before starting the console, and again when it says
-the session expired.
 
 ```bash
 git clone https://github.com/wbm99/aws-channel-with-terraform && cd aws-channel-with-terraform
-cp .env.example .env                               # optional: AWS_PROFILE, CONSOLE_PORT, your UID/GID
+cp .env.example .env                               # set AWS_PROFILE; CONSOLE_PORT if 8765 is taken
+printf 'UID=%s\nGID=%s\n' "$(id -u)" "$(id -g)" >> .env   # the container runs as you (bash does not export UID)
 
 # Configuration, as in the quick start below
 cp bootstrap/terraform.tfvars.example bootstrap/terraform.tfvars    # set alert_email
@@ -72,8 +74,11 @@ docker compose run --rm console just init          # once per checkout
 docker compose up                                  # the console on http://127.0.0.1:8765
 ```
 
-Everything else (deploy, go live, the test source, tear down, the leftover scan) is in the console. Any recipe runs
-the same way: `docker compose run --rm console just check-clean`.
+Everything else (deploy, go live, the test source, tear down, the leftover scan) is in the console. Recipes that
+need only Terraform or `livectl` run the same way, for example `docker compose run --rm console just check-clean`
+(also `status`, `outputs`, `plan`, `test-tf`). Three do not: `just send` needs the AWS CLI, which the image leaves
+out (use *Send test source* in the console); `just ui` inside `run` publishes no port (use `docker compose up`); and
+`just test` needs the dev tools, which only CI's test image has.
 
 > **`docker compose down` stops the console, not AWS billing.** Use *Go off air* or *Tear down stack* first, then
 > *Scan for leftovers*.
@@ -83,6 +88,10 @@ the same way: `docker compose run --rm console just check-clean`.
 - The port is published on `127.0.0.1` only, never on the network. Set `CONSOLE_PORT` in `.env` to change it.
 - `docker compose up` pulls the image built from `main`. On any other checkout, use `docker compose up --build`:
   `livectl` comes from the image, while the Terraform code comes from your checkout.
+- `~/.aws` is mounted read-write, as the AWS CLI uses it: SSO saves refreshed tokens there. After fixing missing or
+  rejected credentials, restart the console (`docker compose restart`); an SSO login is picked up without one.
+- Run the image through Compose. On its own (`docker run`), it listens on loopback inside the container, so a
+  published port reaches nothing; that is deliberate, so a `-p 8765:8765` can never expose it to the network.
 
 ## Quick start
 
@@ -220,10 +229,8 @@ the new outputs exist), open `just ui` and check:
 10. **Tear down**, then **Scan for leftovers**: nothing billable, and `ElementalMediaLive` listed as information.
 11. **With Docker:** `docker compose run --rm console just bootstrap` and `just init` on a fresh checkout, then steps
     1-10 from `docker compose up` with an SSO profile. The header names the role and account.
-12. **With Docker and SSO:** leave the console running across the SSO access-token refresh (about an hour). `~/.aws`
-    is mounted read-only, so the SDKs cannot write a refreshed token: check that the console shows *AWS session
-    expired* rather than failing silently, and that a Deploy started near expiry is not refused by Terraform with
-    "unable to cache refreshed token".
+12. **With Docker and SSO:** leave the console running across the SSO access-token refresh (about an hour): the
+    header keeps the role, no node shows a token error, and a Deploy started after the refresh succeeds.
 
 ## Repository layout
 
@@ -251,7 +258,7 @@ docs/               cost estimate and study notes; the spec and plans live under
 
 ## Testing
 
-Everything runs offline with no AWS credentials, and CI runs the same suite on every pull request:
+Everything runs offline with no AWS credentials:
 
 ```bash
 just test          # terraform test for every root (mocked providers), then pytest over tools (moto)
@@ -259,6 +266,10 @@ just test-ui       # drive the console in Chrome through every scenario (pip ins
 just validate      # formatting check and terraform validate for every root
 just frame         # renders one frame to /tmp/clock.png to check the burned-in clock
 ```
+
+CI (`.github/workflows/image.yml`) runs the same suite on every pull request and publishes the image to GHCR on each
+merge to `main`. GHCR creates a new package as private: after the first publish, make it public once (the package's
+*Package settings* → *Change visibility*), or `docker compose up` falls back to building locally.
 
 ## Costs
 

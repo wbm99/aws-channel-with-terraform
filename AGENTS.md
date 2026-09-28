@@ -39,7 +39,8 @@ rather than reconstructing a `terraform -chdir=...` invocation by hand.
 
 The ones that matter: `just test` (full offline suite), `just fmt`, `just validate`, `just status`, `just check-clean`,
 `just ui` (the browser console on 127.0.0.1). With Docker, `docker compose up` starts the console and
-`docker compose run --rm console just <recipe>` runs any recipe (see *Containers*).
+`docker compose run --rm console just <recipe>` runs the recipes that need only Terraform or livectl (see
+*Containers*).
 
 ## Terraform conventions
 
@@ -83,9 +84,12 @@ The ones that matter: `just test` (full offline suite), `just fmt`, `just valida
 - One image, `docker/Dockerfile`: target `runtime` (published to `ghcr.io/wbm99/aws-channel-with-terraform`) holds the
   tools only, with **no dev dependencies**; target `test` adds pytest and moto for CI. Playwright is in neither.
 - The checkout is bind-mounted at `/work`, so state, `backend.hcl` and tfvars stay where the host path keeps them.
-  `~/.aws` is mounted read-only.
+  `~/.aws` is mounted read-write, because SSO saves refreshed tokens in `~/.aws/sso/cache`.
+- The image's own CMD binds loopback; only compose passes `--container --host 0.0.0.0`. Keep it that way, so a plain
+  `docker run -p 8765:8765` of the published image cannot expose the console.
 - The image sets `TF_DATA_DIR=.terraform-docker`, so the container's provider binaries (built for Linux) never mix with
-  the host's `.terraform/`. `LIVECTL`, `PYTHON` and `PYTEST` point the justfile at the installed tools.
+  the host's `.terraform/`. `LIVECTL`, `LIVECTL_PYTHON` and `LIVECTL_PYTEST` point the justfile at the installed
+  tools (prefixed, because a host often exports `PYTHON` for other tools).
 - `source.SCRIPT` and `--tf-dir` are relative to the working directory: an installed livectl is far from the checkout.
 - CI (`.github/workflows/image.yml`) runs `just test-tf test-py` in the `test` image and `just test-ui` on the runner
   on every pull request, and publishes the image on merge to `main`.

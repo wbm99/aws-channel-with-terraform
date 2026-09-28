@@ -15,7 +15,7 @@ RUN mkdir -p /home/app && chmod 1777 /home/app
 # TF_DATA_DIR: provider binaries are built for one OS, so the container keeps its own next to the host's .terraform/.
 ENV HOME=/home/app \
     LIVECTL=livectl \
-    PYTHON=python \
+    LIVECTL_PYTHON=python \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     FONT=/usr/share/fonts/dejavu/DejaVuSans.ttf \
@@ -23,11 +23,13 @@ ENV HOME=/home/app \
 WORKDIR /work
 USER 1000:1000
 EXPOSE 8765
-CMD ["livectl", "ui", "--host", "0.0.0.0", "--container", "--no-browser"]
+# Loopback by default, so a plain `docker run -p 8765:8765` cannot expose the console to the network. compose.yaml
+# opts into every interface with --container, and publishes the port on the host's 127.0.0.1 only.
+CMD ["livectl", "ui", "--no-browser"]
 
 FROM runtime AS test
 USER root
 COPY tools /tmp/tools
 RUN pip install --no-cache-dir "/tmp/tools[dev]" && rm -rf /tmp/tools
-ENV PYTEST=pytest
+ENV LIVECTL_PYTEST=pytest
 USER 1000:1000

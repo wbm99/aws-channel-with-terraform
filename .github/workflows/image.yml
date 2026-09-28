@@ -83,10 +83,16 @@ jobs:
           test "$(stat -c %u .owner-check)" = "$(id -u)"
           rm .owner-check
           # The console answers on the host's loopback.
-          docker run -d --name console -u "$(id -u):$(id -g)" -v "$PWD:/work" -p 127.0.0.1:8765:8765 livectl-smoke
+          docker run -d --name console -u "$(id -u):$(id -g)" -v "$PWD:/work" -p 127.0.0.1:8765:8765 livectl-smoke \
+            livectl ui --host 0.0.0.0 --container --no-browser
           for _ in $(seq 1 40); do curl -sf -o /dev/null http://127.0.0.1:8765/ && break; sleep 0.5; done
           curl -sf -o /dev/null http://127.0.0.1:8765/
           docker rm -f console
+          # The image's own default binds loopback inside the container, so a published port reaches nothing.
+          docker run -d --name default -p 127.0.0.1:8766:8765 livectl-smoke
+          sleep 3
+          if curl -sf -m 3 -o /dev/null http://127.0.0.1:8766/; then echo "the default command is reachable"; exit 1; fi
+          docker rm -f default
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io

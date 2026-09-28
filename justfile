@@ -8,8 +8,8 @@ tf_dir  := "envs/demo"
 venv    := ".venv"
 # The Docker image sets these to its installed tools; on the host they default to the virtualenv.
 livectl := env("LIVECTL", ".venv/bin/livectl")
-python  := env("PYTHON", ".venv/bin/python")
-pytest  := env("PYTEST", ".venv/bin/pytest")
+python  := env("LIVECTL_PYTHON", ".venv/bin/python")
+pytest  := env("LIVECTL_PYTEST", ".venv/bin/pytest")
 
 # Show the available recipes
 default:
