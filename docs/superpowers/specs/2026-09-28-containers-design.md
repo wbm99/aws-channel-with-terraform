@@ -76,7 +76,7 @@ not, copy a static FFmpeg build in instead, the same way Terraform is copied.
 The container runs as a non-root user `app`. Its UID and GID come from build arguments (default 1000), so files it
 writes into the bind mount (bootstrap state, Terraform data directories) belong to the host user.
 
-The environment variables `LIVECTL`, `PYTHON` and `PYTEST` are set in the image (see *justfile*).
+The image sets `LIVECTL=livectl` and `PYTHON=python`; the `test` target also sets `PYTEST=pytest` (see *justfile*).
 
 ### Targets
 - `runtime`: what users pull.
@@ -185,8 +185,21 @@ python  := env("PYTHON", ".venv/bin/python")
 pytest  := env("PYTEST", ".venv/bin/pytest")
 ```
 
-`test-py` and `test-ui` use `{{pytest}}` instead of `{{venv}}/bin/pytest`. The image sets `LIVECTL=livectl`,
-`PYTHON=python` and `PYTEST=pytest`. On the host, nothing changes.
+`test-py` and `test-ui` use `{{pytest}}` instead of `{{venv}}/bin/pytest`. The `runtime` target sets
+`LIVECTL=livectl` and `PYTHON=python`; the `test` target adds `PYTEST=pytest`, since only it has pytest. On the host,
+nothing changes.
+
+### Test source script path
+`source.py` finds `send-srt.sh` as `Path(__file__).parents[2] / "source" / "send-srt.sh"`, which only works for an
+editable install from the checkout. In the image livectl is installed into site-packages, so that path does not exist.
+`SCRIPT` becomes `Path("source/send-srt.sh")`, relative to the working directory, the same way `--tf-dir` defaults to
+`envs/demo`. `just` runs from the repository root and the container from `/work`, so both resolve it. A test asserts
+that the default is relative, and the CI smoke check runs `source/send-srt.sh --frame` in the image from `/work`.
+
+### Version skew
+The livectl code comes from the image, while the Terraform code and `send-srt.sh` come from the checkout. A checkout
+much newer or older than `:latest` can disagree with it. The README says to use `docker compose up --build` when
+working on a checkout other than current `main`.
 
 ## CI
 
@@ -198,7 +211,8 @@ pytest  := env("PYTEST", ".venv/bin/pytest")
 | `ui` | every trigger | on the runner, not in the image: `just venv`, `.venv/bin/pip install -e "tools[dev,ui]"`, `.venv/bin/playwright install --with-deps chromium`, `just test-ui` |
 | `publish` | `push` to `main`, after `test` and `ui` | build `runtime` for `linux/amd64,linux/arm64`; smoke-check it; push to GHCR |
 
-- **Smoke check** on the runtime image: `terraform version`, `ffmpeg -protocols | grep -q srt`, `livectl --help`, and
+- **Smoke check** on the runtime image, with the checkout mounted at `/work`: `terraform version`,
+  `ffmpeg -protocols | grep -q srt`, `source/send-srt.sh --frame /tmp/f.png`, `livectl --help`, and
   `livectl ui --container --host 0.0.0.0 --no-browser` answering `GET /` with 200.
 - **Tags:** `:latest` and `:sha-<short commit>`.
 - **Auth:** the workflow's `GITHUB_TOKEN` with `packages: write`. No stored secrets. The repository has no AWS secrets,
@@ -233,4 +247,4 @@ pytest  := env("PYTEST", ".venv/bin/pytest")
 | `.env.example` | `tools/livectl/pipeline.py` (named denials, skip polling without identity) |
 | `.dockerignore` (`.venv`, `.git`, `.terraform*`, `**/__pycache__`) | `tools/livectl/site/*` (identity line, banners) |
 | `.github/workflows/image.yml` | `tools/tests/stubs.py`, `tools/tests/scenarios.py`, tests |
-| `tools/livectl/identity.py`, `tools/tests/test_identity.py` | `justfile`, `.gitignore`, `README.md`, `AGENTS.md` |
+| `tools/livectl/identity.py`, `tools/tests/test_identity.py` | `tools/livectl/source.py` (script path), `justfile`, `.gitignore`, `README.md`, `AGENTS.md` |
