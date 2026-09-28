@@ -27,9 +27,12 @@ VERDICTS = {"no-credentials": "No AWS credentials", "expired": "AWS session expi
 
 ROOT_MESSAGE = ("You are using the account's root user. Create an IAM user or role for this project: "
                 "root cannot be restricted by any policy.")
+# botocore fixes a client's credentials when the client is built, so new keys or a new profile need a new console.
+# An expired SSO session is different: its credentials refresh from the token cache, so a login is picked up live.
 NO_CREDENTIALS_MESSAGE = ("No AWS credentials found. Configure a profile on the host (aws configure, or aws "
-                          "configure sso), set AWS_PROFILE, then reload.")
-INVALID_MESSAGE = "AWS rejected these credentials: the access key is wrong or has been deactivated."
+                          "configure sso), set AWS_PROFILE, then restart the console.")
+INVALID_MESSAGE = ("AWS rejected these credentials: the access key is wrong or has been deactivated. Fix it, then "
+                   "restart the console.")
 
 
 def _expired_message(profile: Optional[str]) -> str:

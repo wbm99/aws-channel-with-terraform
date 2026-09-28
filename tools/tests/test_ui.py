@@ -635,3 +635,4 @@ def test_no_credentials_shows_one_banner_and_no_chain(open_scenario):
     expect(page.locator("#deploy-note")).to_have_text(
         "The pipeline appears here once the console can use your AWS credentials (see above).")
     expect(page.locator('#steps [data-status="current"]')).to_have_count(0)
+    expect(page.locator("#cost")).to_have_text("cost unknown")  # the stack may still be on air

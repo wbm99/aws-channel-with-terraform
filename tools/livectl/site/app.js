@@ -69,7 +69,11 @@ function showPage() {
 function renderHeader() {
   $('verdict').dataset.health = data.verdict.health;
   $('verdict-text').textContent = data.verdict.text;
-  if (data.rate > 0) {
+  if (data.identity && !data.identity.usable) {
+    // Nothing can be read, so the stack may be on air and billing: say so rather than "$0.00".
+    billingSince = null;
+    $('cost').textContent = 'cost unknown';
+  } else if (data.rate > 0) {
     if (billingSince === null) billingSince = Date.now();
     const minutes = Math.round((Date.now() - billingSince) / 60000);
     $('cost').textContent = '$' + data.rate.toFixed(2) + ' / h · ' + minutes + ' min';

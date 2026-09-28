@@ -40,6 +40,8 @@ def test_no_credentials_says_how_to_configure_a_profile():
     assert identity.kind == "no-credentials" and not identity.usable
     assert identity.verdict == "No AWS credentials"
     assert "aws configure" in identity.message
+    # botocore fixes a client's credentials when it is built: new ones need a new console, not a reload.
+    assert "restart the console" in identity.message and "reload" not in identity.message
 
 
 def test_an_expired_session_names_the_profile_to_log_in_with():
@@ -61,6 +63,7 @@ def test_rejected_keys_are_invalid():
 
     assert identity.kind == "invalid" and not identity.usable
     assert identity.verdict == "AWS credentials rejected"
+    assert "restart the console" in identity.message
 
 
 @pytest.mark.parametrize("error", [
