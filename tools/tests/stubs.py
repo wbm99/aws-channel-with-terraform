@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from botocore.exceptions import ClientError, NoCredentialsError
+
 FLOW_ARN = "arn:aws:mediaconnect:us-east-1:123456789012:flow:1-abc:live-sports-aws-demo"
 CHANNEL_ID = "7387208"
 
@@ -104,3 +106,24 @@ def logs_client(events: list[tuple[int, str]]) -> StubClient:
                            if t >= startTime and (not terms or any(term in m for term in terms))]}
 
     return StubClient(filter_log_events=filter_log_events)
+
+
+ACCOUNT = "123456789012"
+STS_ANSWERS = {
+    "ok": {"Account": ACCOUNT, "Arn": f"arn:aws:sts::{ACCOUNT}:assumed-role/LiveOps/william", "UserId": "AROA:william"},
+    "root": {"Account": ACCOUNT, "Arn": f"arn:aws:iam::{ACCOUNT}:root", "UserId": ACCOUNT},
+}
+
+
+def sts_error(code: str) -> Exception:
+    return ClientError({"Error": {"Code": code, "Message": f"stubbed {code}"}}, "GetCallerIdentity")
+
+
+def sts_client(kind: str = "ok") -> StubClient:
+    """An STS stub answering GetCallerIdentity as one identity kind (see livectl.identity)."""
+    answer = {
+        "no-credentials": NoCredentialsError(),
+        "expired": sts_error("ExpiredToken"),
+        "invalid": sts_error("InvalidClientTokenId"),
+    }.get(kind) or STS_ANSWERS[kind]
+    return StubClient(get_caller_identity=answer)
