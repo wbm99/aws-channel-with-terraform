@@ -19,7 +19,9 @@ from collections import deque
 from pathlib import Path
 from typing import Callable, Optional
 
-SCRIPT = Path(__file__).resolve().parents[2] / "source" / "send-srt.sh"
+# Relative to the working directory, like --tf-dir: an installed livectl (the Docker image) lives in site-packages, far
+# from the checkout. `just` runs from the repository root and the container from /work, so both find it.
+SCRIPT = Path("source/send-srt.sh")
 STOPPED, STARTING, RUNNING, EXITED = "stopped", "starting", "running", "exited"
 # Test patterns source/send-srt.sh can generate (its PATTERN variable), in the order the console lists them.
 PATTERNS = [

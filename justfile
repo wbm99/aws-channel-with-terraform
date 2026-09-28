@@ -6,8 +6,10 @@ set shell := ["bash", "-uc"]
 
 tf_dir  := "envs/demo"
 venv    := ".venv"
-livectl := ".venv/bin/livectl"
-python  := ".venv/bin/python"
+# The Docker image sets these to its installed tools; on the host they default to the virtualenv.
+livectl := env("LIVECTL", ".venv/bin/livectl")
+python  := env("PYTHON", ".venv/bin/python")
+pytest  := env("PYTEST", ".venv/bin/pytest")
 
 # Show the available recipes
 default:
@@ -150,7 +152,7 @@ test-tf:
 
 # pytest over the livectl package (no AWS credentials needed)
 test-py:
-    {{venv}}/bin/pytest -q tools
+    {{pytest}} -q tools
 
 # Serve the console in a named fake state, with no AWS (see tools/tests/scenarios.py)
 ui-scenario name="on-air-playing" port="8766":
@@ -158,7 +160,7 @@ ui-scenario name="on-air-playing" port="8766":
 
 # Drive the console in Chrome through every scenario (needs: .venv/bin/pip install -e "tools[dev,ui]")
 test-ui:
-    {{venv}}/bin/pytest -q tools/tests/test_ui.py
+    {{pytest}} -q tools/tests/test_ui.py
 
 # Look up on-demand prices behind docs/cost-estimate.md
 cost service="AWSElementalMediaLive" pattern="Single Pipeline (HD|SD) AVC":
