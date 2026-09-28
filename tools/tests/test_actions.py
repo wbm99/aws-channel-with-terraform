@@ -95,3 +95,15 @@ def test_nothing_is_suggested_while_a_job_runs_or_halfway_up():
 
     assert next_action(busy) is None
     assert next_action(partly) is None
+
+
+def test_without_credentials_every_aws_action_is_refused_with_the_reason():
+    message = "No AWS credentials found. Configure a profile on the host."
+    situation = Situation(deployed=False, job_running=None, flow_state=None, channel_state=None, credentials=message)
+    answers = refusals(situation)
+
+    for action in ACTIONS:
+        if action == "source-stop":
+            assert answers[action] is None
+        else:
+            assert answers[action].status == 403 and answers[action].message == message, action

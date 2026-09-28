@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import time
 import webbrowser
 from dataclasses import asdict, dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,9 +24,11 @@ from typing import Any, Callable, Optional, Sequence
 from urllib.parse import parse_qs, urlparse
 
 from livectl.actions import Situation, next_action, refusals
+from livectl.cache import TtlCache
 from livectl.clean import find_informational, find_leftovers
 from livectl.control import start as start_workflow
 from livectl.control import stop as stop_workflow
+from livectl.identity import IDENTITY_TTL, Identity, whoami
 from livectl.jobs import RUNNING, JobBusy, JobRunner, Work, command_job
 from livectl.logs import LOG_TABS, LOOKBACK_MS, LogLine, LogReader, event_lines, medialive_lines
 from livectl.pipeline import REDEPLOY_HINT, Pipeline
@@ -82,9 +85,13 @@ class Console:
     read_passphrase: Callable[[str], str] = _no_passphrase
     clock_ms: Callable[[], int] = now_ms
     pipeline: Optional[Pipeline] = None
+    sts: Any = None  # None: identity is not checked (tests that do not care)
+    profile: Optional[str] = None
+    clock: Callable[[], float] = time.monotonic
     _targets: Optional[Targets] = None
 
     def __post_init__(self) -> None:
+        self._identity_cache = TtlCache(self.clock)
         if self.pipeline is None:
             self.pipeline = Pipeline(
                 mediaconnect=self.mediaconnect, medialive=self.medialive, mediapackagev2=self.mediapackagev2,
@@ -97,6 +104,12 @@ class Console:
         if self._targets is None:
             self._targets = resolve_targets(self.flow_arn, self.channel_id, self.tf_dir, self.runner)
         return self._targets
+
+    def identity(self) -> Optional[Identity]:
+        """Who the console acts as, re-checked every IDENTITY_TTL so an `aws sso login` is picked up unprompted."""
+        if self.sts is None:
+            return None
+        return self._identity_cache.get("identity", IDENTITY_TTL, lambda: whoami(self.sts, self.region, self.profile))
 
     def forget_targets(self) -> None:
         self._targets = None
@@ -155,6 +168,16 @@ def _snapshot(console: Console, offset: int = 0, job_key: Optional[str] = None) 
     if job:
         job["progress"] = job_progress(job["name"], console.jobs.lines(), job["state"])
     running = job["name"] if job and job["state"] == RUNNING else None
+    identity = console.identity()
+    shown = identity.to_dict() if identity else None
+    if identity and not identity.usable:
+        # One cause on screen instead of an unknown chain. Not even `terraform output`: it reads the S3 state.
+        situation = Situation(deployed=False, job_running=running, flow_state=None, channel_state=None,
+                              source_running=console.source.running, credentials=identity.message)
+        payload = {"deployed": False, "note": None, "verdict": {"text": identity.verdict, "health": "bad"},
+                   "rate": 0.0, "metrics_age": None, "nodes": [], "endpoints": {}, "job": job,
+                   "source": console.source.status(), "identity": shown}
+        return payload, situation
     note: Optional[str] = None
     try:
         targets: Optional[Targets] = console.targets()
@@ -168,7 +191,7 @@ def _snapshot(console: Console, offset: int = 0, job_key: Optional[str] = None) 
                               source_running=console.source.running)
         payload = {"deployed": False, "note": note, "verdict": asdict(verdict(None, job)), "rate": 0.0,
                    "metrics_age": None, "nodes": [], "endpoints": {}, "job": job,
-                   "source": console.source.status()}
+                   "source": console.source.status(), "identity": shown}
         return payload, situation
 
     nodes = console.pipeline.nodes(targets)
@@ -191,6 +214,7 @@ def _snapshot(console: Console, offset: int = 0, job_key: Optional[str] = None) 
         },
         "job": job,
         "source": console.source.status(),
+        "identity": shown,
     }
     return payload, situation
 

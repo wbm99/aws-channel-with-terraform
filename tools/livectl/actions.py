@@ -25,6 +25,7 @@ class Situation:
     flow_state: Optional[str]
     channel_state: Optional[str]
     source_running: bool = False
+    credentials: Optional[str] = None  # why the AWS credentials are unusable, when they are
 
 
 def _first(*refusals: Optional[Refusal]) -> Optional[Refusal]:
@@ -32,7 +33,8 @@ def _first(*refusals: Optional[Refusal]) -> Optional[Refusal]:
 
 
 def refusals(s: Situation) -> dict[str, Optional[Refusal]]:
-    busy = Refusal(409, f"{s.job_running} is still running") if s.job_running else None
+    no_credentials = Refusal(403, s.credentials) if s.credentials else None
+    busy = _first(no_credentials, Refusal(409, f"{s.job_running} is still running") if s.job_running else None)
     missing = None if s.deployed else Refusal(400, "Nothing is deployed yet. Use Deploy stack first.")
     on_air = s.flow_state == "ACTIVE" or s.channel_state == "RUNNING"
     fully_on = s.flow_state == "ACTIVE" and s.channel_state == "RUNNING"
@@ -49,6 +51,7 @@ def refusals(s: Situation) -> dict[str, Optional[Refusal]]:
         "go-live": _first(busy, missing, Refusal(409, "Already on air.") if fully_on else None),
         "go-off-air": _first(busy, missing, Refusal(409, "Already off air.") if fully_off else None),
         "source-start": _first(
+            no_credentials,
             missing,
             Refusal(409, "The test source is already running.") if s.source_running else None,
             None if s.flow_state == "ACTIVE" else Refusal(409, "The flow is not active: go live first."),

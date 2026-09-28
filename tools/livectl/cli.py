@@ -10,9 +10,11 @@ from typing import Optional, Sequence
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ProfileNotFound
 
 from livectl.clean import find_informational, find_leftovers
 from livectl.control import WaitTimeout, start, stop
+from livectl.identity import Identity, whoami
 from livectl.server import Console, ConsoleError, allowed_hosts, serve
 from livectl.status import get_status
 from livectl.targets import Runner, TargetError, resolve_targets, run_command
@@ -70,6 +72,19 @@ def _print_status(status: dict) -> None:
         print(f"player:    {status['player']}")
 
 
+class NoIdentity(RuntimeError):
+    """The AWS credentials cannot be used; the message says how to fix them."""
+
+
+def _identity_line(session: boto3.Session, region: str) -> Identity:
+    """Print who the command acts as, first, or stop when there is nobody to act as."""
+    identity = whoami(session.client("sts"), region, session.profile_name)
+    if not identity.usable:
+        raise NoIdentity(identity.message)
+    print(identity.label)
+    return identity
+
+
 def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -77,10 +92,10 @@ def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) 
     if args.command == "ui" and args.host not in allowed_hosts(args.container):
         parser.error(f"the console binds to loopback only, not {args.host!r}"
                      + ("" if args.container else " (0.0.0.0 is allowed only with --container)"))
-    session = boto3.Session(region_name=args.region)
-
     try:
+        session = boto3.Session(region_name=args.region)
         if args.command == "check-clean":
+            _identity_line(session, args.region)
             leftovers = find_leftovers(
                 session.client("mediaconnect"),
                 session.client("medialive"),
@@ -118,6 +133,8 @@ def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) 
                 channel_id=args.channel_id,
                 region=args.region,
                 logs=client("logs"),
+                sts=client("sts"),
+                profile=session.profile_name,
                 # Read only when "Send test source" is clicked, and handed straight to the child's environment.
                 read_passphrase=lambda arn: client("secretsmanager").get_secret_value(
                     SecretId=arn)["SecretString"],
@@ -128,6 +145,8 @@ def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) 
                   container=args.container, url=os.environ.get("CONSOLE_URL") if args.container else None)
             return 0
 
+        if args.command == "status":  # before the targets: `terraform output` reads the S3 state with the same keys
+            _identity_line(session, args.region)
         targets = resolve_targets(args.flow_arn, args.channel_id, args.tf_dir, runner)
         mediaconnect, medialive = session.client("mediaconnect"), session.client("medialive")
 
@@ -138,7 +157,12 @@ def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) 
         elif args.command == "stop":
             stop(mediaconnect, medialive, targets, log=print, timeout=args.timeout, interval=args.interval)
         return 0
-    except (TargetError, WaitTimeout, ConsoleError) as error:
+    except ProfileNotFound as error:
+        name = error.kwargs.get("profile", "")
+        print(f"error: AWS profile '{name}' is not in ~/.aws/config. Set AWS_PROFILE to one that is, or create it: "
+              f"aws configure --profile {name}", file=sys.stderr)
+        return 2
+    except (TargetError, WaitTimeout, ConsoleError, NoIdentity) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
 
