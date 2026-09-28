@@ -38,7 +38,8 @@ Use `just`. `just --list` is the index, and the `justfile` is the readable sourc
 rather than reconstructing a `terraform -chdir=...` invocation by hand.
 
 The ones that matter: `just test` (full offline suite), `just fmt`, `just validate`, `just status`, `just check-clean`,
-`just ui` (the browser console on 127.0.0.1).
+`just ui` (the browser console on 127.0.0.1). With Docker, `docker compose up` starts the console and
+`docker compose run --rm console just <recipe>` runs any recipe (see *Containers*).
 
 ## Terraform conventions
 
@@ -69,6 +70,25 @@ The ones that matter: `just test` (full offline suite), `just fmt`, `just valida
   objects, and custom exceptions (`TargetError`, `WaitTimeout`) that `cli.main` turns into exit code 2.
 - Operations must be **idempotent**: `start` and `stop` check current state before acting, so running either twice is
   safe. There is a test for this; do not regress it.
+- **The console binds to loopback only.** `livectl ui --container` additionally allows `0.0.0.0`, because Docker
+  delivers published ports to the container's own interface, never its loopback. The guarantee then lives in
+  `compose.yaml`'s port line, `"127.0.0.1:${CONSOLE_PORT:-8765}:8765"`: **never drop the `127.0.0.1:` prefix**, or the
+  console, which can destroy the stack, is reachable from the network.
+- Credentials are checked through an injected STS client (`livectl/identity.py`): `GetCallerIdentity` needs no IAM
+  permission, so it tells credential problems apart from permission problems. Unusable credentials refuse every AWS
+  action in `actions.refusals`.
+
+## Containers
+
+- One image, `docker/Dockerfile`: target `runtime` (published to `ghcr.io/wbm99/aws-channel-with-terraform`) holds the
+  tools only, with **no dev dependencies**; target `test` adds pytest and moto for CI. Playwright is in neither.
+- The checkout is bind-mounted at `/work`, so state, `backend.hcl` and tfvars stay where the host path keeps them.
+  `~/.aws` is mounted read-only.
+- The image sets `TF_DATA_DIR=.terraform-docker`, so the container's provider binaries (built for Linux) never mix with
+  the host's `.terraform/`. `LIVECTL`, `PYTHON` and `PYTEST` point the justfile at the installed tools.
+- `source.SCRIPT` and `--tf-dir` are relative to the working directory: an installed livectl is far from the checkout.
+- CI (`.github/workflows/image.yml`) runs `just test-tf test-py` in the `test` image and `just test-ui` on the runner
+  on every pull request, and publishes the image on merge to `main`.
 
 ## Testing
 
