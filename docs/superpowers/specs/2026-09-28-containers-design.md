@@ -1,7 +1,7 @@
 # Containers: Design
 
 Date: 2026-09-28
-Status: Approved design, not yet planned
+Status: Approved; planned in `docs/superpowers/plans/2026-09-28-plan-8-containers.md`
 Branch: `feat/containers` (stacked on `feat/control-center`)
 
 This document has two parts: a product part (PRD: what and why) and a technical part (TRD: how).
@@ -70,11 +70,12 @@ project files come from a bind mount of the checkout.
 
 Expected size: around 300 MB, dominated by Terraform, botocore and FFmpeg.
 
-**First implementation step:** confirm that Alpine's FFmpeg is built with SRT (`ffmpeg -protocols | grep srt`). If it is
-not, copy a static FFmpeg build in instead, the same way Terraform is copied.
+The container runs as a non-root user. Compose sets it at run time with `user: "${UID:-1000}:${GID:-1000}"`, so the
+published image works for any host user without a rebuild, and files it writes into the bind mount (bootstrap state,
+Terraform data directories) belong to the host user. `HOME=/home/app` is writable by any UID.
 
-The container runs as a non-root user `app`. Its UID and GID come from build arguments (default 1000), so files it
-writes into the bind mount (bootstrap state, Terraform data directories) belong to the host user.
+Alpine has no bash; the image adds it, because the justfile and `source/send-srt.sh` need it. Verified on 2026-09-28:
+Alpine's FFmpeg has `srt` and every test-pattern filter, and `hashicorp/terraform:1.16` ships amd64 and arm64.
 
 The image sets `LIVECTL=livectl` and `PYTHON=python`; the `test` target also sets `PYTEST=pytest` (see *justfile*).
 
@@ -102,20 +103,24 @@ services:
       - .:/work
       - ${HOME}/.aws:/home/app/.aws:ro
     environment:
-      - AWS_PROFILE
-      - AWS_REGION
-      - TF_DATA_DIR=.terraform-docker
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      CONSOLE_URL: http://127.0.0.1:${CONSOLE_PORT:-8765}/
 ```
+
+The `~/.aws` mount uses the long syntax with `create_host_path: false`, so a missing `~/.aws` stops Compose instead of
+creating a root-owned directory on the host. `CONSOLE_URL` lets the console print the host URL at startup instead of
+`http://0.0.0.0:8765/`. The full file, with the `user:` line, is in plan 8.
 
 - **Port configuration.** `.env` is optional and already gitignored. `${CONSOLE_PORT:-8765}` means "`CONSOLE_PORT` if
   set, else 8765". The port inside the container is always 8765. `.env.example` documents `CONSOLE_PORT`,
-  `AWS_PROFILE` and `AWS_REGION`.
-- **Credentials.** `~/.aws` is mounted read-only; `AWS_PROFILE` and `AWS_REGION` pass through from the host or `.env`.
+  `AWS_PROFILE`, `UID` and `GID`.
+- **Credentials.** `~/.aws` is mounted read-only; `AWS_PROFILE` passes through from the host or `.env`. The region is
+  not an environment setting here: it is Terraform's `region` variable and livectl's `--region` (both `us-east-1`).
   Static keys, profiles and IAM Identity Center all work; for SSO the user runs `aws sso login` on the host, and the
   cached token is read from the mount. Users without the AWS CLI configure the profile once with
   `docker run --rm -it -v ~/.aws:/root/.aws amazon/aws-cli configure sso` (or `configure`). Environment-variable keys
   work through the SDK's normal chain but are not the documented path.
-- **Terraform data directory.** `TF_DATA_DIR=.terraform-docker` gives each Terraform root a separate provider directory
+- **Terraform data directory.** `TF_DATA_DIR=.terraform-docker` (set in the image, so `docker compose run` and CI get it) gives each Terraform root a separate provider directory
   for the container, because provider binaries in `.terraform/` are built for the host OS. `.terraform-docker/` is
   added to `.gitignore`. The lock file (`.terraform.lock.hcl`) is shared and unaffected.
 - **State.** `bootstrap/terraform.tfstate`, `envs/demo/backend.hcl` and `*.tfvars` stay in the checkout, exactly where
@@ -163,12 +168,17 @@ credential problems from permission problems. `Identity` is a frozen dataclass w
 |---|---|---|
 | `ok` | call succeeds, ARN not root | header: `acting as <user or role> · account <id> · <region>` |
 | `root` | ARN ends in `:root` | the header, plus a red banner: root credentials, use an IAM user or role. Actions stay enabled. |
-| `no-credentials` | `NoCredentialsError`, or `ProfileNotFound` | banner: no AWS credentials, with the profile setup commands |
+| `no-credentials` | `NoCredentialsError` | banner: no AWS credentials, with the profile setup commands |
 | `expired` | `ExpiredToken`, `ExpiredTokenException`, `TokenRetrievalError`, `UnauthorizedSSOTokenError` | banner: run `aws sso login --profile <profile>` on the host |
 | `invalid` | `InvalidClientTokenId`, `SignatureDoesNotMatch` | banner: the keys are wrong or deactivated |
 
 - It is served as an `identity` field on `/api/pipeline`, cached through the existing cache.
-- When the kind is not `ok` or `root`, the chain is not polled. One banner replaces a chain of identical errors.
+- Any other failure (network down, throttling) is `unverified`: usable, header `identity not verified`, no banner, so
+  the existing stale-data handling applies.
+- `ProfileNotFound` (an `AWS_PROFILE` that is not in `~/.aws/config`) is raised while the clients are built, before
+  the console exists, so it cannot be a banner: every command, `ui` included, exits 2 with one line naming the profile
+  and the fix.
+- When the kind is not usable, the chain is not polled. One banner replaces a chain of identical errors.
 - `livectl status` and `livectl check-clean` print the identity line first, and exit 2 (as for `TargetError`) when
   there is no usable identity.
 - `cli.py` builds the STS client along with the others.
@@ -208,7 +218,7 @@ working on a checkout other than current `main`.
 | Job | Runs on | Steps |
 |---|---|---|
 | `test` | every trigger | build the `test` target with `UID`/`GID` set to the runner's (`id -u`, `id -g`); run it with the checkout mounted at `/work` and run `just test-tf test-py` |
-| `ui` | every trigger | on the runner, not in the image: `just venv`, `.venv/bin/pip install -e "tools[dev,ui]"`, `.venv/bin/playwright install --with-deps chromium`, `just test-ui` |
+| `ui` | every trigger | on the runner, not in the image: `just venv`, `.venv/bin/pip install -e "tools[dev,ui]"`, `google-chrome --version` (the runner ships Chrome, which the tests launch with `channel="chrome"`), `just test-ui` |
 | `publish` | `push` to `main`, after `test` and `ui` | build `runtime` for `linux/amd64,linux/arm64`; smoke-check it; push to GHCR |
 
 - **Smoke check** on the runtime image, with the checkout mounted at `/work`: `terraform version`,
@@ -236,7 +246,7 @@ working on a checkout other than current `main`.
   profile setup without the AWS CLI, `.env` for ports, and the billing warning about `docker compose down`.
 - **AGENTS.md:** the `--container` rule and the `127.0.0.1:` port prefix; no dev dependencies in the runtime image;
   `TF_DATA_DIR=.terraform-docker`; CI exists and runs `just test`.
-- **`.env.example`:** `CONSOLE_PORT`, `AWS_PROFILE`, `AWS_REGION`, each commented.
+- **`.env.example`:** `CONSOLE_PORT`, `AWS_PROFILE`, `UID`, `GID`, each commented.
 
 ## Files
 
@@ -244,7 +254,7 @@ working on a checkout other than current `main`.
 |---|---|
 | `docker/Dockerfile` | `tools/livectl/cli.py` (flag, STS client, identity line) |
 | `compose.yaml` | `tools/livectl/server.py` (binding rule, `identity` field) |
-| `.env.example` | `tools/livectl/pipeline.py` (named denials, skip polling without identity) |
+| `.env.example` | `tools/livectl/actions.py` (refusals without credentials), `tools/livectl/pipeline.py` (named denials, skip polling without identity) |
 | `.dockerignore` (`.venv`, `.git`, `.terraform*`, `**/__pycache__`) | `tools/livectl/site/*` (identity line, banners) |
 | `.github/workflows/image.yml` | `tools/tests/stubs.py`, `tools/tests/scenarios.py`, tests |
 | `tools/livectl/identity.py`, `tools/tests/test_identity.py` | `tools/livectl/source.py` (script path), `justfile`, `.gitignore`, `README.md`, `AGENTS.md` |
