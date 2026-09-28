@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 
+from botocore.exceptions import ClientError
+
 from livectl.manifest import ManifestCheck
-from livectl.pipeline import BAD, OFF, OK, ORDER, UNKNOWN, WARN, Pipeline
+from livectl.pipeline import BAD, OFF, OK, ORDER, UNKNOWN, WARN, Pipeline, denial
 from livectl.targets import Targets
 from stubs import CHANNEL_ID, FLOW_ARN, stub_aws
 
@@ -251,3 +253,30 @@ def test_without_a_source_mediapackage_and_the_player_say_they_carry_the_slate()
     assert (nodes["mediapackage_channel"].health, nodes["mediapackage_channel"].summary) == (
         WARN, "receiving the input-loss slate · 9.9 Mbps")
     assert (nodes["player"].health, nodes["player"].summary) == (WARN, "playing the input-loss slate (no source)")
+
+
+def client_error(code, operation):
+    return ClientError({"Error": {"Code": code, "Message": "User: arn:aws:sts::1:assumed-role/x is not authorized"}},
+                       operation)
+
+
+def test_an_access_denied_names_the_iam_action():
+    assert denial(client_error("AccessDeniedException", "DescribeChannel"), "medialive") == \
+        "access denied: medialive:DescribeChannel"
+    assert denial(client_error("AccessDenied", "GetDistribution"), "cloudfront") == \
+        "access denied: cloudfront:GetDistribution"
+
+
+def test_other_errors_are_not_denials():
+    assert denial(client_error("ThrottlingException", "DescribeChannel"), "medialive") is None
+    assert denial(RuntimeError("AccessDeniedException: stubbed failure"), "medialive") is None
+
+
+def test_a_denied_channel_read_shows_the_action_on_the_node():
+    clients = stub_aws()
+    clients["medialive"]._responses["describe_channel"] = client_error("AccessDeniedException", "DescribeChannel")
+
+    nodes = by_id(make(clients).nodes(TARGETS))
+
+    assert nodes["medialive_channel"].health == UNKNOWN
+    assert nodes["medialive_channel"].error == "access denied: medialive:DescribeChannel"

@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 from urllib.parse import quote
 
+from botocore.exceptions import ClientError
+
 from livectl.cache import TtlCache
 from livectl.logs import SOURCE_PATTERN, LogReader, clock_label, latest_source_state
 from livectl.manifest import Fetch, ManifestCheck, ManifestWatcher, http_fetch
@@ -40,6 +42,12 @@ TITLES = {
     "player": "Player",
 }
 REDEPLOY_HINT = "not in the Terraform outputs yet; run Deploy stack once to add it"
+# The IAM service prefix behind each cached read, so a denial can name the action a policy is missing.
+SERVICE_FOR_KEY = {
+    "metrics": "cloudwatch", "flow": "mediaconnect", "source-events": "logs", "input": "medialive",
+    "channel": "medialive", "alerts": "medialive", "package": "mediapackagev2", "cdn": "cloudfront",
+}
+DENIED_CODES = {"AccessDenied", "AccessDeniedException", "UnauthorizedOperation"}
 
 
 @dataclass(frozen=True)
@@ -65,6 +73,13 @@ def _node(node_id: str, at: str, **fields: Any) -> NodeStatus:
 
 def unknown(node_id: str, at: str, error: str) -> NodeStatus:
     return _node(node_id, at, state=None, health=UNKNOWN, summary="could not read", error=error)
+
+
+def denial(error: BaseException, service: str) -> Optional[str]:
+    """`access denied: medialive:DescribeChannel` for a permission error, else None. The action name is not secret."""
+    if isinstance(error, ClientError) and error.response.get("Error", {}).get("Code") in DENIED_CODES:
+        return f"access denied: {service}:{error.operation_name}"
+    return None
 
 
 def _mbps(bits_per_second: Optional[float]) -> Optional[str]:
@@ -248,7 +263,8 @@ class Pipeline:
         try:
             return self._cache.get(key, ttl, load, stale_for=STALE_FOR), None
         except Exception as error:  # a denied or throttled call becomes one unknown node
-            return None, f"{type(error).__name__}: {error}"
+            service = SERVICE_FOR_KEY.get(key)
+            return None, (service and denial(error, service)) or f"{type(error).__name__}: {error}"
 
     def _source_event(self, targets: Targets) -> Optional[tuple[str, int]]:
         since = int(self._now().timestamp() * 1000) - SOURCE_EVENTS_LOOKBACK_MS
