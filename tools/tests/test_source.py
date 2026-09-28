@@ -1,6 +1,7 @@
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -193,3 +194,10 @@ def test_a_stopped_source_can_be_started_again_at_once():
 
     assert source.status()["pattern"] == "black"
     second.finish()
+
+
+def test_the_script_is_found_from_the_working_directory_not_the_install():
+    from livectl.source import SCRIPT
+
+    assert SCRIPT == Path("source/send-srt.sh")
+    assert not SCRIPT.is_absolute()

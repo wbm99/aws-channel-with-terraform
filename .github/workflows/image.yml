@@ -1,0 +1,113 @@
+# Every pull request: the offline suite inside the image users get, and the browser tests on the runner.
+# Every merge to main: the same, then the image is published to GHCR for amd64 and arm64.
+# No AWS secrets exist in this repository, so a test that reached AWS by mistake would fail instead of billing.
+name: image
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build the test image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: test
+          load: true
+          tags: livectl-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Terraform and Python tests inside the image
+        run: docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" livectl-test just test-tf test-py
+
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: extractions/setup-just@v4
+      - name: Install livectl with the browser test extras
+        run: |
+          just venv
+          .venv/bin/pip install --quiet -e "tools[dev,ui]"
+      # test_ui.py launches the installed Google Chrome (channel="chrome"), which the runner image ships.
+      - run: google-chrome --version
+      - run: just test-ui
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, ui]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Image name and short commit
+        id: meta
+        run: |
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: Build the runtime image for the smoke check
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: runtime
+          load: true
+          tags: livectl-smoke
+          cache-from: type=gha
+      - name: Smoke check
+        run: |
+          run() { docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" livectl-smoke "$@"; }
+          run terraform version
+          run sh -c 'ffmpeg -hide_banner -protocols | grep -qw srt'
+          run source/send-srt.sh --frame /tmp/frame.png
+          run livectl --help > /dev/null
+          # Files written into the checkout belong to the user running the container.
+          run touch /work/.owner-check
+          test "$(stat -c %u .owner-check)" = "$(id -u)"
+          rm .owner-check
+          # The console answers on the host's loopback.
+          docker run -d --name console -u "$(id -u):$(id -g)" -v "$PWD:/work" -p 127.0.0.1:8765:8765 livectl-smoke \
+            livectl ui --host 0.0.0.0 --container --no-browser
+          for _ in $(seq 1 40); do curl -sf -o /dev/null http://127.0.0.1:8765/ && break; sleep 0.5; done
+          curl -sf -o /dev/null http://127.0.0.1:8765/
+          docker rm -f console
+          # The image's own default binds loopback inside the container, so a published port reaches nothing.
+          docker run -d --name default -p 127.0.0.1:8766:8765 livectl-smoke
+          sleep 3
+          if curl -sf -m 3 -o /dev/null http://127.0.0.1:8766/; then echo "the default command is reachable"; exit 1; fi
+          docker rm -f default
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: runtime
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:latest
+            ${{ steps.meta.outputs.image }}:sha-${{ steps.meta.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

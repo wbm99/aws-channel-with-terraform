@@ -35,11 +35,63 @@ flowchart LR
 
 ## Prerequisites
 
+With Docker, you need only Docker and an AWS profile: see [Run with Docker](#run-with-docker). Otherwise:
+
 - Terraform 1.11 or newer, and the AWS CLI v2 with credentials for a personal or sandbox account.
 - FFmpeg built with SRT support (`ffmpeg -protocols | grep srt`) and the DejaVu Sans font (`fonts-dejavu-core`).
 - Python 3.10 or newer with `virtualenv` (`pip install --user virtualenv`).
 - [`just`](https://github.com/casey/just) to run the recipes below (`cargo install just`, `brew install just`, or a
   prebuilt binary from the releases page; Ubuntu ships it from 24.04 onwards).
+
+## Run with Docker
+
+One image carries Terraform, Python with `livectl`, FFmpeg and `just` (about 360 MB). Your checkout is mounted into
+it, so state and configuration stay in the same files as the host path below, and the two can be mixed.
+
+You need Docker with Compose v2 and an AWS profile in `~/.aws` for an IAM user or role (never the root user). With
+the AWS CLI installed, use `aws configure` or `aws configure sso` and `aws sso login` as usual. Without it, run the
+same commands from AWS's own image, as yourself so the files stay readable to you and to the console:
+
+```bash
+mkdir -p ~/.aws
+aws() { docker run --rm -it -u "$(id -u):$(id -g)" -e HOME=/aws -v ~/.aws:/aws/.aws amazon/aws-cli "$@"; }
+aws configure sso                                  # or: aws configure (access keys)
+aws sso login --profile <name> --use-device-code   # SSO only: again whenever the console says the session expired
+```
+
+```bash
+git clone https://github.com/wbm99/aws-channel-with-terraform && cd aws-channel-with-terraform
+cp .env.example .env                               # set AWS_PROFILE; CONSOLE_PORT if 8765 is taken
+printf 'UID=%s\nGID=%s\n' "$(id -u)" "$(id -g)" >> .env   # the container runs as you (bash does not export UID)
+
+# Configuration, as in the quick start below
+cp bootstrap/terraform.tfvars.example bootstrap/terraform.tfvars    # set alert_email
+cp envs/demo/backend.hcl.example envs/demo/backend.hcl
+printf 'source_cidr = "%s/32"\n' "$(curl -s https://checkip.amazonaws.com)" > envs/demo/terraform.tfvars
+
+docker compose run --rm console just bootstrap     # once per AWS account; put the bucket name in backend.hcl
+docker compose run --rm console just init          # once per checkout
+docker compose up                                  # the console on http://127.0.0.1:8765
+```
+
+Everything else (deploy, go live, the test source, tear down, the leftover scan) is in the console. Recipes that
+need only Terraform or `livectl` run the same way, for example `docker compose run --rm console just check-clean`
+(also `status`, `outputs`, `plan`, `test-tf`). Three do not: `just send` needs the AWS CLI, which the image leaves
+out (use *Send test source* in the console); `just ui` inside `run` publishes no port (use `docker compose up`); and
+`just test` needs the dev tools, which only CI's test image has.
+
+> **`docker compose down` stops the console, not AWS billing.** Use *Go off air* or *Tear down stack* first, then
+> *Scan for leftovers*.
+
+- The console header shows the account and role it acts as, and a banner when credentials are missing, expired or
+  belong to the root user.
+- The port is published on `127.0.0.1` only, never on the network. Set `CONSOLE_PORT` in `.env` to change it.
+- `docker compose up` pulls the image built from `main`. On any other checkout, use `docker compose up --build`:
+  `livectl` comes from the image, while the Terraform code comes from your checkout.
+- `~/.aws` is mounted read-write, as the AWS CLI uses it: SSO saves refreshed tokens there. After fixing missing or
+  rejected credentials, restart the console (`docker compose restart`); an SSO login is picked up without one.
+- Run the image through Compose. On its own (`docker run`), it listens on loopback inside the container, so a
+  published port reaches nothing; that is deliberate, so a `-p 8765:8765` can never expose it to the network.
 
 ## Quick start
 
@@ -175,12 +227,18 @@ the new outputs exist), open `just ui` and check:
 8. Each *Open in the AWS console* link opens the right page.
 9. **Go off air**: the source stops first, then channel and flow; the verdict reads *Off air* and the cost $0.00.
 10. **Tear down**, then **Scan for leftovers**: nothing billable, and `ElementalMediaLive` listed as information.
+11. **With Docker:** `docker compose run --rm console just bootstrap` and `just init` on a fresh checkout, then steps
+    1-10 from `docker compose up` with an SSO profile. The header names the role and account.
+12. **With Docker and SSO:** leave the console running across the SSO access-token refresh (about an hour): the
+    header keeps the role, no node shows a token error, and a Deploy started after the refresh succeeds.
 
 ## Repository layout
 
 ```
 AGENTS.md           conventions and cost rules for agents working here (CLAUDE.md symlinks to it)
 justfile            every command in the project; `just --list` to see them
+compose.yaml        the console in Docker; docker/Dockerfile builds the image, .env.example lists the settings
+.github/workflows/  CI: tests on every pull request, image published to GHCR on merge to main
 bootstrap/          one-time root: state bucket and the budget (never destroyed)
 modules/
   ingest/           MediaConnect SRT flow, passphrase secret, IP allow-list, thumbnails
@@ -208,6 +266,10 @@ just test-ui       # drive the console in Chrome through every scenario (pip ins
 just validate      # formatting check and terraform validate for every root
 just frame         # renders one frame to /tmp/clock.png to check the burned-in clock
 ```
+
+CI (`.github/workflows/image.yml`) runs the same suite on every pull request and publishes the image to GHCR on each
+merge to `main`. GHCR creates a new package as private: after the first publish, make it public once (the package's
+*Package settings* → *Change visibility*), or `docker compose up` falls back to building locally.
 
 ## Costs
 
@@ -247,7 +309,9 @@ channel. When nothing is running, cost is close to zero. Details, assumptions an
   bucket is private, encrypted and versioned).
 - If your public IP changes, update `source_cidr` and re-apply, or the stream is rejected.
 - The browser console has no authentication. It binds to loopback only and refuses anything else, but anyone with an
-  account on the same machine can reach it, and its apply and destroy run with `-auto-approve`.
+  account on the same machine can reach it, and its apply and destroy run with `-auto-approve`. In Docker it listens on
+  every interface inside the container, and Compose publishes it on the host's loopback only.
+- Docker on native Windows (without WSL) is not supported: the bind mounts and `${HOME}` behave differently there.
 - MediaLive creates the `ElementalMediaLive` log group itself, so it outlives `terraform destroy`. The leftover scan
   lists it as information (log storage only, not billed by the hour).
 - `livectl check-clean` covers the media resources and CloudFront (flows, channels, inputs, channel groups, distributions). It does not look at secrets, IAM roles or S3 buckets; `terraform destroy` removes those, and the README's teardown ends with it.

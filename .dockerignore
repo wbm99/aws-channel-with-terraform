@@ -1,0 +1,17 @@
+# State, credentials and local environments must never enter a build context.
+.git
+.venv
+.env
+**/.terraform
+**/.terraform-docker
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfvars
+**/backend.hcl
+**/__pycache__
+**/.pytest_cache
+**/*.egg-info
+.superpowers
+.claude
+.agents
+docs

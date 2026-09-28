@@ -374,6 +374,21 @@ def test_make_server_refuses_a_network_interface(aws):
         make_server(make_console(), host="0.0.0.0", port=0)
 
 
+def test_a_container_may_bind_every_interface(aws):
+    from livectl.server import make_server
+
+    server = make_server(make_console(), host="0.0.0.0", port=0, container=True)
+    server.server_close()
+
+
+def test_a_container_still_refuses_a_specific_network_address(aws):
+    import pytest
+    from livectl.server import ConsoleError, make_server
+
+    with pytest.raises(ConsoleError):
+        make_server(make_console(), host="192.168.1.5", port=0, container=True)
+
+
 # --- logs and the test source --------------------------------------------------
 
 from livectl.source import SourceProcess
@@ -540,3 +555,63 @@ def test_an_unknown_pattern_is_a_400(aws):
     status, payload = call(source_console(), "POST", "/api/source/start", body={"pattern": "rainbow"})
 
     assert status == 400 and "rainbow" in payload["error"]
+
+
+# --- identity --------------------------------------------------------------------
+
+from botocore.exceptions import ClientError
+from livectl.identity import IDENTITY_TTL
+from stubs import StubClient, sts_client
+
+
+def test_the_pipeline_payload_carries_the_identity(aws):
+    _, payload = call(make_console(sts=sts_client("ok")), "GET", "/api/pipeline")
+
+    assert payload["identity"]["kind"] == "ok"
+    assert payload["identity"]["label"] == "acting as role LiveOps (william) · account 123456789012 · us-east-1"
+
+
+def test_without_credentials_the_chain_is_not_polled(aws):
+    runner = counting_runner()
+    _, payload = call(make_console(sts=sts_client("no-credentials"), runner=runner), "GET", "/api/pipeline")
+
+    assert payload["identity"]["kind"] == "no-credentials"
+    assert payload["verdict"] == {"text": "No AWS credentials", "health": "bad"}
+    assert payload["deployed"] is False and payload["nodes"] == []
+    assert all(message for name, message in payload["actions"].items() if name != "source-stop")
+    assert runner.calls == []  # terraform output reads the S3 state, which needs credentials too
+
+
+def test_an_expired_session_recovers_after_login_without_a_restart(aws):
+    logged_in = {"yes": False}
+
+    def get_caller_identity():
+        if not logged_in["yes"]:
+            raise ClientError({"Error": {"Code": "ExpiredToken", "Message": "expired"}}, "GetCallerIdentity")
+        return {"Account": "123456789012", "Arn": "arn:aws:sts::123456789012:assumed-role/LiveOps/william"}
+
+    now = [1000.0]
+    console = make_console(sts=StubClient(get_caller_identity=get_caller_identity), clock=lambda: now[0])
+
+    assert call(console, "GET", "/api/pipeline")[1]["identity"]["kind"] == "expired"
+    logged_in["yes"] = True
+    assert call(console, "GET", "/api/pipeline")[1]["identity"]["kind"] == "expired"  # cached, not re-asked
+    now[0] += IDENTITY_TTL
+    assert call(console, "GET", "/api/pipeline")[1]["identity"]["kind"] == "ok"
+
+
+def test_a_console_without_sts_behaves_as_before(aws):
+    _, payload = call(make_console(), "GET", "/api/pipeline")
+
+    assert payload["identity"] is None
+    assert payload["verdict"]["text"] == "Not deployed"
+
+
+def test_post_deploy_is_refused_without_credentials(aws):
+    calls = []
+    console = make_console(sts=sts_client("no-credentials"), command=recording_command(calls))
+
+    status, payload = call(console, "POST", "/api/deploy")
+
+    assert status == 403 and "No AWS credentials" in payload["error"]
+    assert calls == []

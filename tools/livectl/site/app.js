@@ -69,7 +69,11 @@ function showPage() {
 function renderHeader() {
   $('verdict').dataset.health = data.verdict.health;
   $('verdict-text').textContent = data.verdict.text;
-  if (data.rate > 0) {
+  if (data.identity && !data.identity.usable) {
+    // Nothing can be read, so the stack may be on air and billing: say so rather than "$0.00".
+    billingSince = null;
+    $('cost').textContent = 'cost unknown';
+  } else if (data.rate > 0) {
     if (billingSince === null) billingSince = Date.now();
     const minutes = Math.round((Date.now() - billingSince) / 60000);
     $('cost').textContent = '$' + data.rate.toFixed(2) + ' / h · ' + minutes + ' min';
@@ -79,6 +83,22 @@ function renderHeader() {
   }
 
   renderPill();
+  renderIdentity(data.identity);
+}
+
+// Who the console acts as, and a banner when that is the root user or nobody usable. Separate from #banner, which
+// belongs to lost contact and failed jobs.
+function renderIdentity(identity) {
+  if (!changed('identity', identity)) return;
+  const chip = $('identity');
+  const box = $('identity-banner');
+  const usable = Boolean(identity && identity.usable);
+  chip.hidden = !usable;
+  chip.textContent = usable ? identity.label : '';
+  box.hidden = !(identity && identity.message);
+  box.textContent = (identity && identity.message) || '';
+  if (identity) box.dataset.kind = identity.kind;
+  else delete box.dataset.kind;
 }
 
 // A running job is never out of sight: its name, progress, stopwatch and latest line, on every page.
@@ -136,8 +156,12 @@ function render() {
   jobs.show(data.job);           // first, so the header's job pill shows this poll's latest line
   renderHeader();
   const note = $('deploy-note');
+  // Without usable credentials nothing is known about the stack, and "Deploy stack" would not work.
+  const noCredentials = Boolean(data.identity && !data.identity.usable);
   note.hidden = data.deployed && !data.note;
-  note.textContent = data.note || (data.deployed ? '' : 'Nothing is deployed yet. Deploy stack creates it (a few minutes).');
+  note.textContent = noCredentials
+    ? 'The pipeline appears here once the console can use your AWS credentials (see above).'
+    : data.note || (data.deployed ? '' : 'Nothing is deployed yet. Deploy stack creates it (a few minutes).');
 
   if (selected && !data.nodes.some((n) => n.id === selected)) selected = null;
   // checked_at moves every second; leaving it out keeps the chain from re-rendering (and losing focus) on each poll.

@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import os
 import sys
 from typing import Optional, Sequence
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ProfileNotFound
 
 from livectl.clean import find_informational, find_leftovers
 from livectl.control import WaitTimeout, start, stop
-from livectl.server import LOOPBACK, Console, ConsoleError, serve
+from livectl.identity import Identity, whoami
+from livectl.server import Console, ConsoleError, allowed_hosts, serve
 from livectl.status import get_status
 from livectl.targets import Runner, TargetError, resolve_targets, run_command
 
@@ -29,13 +32,6 @@ def _target_parent() -> argparse.ArgumentParser:
     parent.add_argument("--flow-arn", help="MediaConnect flow ARN (overrides Terraform output)")
     parent.add_argument("--channel-id", help="MediaLive channel ID (overrides Terraform output)")
     return parent
-
-
-def _loopback(value: str) -> str:
-    """Reject anything but a loopback address: the console can destroy infrastructure."""
-    if value not in LOOPBACK:
-        raise argparse.ArgumentTypeError(f"the console binds to loopback only, not {value!r}")
-    return value
 
 
 def _wait_parent() -> argparse.ArgumentParser:
@@ -56,7 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
     clean.add_argument("--prefix", default="live-sports-aws", help="name prefix of the resources to look for")
     ui = commands.add_parser("ui", parents=[region, target], help="serve the operations console on localhost")
     ui.add_argument("--port", type=int, default=8765, help="port to listen on (default: 8765)")
-    ui.add_argument("--host", type=_loopback, default="127.0.0.1", help="loopback address to bind")
+    ui.add_argument("--host", default="127.0.0.1", help="loopback address to bind")
+    ui.add_argument("--container", action="store_true",
+                    help="running in a container whose published port is bound to the host's loopback; "
+                         "allows --host 0.0.0.0")
     ui.add_argument("--no-browser", action="store_true", help="do not open a browser window")
     ui.add_argument("--prefix", default="live-sports-aws", help="name prefix used by the clean check")
     return parser
@@ -73,12 +72,30 @@ def _print_status(status: dict) -> None:
         print(f"player:    {status['player']}")
 
 
-def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) -> int:
-    args = build_parser().parse_args(argv)
-    session = boto3.Session(region_name=args.region)
+class NoIdentity(RuntimeError):
+    """The AWS credentials cannot be used; the message says how to fix them."""
 
+
+def _identity_line(session: boto3.Session, region: str) -> Identity:
+    """Print who the command acts as, first, or stop when there is nobody to act as."""
+    identity = whoami(session.client("sts"), region, session.profile_name)
+    if not identity.usable:
+        raise NoIdentity(identity.message)
+    print(identity.label)
+    return identity
+
+
+def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    # The console can destroy infrastructure: loopback only, or every interface inside a container (see server.py).
+    if args.command == "ui" and args.host not in allowed_hosts(args.container):
+        parser.error(f"the console binds to loopback only, not {args.host!r}"
+                     + ("" if args.container else " (0.0.0.0 is allowed only with --container)"))
     try:
+        session = boto3.Session(region_name=args.region)
         if args.command == "check-clean":
+            _identity_line(session, args.region)
             leftovers = find_leftovers(
                 session.client("mediaconnect"),
                 session.client("medialive"),
@@ -116,14 +133,20 @@ def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) 
                 channel_id=args.channel_id,
                 region=args.region,
                 logs=client("logs"),
+                sts=client("sts"),
+                profile=session.profile_name,
                 # Read only when "Send test source" is clicked, and handed straight to the child's environment.
                 read_passphrase=lambda arn: client("secretsmanager").get_secret_value(
                     SecretId=arn)["SecretString"],
             )
             atexit.register(console.source.stop)
-            serve(console, host=args.host, port=args.port, open_browser=not args.no_browser)
+            # Inside a container the address people open is the host's published one, which compose passes in.
+            serve(console, host=args.host, port=args.port, open_browser=not args.no_browser,
+                  container=args.container, url=os.environ.get("CONSOLE_URL") if args.container else None)
             return 0
 
+        if args.command == "status":  # before the targets: `terraform output` reads the S3 state with the same keys
+            _identity_line(session, args.region)
         targets = resolve_targets(args.flow_arn, args.channel_id, args.tf_dir, runner)
         mediaconnect, medialive = session.client("mediaconnect"), session.client("medialive")
 
@@ -134,7 +157,12 @@ def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) 
         elif args.command == "stop":
             stop(mediaconnect, medialive, targets, log=print, timeout=args.timeout, interval=args.interval)
         return 0
-    except (TargetError, WaitTimeout, ConsoleError) as error:
+    except ProfileNotFound as error:
+        name = error.kwargs.get("profile", "")
+        print(f"error: AWS profile '{name}' is not in ~/.aws/config. Set AWS_PROFILE to one that is, or create it: "
+              f"aws configure --profile {name}", file=sys.stderr)
+        return 2
+    except (TargetError, WaitTimeout, ConsoleError, NoIdentity) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
 
