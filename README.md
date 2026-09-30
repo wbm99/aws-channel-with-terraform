@@ -268,8 +268,8 @@ just frame         # renders one frame to /tmp/clock.png to check the burned-in 
 ```
 
 CI (`.github/workflows/image.yml`) runs the same suite on every pull request and publishes the image to GHCR on each
-merge to `main`. GHCR creates a new package as private: after the first publish, make it public once (the package's
-*Package settings* → *Change visibility*), or `docker compose up` falls back to building locally.
+merge to `main`, as `ghcr.io/wbm99/aws-channel-with-terraform` (public, like the repository). If a fork's package
+comes out private, make it public in the package's *Package settings*, or `docker compose up` builds locally instead.
 
 ## Costs
 
