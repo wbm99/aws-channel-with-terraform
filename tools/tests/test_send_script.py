@@ -138,6 +138,9 @@ def test_latency_is_sent_in_microseconds(run):
     ("GOP_SECONDS", "3"), ("AUDIO_CODEC", "opus"), ("AUDIO_BITRATE", "100k"), ("TONE", "2000"),
     ("PROGRAM_NUMBER", "0"), ("PROGRAM_NUMBER", "65536"), ("SRT_LATENCY_MS", "10"), ("SERVICE_NAME", "x" * 61),
     ("SERVICE_PROVIDER", ""),
+    # Leading zeros would be read as octal by bash arithmetic (0100 ms became 64 ms); long strings would overflow.
+    ("SRT_LATENCY_MS", "0100"), ("SRT_LATENCY_MS", "0900"), ("BITRATE", "0600k"), ("BITRATE", "08000k"),
+    ("PROGRAM_NUMBER", "99999999999999999999"),
 ])
 def test_bad_values_are_refused(run, name, value):
     result = run(**{name: value})

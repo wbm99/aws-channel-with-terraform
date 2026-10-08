@@ -31,8 +31,8 @@ export class SourcePage {
     this.timer = null;
     this.busy = false;
     this.apply.addEventListener('click', () => this.onApply());
-    this.discard.addEventListener('click', () => { this.fill(this.synced); this.clearErrors(); this.update(); });
-    this.reset.addEventListener('click', () => { this.fill(this.data.source_settings.defaults); this.update(); });
+    this.discard.addEventListener('click', () => this.refill(this.synced));
+    this.reset.addEventListener('click', () => this.refill(this.data && this.data.source_settings.defaults));
     this.stop.addEventListener('click', () => this.act('source-stop'));
     this.form.addEventListener('input', (event) => this.edited(event));
     this.form.addEventListener('change', (event) => this.edited(event));
@@ -91,6 +91,14 @@ export class SourcePage {
 
   write(choice, value) {
     this.control(choice.key).value = choice.key === 'video_kbps' ? String(value / 1000) : String(value);
+  }
+
+  // Discard and Reset: nothing to do before the first poll has built the form.
+  refill(settings) {
+    if (!this.choices || !settings) return;
+    this.fill(settings);
+    this.clearErrors();
+    this.update();
   }
 
   fill(settings) {
@@ -181,6 +189,7 @@ export class SourcePage {
     }
     this.discard.disabled = count === 0;
     this.stop.hidden = !running;
+    this.stop.disabled = this.busy;   // a Stop during Apply would race the restart
     if (!running && refusal) this.say(refusal, 'refusal');
     else if (this.note.dataset.kind === 'refusal') this.say('');
   }
@@ -285,7 +294,8 @@ function rows(sent, program, choices) {
     row('program', 'Program',
       sent && line('"' + sent.service_name + '"', '#' + sent.program_number),
       line(known(program.name) ? '"' + program.name + '"' : null, known(program.number) ? '#' + program.number : null),
-      sent && (program.name !== sent.service_name || program.number !== sent.program_number)),
+      sent && ((known(program.name) && program.name !== sent.service_name)
+        || (known(program.number) && program.number !== sent.program_number))),
   ];
 }
 

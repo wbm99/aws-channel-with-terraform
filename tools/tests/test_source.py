@@ -340,3 +340,38 @@ def test_to_env_names_the_script_variables():
 def test_choices_follow_the_fields_and_serialise():
     assert [c["key"] for c in CHOICES] == [f.name for f in dataclasses.fields(SourceSettings)]
     json.dumps(CHOICES)
+
+
+def test_stop_during_a_restart_wins():
+    """Stop pressed while an Apply is restarting: the source ends stopped, not running on the new settings."""
+    from livectl.source import SourceSettings
+
+    slow, fresh = FakeProcess(["frame= 1"], ignores_term=True), FakeProcess(["frame= 1"])
+    processes = iter([slow, fresh])
+    source = SourceProcess(popen=lambda args, **kwargs: next(processes), script="send-srt.sh", grace=0.3)
+    source.start(host="h", port=5000, passphrase=SECRET)
+    settle(source, "running")
+    restart = threading.Thread(target=source.restart, kwargs=dict(
+        host="h", port=5000, passphrase=SECRET, settings=SourceSettings().merged({"fps": 25})))
+    restart.start()
+    time.sleep(0.05)       # the restart is waiting for the old FFmpeg to exit
+
+    source.stop()          # pressed after Apply: waits for the restart, then stops what it started
+    restart.join(5)
+
+    assert source.status()["state"] == "stopped"
+    assert fresh.signals == ["TERM"]
+
+
+def test_a_launch_that_fails_does_not_leave_the_source_starting():
+    def popen(args, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "source/send-srt.sh")
+
+    source = SourceProcess(popen=popen, script="source/send-srt.sh")
+
+    with pytest.raises(OSError):
+        source.start(host="h", port=5000, passphrase=SECRET)
+
+    status = source.status()
+    assert status["state"] == "exited" and "No such file" in status["last_error"]
+    assert not source.running

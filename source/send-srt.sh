@@ -41,9 +41,10 @@ one_of() {
   fail "unknown $name '$value' (use one of: $(echo "$@" | sed 's/ /, /g'))"
 }
 
-# between NAME VALUE MIN MAX: a whole number in range
+# between NAME VALUE MIN MAX: a whole number in range, written without leading zeros (bash would read 0100 as octal)
+# and short enough that bash arithmetic cannot overflow
 between() {
-  [[ "$2" =~ ^[0-9]+$ ]] && (( 10#$2 >= $3 && 10#$2 <= $4 )) || fail "$1 must be a whole number from $3 to $4, not '$2'"
+  [[ "$2" =~ ^[1-9][0-9]{0,5}$ ]] && (( $2 >= $3 && $2 <= $4 )) || fail "$1 must be a whole number from $3 to $4, not '$2'"
 }
 
 # text NAME VALUE: 1-60 characters (not bytes), no control characters

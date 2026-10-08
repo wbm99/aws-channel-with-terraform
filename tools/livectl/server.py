@@ -292,6 +292,9 @@ def _start_source(console: Console, *, restart: bool) -> Response:
             console.source.start(**where)
     except SourceBusy:
         return _json(409, {"error": "The test source is already running."})
+    except OSError as error:  # the script is missing or cannot run: the console was started outside the checkout?
+        return _json(500, {"error": f"Could not start the test source ({error.strerror or type(error).__name__}). "
+                                    "Run the console from the repository root, where source/send-srt.sh is."})
     console.pipeline.forget()
     return _json(202, {"saved": True, "restarted": True, "current": settings.to_dict()} if restart
                  else {"started": "source"})

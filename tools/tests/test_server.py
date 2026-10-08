@@ -693,3 +693,16 @@ def test_post_deploy_is_refused_without_credentials(aws):
 
     assert status == 403 and "No AWS credentials" in payload["error"]
     assert calls == []
+
+
+def test_a_launch_that_fails_is_a_readable_error_and_does_not_block_the_next_start(aws):
+    console, _ = sending_console()
+
+    def missing(args, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory")
+
+    console.source._popen = missing
+    status, payload = call(console, "POST", "/api/source/start")
+
+    assert status == 500 and "could not start" in payload["error"].lower()
+    assert call(console, "GET", "/api/pipeline")[1]["source"]["state"] == "exited"

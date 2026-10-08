@@ -128,8 +128,9 @@ def _check(key: str, value: object) -> None:
     elif choice["kind"] == "range":
         low, high, unit = choice["min"], choice["max"], choice["unit"]
         if type(value) is not int or not low <= value <= high:
+            shown = " (0.5 to 10 Mbps)" if key == "video_kbps" else ""
             raise SettingsError(key, f"{label} must be a whole number between {low} and {high}"
-                                     f"{' ' + unit if unit else ''}.")
+                                     f"{' ' + unit if unit else ''}{shown}.")
     elif (type(value) is not str or not 1 <= len(value) <= TEXT_MAX
           or any(unicodedata.category(ch) == "Cc" for ch in value)):
         raise SettingsError(key, f"{label} must be 1 to {TEXT_MAX} characters, without control characters.")
@@ -170,6 +171,10 @@ class SourceProcess:
             return self._state in (STARTING, RUNNING)
 
     def start(self, *, host: str, port: int, passphrase: str, settings: SourceSettings = SourceSettings()) -> None:
+        with self._restart_lock:
+            self._start(host, port, passphrase, settings)
+
+    def _start(self, host: str, port: int, passphrase: str, settings: SourceSettings) -> None:
         with self._lock:
             if self._state in (STARTING, RUNNING):
                 raise SourceBusy("the test source is already running")
@@ -179,8 +184,17 @@ class SourceProcess:
             self._exit_code = self._progress = self._last_line = None
         env = {**os.environ, **settings.to_env(),
                "SRT_HOST": host, "SRT_PORT": str(port), "SRT_PASSPHRASE": passphrase}
-        process = self._popen([self._script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              text=True, bufsize=1, env=env)
+        try:
+            process = self._popen([self._script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                  text=True, bufsize=1, env=env)
+        except OSError as error:
+            # Nothing was launched: say why instead of staying "starting", which would refuse every later start.
+            line = f"could not start {self._script}: {error.strerror or error}"
+            with self._lock:
+                if generation == self._generation:
+                    self._state, self._exit_code, self._last_line = EXITED, -1, line
+                    self._lines.append((self._clock_ms(), line))
+            raise
         with self._lock:
             self._process = process
         self._reader = threading.Thread(target=self._pump, args=(process, generation, passphrase), daemon=True,
@@ -190,8 +204,8 @@ class SourceProcess:
     def restart(self, *, host: str, port: int, passphrase: str, settings: SourceSettings) -> None:
         """Stop, then start on new settings. Two restarts at once run one after the other, never interleaved."""
         with self._restart_lock:
-            self.stop()
-            self.start(host=host, port=port, passphrase=passphrase, settings=settings)
+            self._stop()
+            self._start(host, port, passphrase, settings)
 
     def _pump(self, process, generation: int, secret: str) -> None:
         for raw in process.stdout:
@@ -215,6 +229,11 @@ class SourceProcess:
                 self._state = STOPPED if self._stopping else EXITED
 
     def stop(self) -> None:
+        # Waits for a restart in progress, then stops what it started: a Stop pressed after Apply always wins.
+        with self._restart_lock:
+            self._stop()
+
+    def _stop(self) -> None:
         with self._lock:
             process = self._process
             if process is None or process.poll() is not None:
