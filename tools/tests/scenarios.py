@@ -19,7 +19,7 @@ from livectl.jobs import JobRunner  # noqa: E402
 from livectl.pipeline import Pipeline  # noqa: E402
 from livectl.server import Console, make_server  # noqa: E402
 from livectl.source import SourceSettings  # noqa: E402
-from stubs import CHANNEL_ID, FLOW_ARN, logs_client, sts_client, stub_aws  # noqa: E402
+from stubs import CHANNEL_ID, FLOW_ARN, logs_client, source_metadata, sts_client, stub_aws  # noqa: E402
 
 CHANNEL_ARN = f"arn:aws:medialive:us-east-1:123456789012:channel:{CHANNEL_ID}"
 
@@ -54,7 +54,10 @@ SCENARIOS: dict[str, dict] = {
     "degraded": dict(**ON, metrics=dict(LIVE, src_not_recovered=12.0), playing=True),
     "partly-on": dict(flow="ACTIVE"),
     "probe-error": dict(fail=("describe_flow", "describe_channel")),
-    "source-running": dict(**ON, metrics=LIVE, playing=True, source="running"),
+    "source-running": dict(**ON, metrics=LIVE, playing=True, source="running", metadata=source_metadata()),
+    # MediaConnect reports a service name other than the one sent: FFmpeg's default, as if the setting were lost.
+    "source-received-mismatch": dict(**ON, metrics=LIVE, playing=True, source="running",
+                                     metadata=source_metadata(name="Service01")),
     # The live run of 2026-09-27: the source has just stopped, MediaConnect has said so, CloudWatch has not yet.
     "source-dropped": dict(**ON, metrics=LIVE, playing=True, health="DISCONNECTED"),
     "no-credentials": dict(identity="no-credentials"),

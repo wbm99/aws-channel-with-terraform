@@ -24,6 +24,7 @@
 <div class="shell">
   <nav class="menu" aria-label="Pages">
     <a href="#control" data-page="control">Control</a>
+    <a href="#source" data-page="source">Source</a>
     <a href="#live" data-page="live">Live</a>
     <a href="#logs" data-page="logs">Logs</a>
   </nav>
@@ -67,6 +68,32 @@
             <button class="act danger" id="confirm-go" type="button">Tear down</button>
             <button class="act" id="confirm-cancel" type="button">Cancel</button>
           </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- Source: tune the FFmpeg test source and compare it with what MediaConnect received. -->
+    <main class="view" id="view-source" data-view="source" hidden>
+      <div class="source">
+        <section class="card" aria-labelledby="source-title">
+          <h2 class="card-title" id="source-title">Test source</h2>
+          <form id="source-form" class="source-form" novalidate></form>
+          <div class="actions source-actions">
+            <button class="act primary" id="source-apply" type="button">Send test source</button>
+            <button class="act" id="source-discard" type="button" disabled>Discard</button>
+            <button class="act" id="source-stop" type="button" hidden>Stop</button>
+            <button class="act quiet" id="source-reset" type="button">Reset to defaults</button>
+          </div>
+          <p class="note" id="source-note" role="status"></p>
+        </section>
+        <section class="card" id="received-card" aria-labelledby="received-title">
+          <h2 class="card-title" id="received-title">Sent vs received</h2>
+          <table class="received" id="source-received" hidden>
+            <thead><tr><td></td><th scope="col">Sent</th><th scope="col">MediaConnect</th></tr></thead>
+            <tbody id="source-received-body"></tbody>
+          </table>
+          <p class="note" id="source-received-note" role="status"></p>
+          <p class="note" id="source-ffmpeg"></p>
         </section>
       </div>
     </main>

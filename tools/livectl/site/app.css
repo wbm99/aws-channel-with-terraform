@@ -72,6 +72,7 @@ button.act.primary { background: var(--accent); border-color: var(--accent); col
 button.act.primary:hover:not(:disabled) { background: #1d4fd7; }
 button.act.danger { color: var(--danger); border-color: #fbd3ce; }
 button.act.danger:hover:not(:disabled) { background: #fef4f2; }
+button.act:disabled { opacity: .45; cursor: not-allowed; }
 
 .copy {
   border: 1px solid var(--border); background: var(--surface); color: var(--muted);
@@ -252,3 +253,39 @@ button.act.next { box-shadow: 0 0 0 3px var(--accent-tint), 0 0 0 4px #cfdcfa; a
 @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 @media (prefers-reduced-motion: reduce) { .progress[data-indeterminate="true"] .progress-bar { animation: none; } }
 
+
+/* --- Source page --------------------------------------------------------------------------------------------- */
+.source { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.source-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; }
+.source-group { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 10px; align-content: start; }
+.source-group legend { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase;
+  letter-spacing: .04em; padding: 0; margin-bottom: 6px; }
+.source-field { display: grid; grid-template-columns: 9.5em minmax(0, 1fr); align-items: center; gap: 2px 10px; }
+.source-field label { font-size: 13px; color: var(--text-2); }
+.source-control { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.source-control select, .source-control input { font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); min-width: 0; width: 100%; }
+.source-control input[type="number"] { max-width: 8em; }
+.source-control select:focus-visible, .source-control input:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 1px; }
+.source-control [aria-invalid="true"] { border-color: var(--danger); }
+.source-control .unit { font-size: 12px; color: var(--muted); }
+/* A changed field: an accent dot after the control, read out as "changed" to screen readers. */
+.changed-mark { font-size: 0; width: 7px; height: 7px; flex: none; border-radius: 50%; }
+.source-field[data-changed] .changed-mark { background: var(--accent); }
+.source-field[data-changed] select, .source-field[data-changed] input { border-color: #cfdcfa;
+  background: #fafcff; }
+.field-error { grid-column: 2; margin: 0; font-size: 12px; color: var(--danger); }
+.field-error:empty { display: none; }
+.source-actions { margin-top: 18px; align-items: center; }
+button.act.quiet { border-color: transparent; background: none; color: var(--muted); }
+.received { width: 100%; border-collapse: collapse; font-size: 13px; }
+.received th, .received td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border);
+  vertical-align: top; }
+.received thead th { font-size: 12px; font-weight: 500; color: var(--muted); }
+.received tbody th { font-weight: 500; color: var(--text-2); width: 5.5em; }
+.received tr[data-mismatch] td { color: #b42318; background: #fef4f2; }
+
+@media (max-width: 900px) {
+  .source, .source-form { grid-template-columns: minmax(0, 1fr); }
+}

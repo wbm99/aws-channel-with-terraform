@@ -228,7 +228,8 @@ ROUTED_ACTIONS = ("deploy", "teardown", "scan", "go-live", "go-off-air", "source
 def _pipeline_payload(console: Console, offset: int = 0, job_key: Optional[str] = None) -> dict:
     payload, situation = _snapshot(console, offset, job_key)
     with console.settings_lock:
-        payload["source_settings"] = {"current": console.settings.to_dict(), "choices": CHOICES}
+        payload["source_settings"] = {"current": console.settings.to_dict(), "choices": CHOICES,
+                                      "defaults": SourceSettings().to_dict()}
     payload["actions"] = {name: (r.message if r else None)
                           for name, r in refusals(situation).items() if name in ROUTED_ACTIONS}
     source = next((n for n in payload["nodes"] if n["id"] == "srt_source"), None)

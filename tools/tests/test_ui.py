@@ -30,6 +30,7 @@ EXPECTED = {
     "source-dropped": ("On air · no source", ["scan", "go-off-air", "source-start"]),
     "no-credentials": ("No AWS credentials", []),
     "root-identity": ("Off air", ["deploy", "teardown", "scan", "go-live"]),
+    "source-received-mismatch": ("On air · playing", ["scan", "go-off-air", "source-stop"]),
 }
 
 
@@ -592,6 +593,166 @@ def test_send_test_source_on_control_starts_the_saved_settings(open_scenario):
 
     expect(page.locator('#steps [data-action="source-stop"]')).to_be_visible()
     assert scenario.console.source.calls == [("start", SourceSettings())]
+
+
+# --- the Source page --------------------------------------------------------------------------------------
+
+
+def calls_settle(scenario, expected_len, timeout=5):
+    deadline = time.monotonic() + timeout
+    while len(scenario.console.source.calls) < expected_len and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return scenario.console.source.calls
+
+
+def test_the_form_is_built_from_the_choices(open_scenario):
+    page, _ = open_scenario("on-air-no-source", "source")
+    form = page.locator("#source-form")
+
+    expect(form.locator("[name]")).to_have_count(12)
+    expect(form.locator("legend")).to_have_text(["Video", "Audio", "MPEG-TS", "SRT"])
+    assert form.locator('[name="fps"] option').all_inner_texts() == ["25", "30", "50", "60"]
+    bitrate = form.locator('[name="video_kbps"]')
+    expect(bitrate).to_have_value("6")
+    assert [bitrate.get_attribute(a) for a in ("min", "max", "step")] == ["0.5", "10", "0.1"]
+    expect(form.locator('[name="service_name"]')).to_have_attribute("maxlength", "60")
+    expect(page.locator('.menu a[data-page]')).to_have_text(["Control", "Source", "Live", "Logs"])
+
+
+def test_two_edits_make_one_apply_with_only_those_fields(open_scenario):
+    page, scenario = open_scenario("source-running", "source")
+    apply = page.locator("#source-apply")
+    expect(apply).to_have_text("Apply")
+    expect(apply).to_be_disabled()
+
+    page.locator('[name="fps"]').select_option("50")
+    page.locator('[name="service_name"]').fill("Match 1")
+    expect(apply).to_have_text("Apply 2 changes")
+    expect(page.locator('#source-form [data-changed]')).to_have_count(2)
+    with page.expect_request("**/api/source/settings") as request:
+        apply.click()
+
+    assert request.value.post_data_json == {"fps": 50, "service_name": "Match 1"}
+    calls = calls_settle(scenario, 1)
+    assert [(kind, s.fps, s.service_name) for kind, s in calls] == [("restart", 50, "Match 1")]
+    expect(page.locator("#source-note")).to_contain_text("Restarting FFmpeg")
+    expect(apply).to_have_text("Apply")
+    expect(apply).to_be_disabled()
+    expect(page.locator('#source-form [data-changed]')).to_have_count(0)
+
+
+def test_while_stopped_the_main_button_sends(open_scenario):
+    page, scenario = open_scenario("on-air-no-source", "source")
+    apply = page.locator("#source-apply")
+    expect(apply).to_have_text("Send test source")
+    expect(page.locator("#source-stop")).to_be_hidden()
+
+    page.locator('[name="pattern"]').select_option("smpte")
+    apply.click()
+
+    calls = calls_settle(scenario, 1)
+    assert [(kind, s.pattern) for kind, s in calls] == [("start", "smpte")]
+    expect(page.locator("#source-stop")).to_be_visible()
+
+
+def test_an_invalid_bitrate_is_shown_under_its_field(open_scenario):
+    page, scenario = open_scenario("source-running", "source")
+    bitrate = page.locator('[name="video_kbps"]')
+    error = page.locator('[data-error-for="video_kbps"]')
+
+    bitrate.fill("20")
+    page.locator("#source-apply").click()
+    expect(error).to_contain_text("between 500 and 10000")
+    expect(bitrate).to_be_focused()
+
+    bitrate.fill("")
+    page.locator("#source-apply").click()
+    expect(error).to_contain_text("whole number")
+    assert scenario.console.source.calls == []
+
+    bitrate.fill("4.5")
+    expect(error).to_be_empty()
+
+
+def test_discard_and_reset(open_scenario):
+    page, scenario = open_scenario("on-air-no-source", "source")
+    scenario.console.settings = scenario.console.settings.merged({"fps": 25})
+    fps = page.locator('[name="fps"]')
+    expect(fps).to_have_value("25")
+
+    fps.select_option("50")
+    page.locator("#source-discard").click()
+    expect(fps).to_have_value("25")
+    expect(page.locator("#source-discard")).to_be_disabled()
+
+    page.locator("#source-reset").click()
+    expect(fps).to_have_value("30")
+    expect(page.locator('#source-form [data-changed]')).to_have_count(1)
+    assert scenario.console.settings.fps == 25, "reset only fills the form; nothing is sent"
+
+
+def test_a_poll_never_overwrites_an_edited_field(open_scenario):
+    page, _ = open_scenario("source-running", "source")
+    name = page.locator('[name="service_name"]')
+    name.fill("Half typed")
+    page.locator('[name="fps"]').focus()
+
+    page.wait_for_timeout(2500)
+
+    expect(name).to_have_value("Half typed")
+
+
+def test_another_tabs_change_reaches_an_unedited_form(open_scenario):
+    page, scenario = open_scenario("source-running", "source")
+    expect(page.locator('[name="fps"]')).to_have_value("30")
+
+    scenario.console.settings = scenario.console.settings.merged({"fps": 60})
+
+    expect(page.locator('[name="fps"]')).to_have_value("60", timeout=5000)
+    expect(page.locator("#source-apply")).to_be_disabled()
+
+
+def test_sent_and_received_agree(open_scenario):
+    page, _ = open_scenario("source-running", "source")
+    rows = page.locator("#source-received tr[data-row]")
+
+    expect(rows).to_have_count(3, timeout=8000)
+    expect(page.locator("#source-received tr[data-mismatch]")).to_have_count(0)
+    expect(page.locator('#source-received tr[data-row="video"]')).to_contain_text("1920×1080")
+
+
+def test_a_renamed_service_is_highlighted(open_scenario):
+    page, _ = open_scenario("source-received-mismatch", "source")
+    program = page.locator('#source-received tr[data-row="program"]')
+
+    expect(program).to_have_attribute("data-mismatch", "", timeout=8000)
+    expect(program).to_contain_text("livectl test source")
+    expect(program).to_contain_text("Service01")
+    expect(page.locator('#source-received tr[data-row="video"]')).not_to_have_attribute("data-mismatch", "")
+
+
+def test_received_says_why_when_idle(open_scenario):
+    page, _ = open_scenario("off-air", "source")
+
+    expect(page.locator("#source-received-note")).to_contain_text("not active", timeout=8000)
+    expect(page.locator("#source-received")).to_be_hidden()
+
+
+def test_send_is_refused_with_the_controls_message(open_scenario):
+    page, _ = open_scenario("off-air", "source")
+
+    expect(page.locator("#source-apply")).to_be_disabled()
+    expect(page.locator("#source-note")).to_contain_text("go live first")
+
+
+def test_the_source_page_stacks_on_a_narrow_window(open_scenario):
+    page, _ = open_scenario("source-running", "source")
+    page.set_viewport_size({"width": 600, "height": 900})
+
+    form = page.locator("#source-form").bounding_box()
+    received = page.locator("#received-card").bounding_box()
+    assert received["y"] > form["y"] + form["height"]
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
 
 def test_the_header_says_who_the_console_acts_as(open_scenario):

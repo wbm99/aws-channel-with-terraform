@@ -534,6 +534,7 @@ def test_the_payload_carries_the_settings_and_their_choices(aws):
 
     assert payload["source_settings"]["current"] == SourceSettings().to_dict()
     assert payload["source_settings"]["choices"] == CHOICES
+    assert payload["source_settings"]["defaults"] == SourceSettings().to_dict()
     assert "patterns" not in payload
 
 
