@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from livectl.jobs import JobRunner  # noqa: E402
 from livectl.pipeline import Pipeline  # noqa: E402
 from livectl.server import Console, make_server  # noqa: E402
+from livectl.source import SourceSettings  # noqa: E402
 from stubs import CHANNEL_ID, FLOW_ARN, logs_client, sts_client, stub_aws  # noqa: E402
 
 CHANNEL_ARN = f"arn:aws:medialive:us-east-1:123456789012:channel:{CHANNEL_ID}"
@@ -84,14 +85,14 @@ class FakeSource:
     FFmpeg prints, already redacted.
     """
 
-    def __init__(self, running: bool = False, pattern: str = "testcard") -> None:
+    def __init__(self, running: bool = False, settings: SourceSettings = SourceSettings()) -> None:
         self.running = running
-        self.pattern = pattern
+        self.settings = settings
         self.calls: list[tuple] = []
 
     def status(self) -> dict:
         return {"state": "running" if self.running else "stopped", "exit_code": None, "last_error": None,
-                "progress": "frame= 900 fps=30" if self.running else None, "pattern": self.pattern}
+                "progress": "frame= 900 fps=30" if self.running else None, "settings": self.settings.to_dict()}
 
     def lines(self, after_ms: int) -> list[tuple[int, str]]:
         if not self.running:
@@ -100,9 +101,9 @@ class FakeSource:
         banner = "Output #0, mpegts, to 'srt://203.0.113.20:5000?mode=caller&passphrase=***&pbkeylen=32':"
         return [(at, banner)] if at > after_ms else []
 
-    def start(self, *, pattern: str = "testcard", **_) -> None:
-        self.calls.append(("start", pattern))
-        self.running, self.pattern = True, pattern
+    def start(self, *, settings: SourceSettings = SourceSettings(), **_) -> None:
+        self.calls.append(("start", settings.pattern))
+        self.running, self.settings = True, settings
 
     def stop(self) -> None:
         self.calls.append(("stop",))

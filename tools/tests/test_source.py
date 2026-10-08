@@ -162,38 +162,107 @@ def test_the_buffer_is_bounded():
     assert len(source.lines(0)) == 10
 
 
-def test_the_pattern_goes_to_the_script_and_is_reported():
+def test_the_settings_reach_the_script_environment():
+    from livectl.source import SourceSettings
+
     process = FakeProcess(["frame= 1"])
     popen = launcher(process)
     source = SourceProcess(popen=popen, script="send-srt.sh")
 
-    source.start(host="h", port=5000, passphrase=SECRET, pattern="smpte")
+    source.start(host="h", port=5000, passphrase=SECRET, settings=SourceSettings().merged({"fps": 50}))
 
-    assert popen.kwargs["env"]["PATTERN"] == "smpte"
-    assert source.status()["pattern"] == "smpte"
+    assert popen.kwargs["env"]["FPS"] == "50"
+    assert popen.kwargs["env"]["PATTERN"] == "testcard"
+    assert source.status()["settings"]["fps"] == 50
     process.finish()
 
 
-def test_an_unknown_pattern_is_refused_before_anything_starts():
-    popen = launcher(FakeProcess([]))
-    source = SourceProcess(popen=popen, script="send-srt.sh")
-
-    with pytest.raises(ValueError, match="unknown pattern"):
-        source.start(host="h", port=5000, passphrase=SECRET, pattern="rainbow")
-    assert not hasattr(popen, "args")
-
-
 def test_a_stopped_source_can_be_started_again_at_once():
+    from livectl.source import SourceSettings
+
     first, second = FakeProcess(["frame= 1"]), FakeProcess(["frame= 1"])
     processes = iter([first, second])
     source = SourceProcess(popen=lambda args, **kwargs: next(processes), script="send-srt.sh")
     source.start(host="h", port=5000, passphrase=SECRET)
 
     source.stop()
-    source.start(host="h", port=5000, passphrase=SECRET, pattern="black")   # no SourceBusy
+    source.start(host="h", port=5000, passphrase=SECRET,  # no SourceBusy
+                 settings=SourceSettings().merged({"pattern": "black"}))
 
-    assert source.status()["pattern"] == "black"
+    assert source.status()["settings"]["pattern"] == "black"
     second.finish()
+
+
+class StubbornProcess(FakeProcess):
+    """Ignores SIGTERM and whose SIGKILL does not end its output at once: its reader outlives stop()'s wait."""
+
+    def __init__(self, lines):
+        super().__init__(lines, ignores_term=True)
+
+    def kill(self):
+        self.signals.append("KILL")
+        self._code = -9
+
+    def wait(self, timeout=None):
+        if self.signals and self.signals[-1] == "KILL":
+            return -9  # the kernel reaped it; its pipe has not been drained yet
+        return super().wait(timeout)
+
+
+def test_a_late_reader_from_the_old_process_changes_nothing():
+    newsecret = "N3wS3cr3tN3wS3cr3tN3wS3cr3tN3wS3"
+    old = StubbornProcess(["frame= 1"])
+    new = FakeProcess(["frame= 1", f"to 'srt://h:5000?passphrase={newsecret}'"])
+    processes = iter([old, new])
+    source = SourceProcess(popen=lambda args, **kwargs: next(processes), script="send-srt.sh", grace=0.05)
+    source.start(host="h", port=5000, passphrase=SECRET)
+    settle(source, "running")
+    source.stop()
+
+    source.start(host="h", port=5000, passphrase=newsecret)
+    settle(source, "running")
+    old.finish()           # the old reader drains and ends only now
+    time.sleep(0.1)
+
+    status = source.status()
+    assert status["state"] == "running" and status["exit_code"] is None
+    text = "\n".join(line for _, line in source.lines(0))
+    assert newsecret not in text and "passphrase=***" in text
+    new.finish()
+
+
+def test_two_restarts_at_once_run_one_after_the_other():
+    live, most, launches = [0], [0], []
+    lock = threading.Lock()
+
+    class Counted(FakeProcess):
+        def terminate(self):
+            with lock:
+                live[0] -= 1
+            super().terminate()
+
+    def popen(args, **kwargs):
+        with lock:
+            live[0] += 1
+            most[0] = max(most[0], live[0])
+            launches.append(kwargs["env"]["FPS"])
+        time.sleep(0.02)  # widen the window two unserialised restarts would need to overlap
+        return Counted(["frame= 1"])
+
+    from livectl.source import SourceSettings
+
+    source = SourceProcess(popen=popen, script="send-srt.sh")
+    source.start(host="h", port=5000, passphrase=SECRET)
+    threads = [threading.Thread(target=source.restart, kwargs=dict(
+        host="h", port=5000, passphrase=SECRET, settings=SourceSettings().merged({"fps": fps}))) for fps in (25, 50)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(5)
+
+    assert len(launches) == 3 and most[0] == 1
+    assert source.status()["settings"]["fps"] == int(launches[-1])
+    source.stop()
 
 
 def test_the_script_is_found_from_the_working_directory_not_the_install():

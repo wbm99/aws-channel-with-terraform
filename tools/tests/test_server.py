@@ -524,7 +524,7 @@ def test_send_test_source_starts_the_chosen_pattern(aws):
 
     status, _ = call(console, "POST", "/api/source/start", body={"pattern": "pal"})
 
-    assert status == 202 and console.source.status()["pattern"] == "pal"
+    assert status == 202 and console.source.status()["settings"]["pattern"] == "pal"
     process.finish()
 
 
@@ -541,7 +541,7 @@ def test_switching_pattern_while_sending_restarts_the_source_on_the_new_one(aws)
 
     assert (status, payload) == (202, {"switched": "black"})
     assert first.signals == ["TERM"], "the old FFmpeg is stopped first"
-    assert console.source.status()["pattern"] == "black"
+    assert console.source.status()["settings"]["pattern"] == "black"
     second.finish()
 
 

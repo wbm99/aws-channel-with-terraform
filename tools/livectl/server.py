@@ -33,7 +33,7 @@ from livectl.jobs import RUNNING, JobBusy, JobRunner, Work, command_job
 from livectl.logs import LOG_TABS, LOOKBACK_MS, LogLine, LogReader, event_lines, medialive_lines
 from livectl.pipeline import REDEPLOY_HINT, Pipeline
 from livectl.progress import job_progress
-from livectl.source import DEFAULT_PATTERN, PATTERNS, SourceBusy, SourceProcess, now_ms
+from livectl.source import DEFAULT_PATTERN, PATTERNS, SourceBusy, SourceProcess, SourceSettings, now_ms
 
 PATTERN_IDS = [key for key, _ in PATTERNS]
 from livectl.targets import NotDeployed, Runner, TargetError, Targets, resolve_targets, run_command
@@ -280,7 +280,7 @@ def _start_source(console: Console, pattern: str, *, switching: bool) -> Respons
         console.source.stop()
     try:
         console.source.start(host=targets.ingest_ip, port=int(targets.ingest_port or 5000), passphrase=passphrase,
-                             pattern=pattern)
+                             settings=SourceSettings().merged({"pattern": pattern}))
     except SourceBusy:
         return _json(409, {"error": "The test source is already running."})
     console.pipeline.forget()

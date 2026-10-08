@@ -145,19 +145,24 @@ def now_ms() -> int:
 
 
 class SourceProcess:
+    """One FFmpeg at a time. Each start is a new generation: a reader thread left over from an older process (its
+    stop timed out waiting for it) may drain its output, but never changes the state, the buffer or the redaction
+    of the process that replaced it."""
+
     def __init__(self, *, script: "Path | str" = SCRIPT, popen=subprocess.Popen,
                  clock_ms: Callable[[], int] = now_ms, max_lines: int = 500, grace: float = 5.0) -> None:
         self._script, self._popen, self._clock_ms, self._grace = str(script), popen, clock_ms, grace
         self._lock = threading.Lock()
+        self._restart_lock = threading.Lock()
         self._lines: deque[tuple[int, str]] = deque(maxlen=max_lines)
         self._process = None
+        self._generation = 0
         self._state = STOPPED
         self._stopping = False
-        self._secret: Optional[str] = None
         self._exit_code: Optional[int] = None
         self._progress: Optional[str] = None
         self._last_line: Optional[str] = None
-        self._pattern: str = DEFAULT_PATTERN
+        self._settings = SourceSettings()
         self._reader: Optional[threading.Thread] = None
 
     @property
@@ -165,32 +170,38 @@ class SourceProcess:
         with self._lock:
             return self._state in (STARTING, RUNNING)
 
-    def start(self, *, host: str, port: int, passphrase: str, pattern: str = DEFAULT_PATTERN) -> None:
-        if pattern not in dict(PATTERNS):
-            raise ValueError(f"unknown pattern {pattern!r}")
+    def start(self, *, host: str, port: int, passphrase: str, settings: SourceSettings = SourceSettings()) -> None:
         with self._lock:
             if self._state in (STARTING, RUNNING):
                 raise SourceBusy("the test source is already running")
-            self._state, self._stopping, self._secret = STARTING, False, passphrase
+            self._generation += 1
+            generation = self._generation
+            self._state, self._stopping, self._settings = STARTING, False, settings
             self._exit_code = self._progress = self._last_line = None
-            self._pattern = pattern
-        env = {**os.environ, "SRT_HOST": host, "SRT_PORT": str(port), "SRT_PASSPHRASE": passphrase, "PATTERN": pattern}
+        env = {**os.environ, **settings.to_env(),
+               "SRT_HOST": host, "SRT_PORT": str(port), "SRT_PASSPHRASE": passphrase}
         process = self._popen([self._script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True, bufsize=1, env=env)
         with self._lock:
             self._process = process
-        self._reader = threading.Thread(target=self._pump, args=(process,), daemon=True, name="livectl-source")
+        self._reader = threading.Thread(target=self._pump, args=(process, generation, passphrase), daemon=True,
+                                        name="livectl-source")
         self._reader.start()
 
-    def _redact(self, line: str) -> str:
-        return line.replace(self._secret, "***") if self._secret else line
+    def restart(self, *, host: str, port: int, passphrase: str, settings: SourceSettings) -> None:
+        """Stop, then start on new settings. Two restarts at once run one after the other, never interleaved."""
+        with self._restart_lock:
+            self.stop()
+            self.start(host=host, port=port, passphrase=passphrase, settings=settings)
 
-    def _pump(self, process) -> None:
+    def _pump(self, process, generation: int, secret: str) -> None:
         for raw in process.stdout:
-            line = self._redact(raw.rstrip("\n"))
+            line = raw.rstrip("\n").replace(secret, "***")
             if not line.strip():
                 continue
             with self._lock:
+                if generation != self._generation:
+                    continue  # a newer process owns the state; keep draining so the old one can exit
                 if line.lstrip().startswith("frame="):
                     self._progress = line.strip()
                     if self._state == STARTING:
@@ -200,9 +211,9 @@ class SourceProcess:
                 self._last_line = line
         code = process.wait()
         with self._lock:
-            self._exit_code = code
-            self._state = STOPPED if self._stopping else EXITED
-            self._secret = None  # all output has been redacted; nothing else needs it
+            if generation == self._generation and self._state in (STARTING, RUNNING):
+                self._exit_code = code
+                self._state = STOPPED if self._stopping else EXITED
 
     def stop(self) -> None:
         with self._lock:
@@ -212,14 +223,19 @@ class SourceProcess:
             self._stopping = True
         process.terminate()
         try:
-            process.wait(timeout=self._grace)
+            code = process.wait(timeout=self._grace)
         except subprocess.TimeoutExpired:
             process.kill()
-            process.wait()
-        # The reader thread records the stop once it has drained the output; wait for it, so that a start right
-        # after (switching pattern) does not find the source still marked as running.
+            code = process.wait()
+        # The reader records the stop once it has drained the output. If it has not finished within the grace
+        # period, record the stop here and retire its generation, so a start right after (an Apply) neither finds
+        # the source still running nor has its state overwritten when the old reader finally ends.
         if self._reader is not None:
             self._reader.join(timeout=self._grace)
+        with self._lock:
+            if self._process is process and self._state in (STARTING, RUNNING):
+                self._generation += 1
+                self._exit_code, self._state = code, STOPPED
 
     def status(self) -> dict:
         with self._lock:
@@ -228,7 +244,7 @@ class SourceProcess:
                 "exit_code": self._exit_code,
                 "last_error": self._last_line if self._state == EXITED and self._exit_code else None,
                 "progress": self._progress,
-                "pattern": self._pattern,
+                "settings": self._settings.to_dict(),
             }
 
     def lines(self, after_ms: int) -> list[tuple[int, str]]:
