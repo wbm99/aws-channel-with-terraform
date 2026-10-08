@@ -81,8 +81,8 @@ def recent_events(health: str = "CONNECTED") -> list[tuple[int, str]]:
 class FakeSource:
     """Stands in for SourceProcess in every scenario, so no browser test can start a real FFmpeg.
 
-    It starts, stops and switches pattern like the real one, records each call, and when running shows the banner
-    FFmpeg prints, already redacted.
+    It starts, stops and restarts on new settings like the real one, records each call, and when running shows the
+    banner FFmpeg prints, already redacted.
     """
 
     def __init__(self, running: bool = False, settings: SourceSettings = SourceSettings()) -> None:
@@ -102,7 +102,11 @@ class FakeSource:
         return [(at, banner)] if at > after_ms else []
 
     def start(self, *, settings: SourceSettings = SourceSettings(), **_) -> None:
-        self.calls.append(("start", settings.pattern))
+        self.calls.append(("start", settings))
+        self.running, self.settings = True, settings
+
+    def restart(self, *, settings: SourceSettings, **_) -> None:
+        self.calls.append(("restart", settings))
         self.running, self.settings = True, settings
 
     def stop(self) -> None:

@@ -34,7 +34,6 @@ PATTERNS = [
     ("black", "Black"),
     ("standby", "Please stand by"),
 ]
-DEFAULT_PATTERN = "testcard"
 
 
 def _enum(key, group, label, values):
@@ -84,7 +83,7 @@ class SettingsError(ValueError):
 class SourceSettings:
     """What the test source sends. Every value is checked against CHOICES by `merged`."""
 
-    pattern: str = DEFAULT_PATTERN
+    pattern: str = "testcard"
     size: str = "1920x1080"
     fps: int = 30
     video_kbps: int = 6000

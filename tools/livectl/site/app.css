@@ -252,7 +252,3 @@ button.act.next { box-shadow: 0 0 0 3px var(--accent-tint), 0 0 0 4px #cfdcfa; a
 @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 @media (prefers-reduced-motion: reduce) { .progress[data-indeterminate="true"] .progress-bar { animation: none; } }
 
-.picker { display: grid; gap: 4px; margin: 0 0 10px; }
-.picker label { font-size: 12px; color: var(--muted); }
-.pattern { font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--border);
-  background: var(--surface); max-width: 260px; }

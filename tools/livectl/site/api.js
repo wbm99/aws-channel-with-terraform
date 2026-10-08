@@ -1,6 +1,6 @@
 // The only module that talks to the livectl server.
 
-const PATHS = { 'source-start': 'source/start', 'source-stop': 'source/stop', 'source-pattern': 'source/pattern' };
+const PATHS = { 'source-start': 'source/start', 'source-stop': 'source/stop', 'source-settings': 'source/settings' };
 
 export async function getPipeline(offset, jobKey) {
   // The offset only means something for the job it was counted on, so the job's key travels with it.
@@ -19,6 +19,13 @@ export async function post(action, body) {
   });
   const data = await response.json().catch(() => ({}));
   return { ok: response.ok, status: response.status, data };
+}
+
+// What MediaConnect parsed from the incoming stream; polled only by the Source page.
+export async function getReceived() {
+  const response = await fetch('api/source/received', { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+  if (!response.ok) throw new Error('the console answered ' + response.status);
+  return response.json();
 }
 
 export async function getLogs(tab, after) {

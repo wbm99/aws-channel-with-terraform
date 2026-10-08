@@ -61,7 +61,7 @@ export function renderSteps(list, state, onAction) {
     ['live', 'Go live', done.live, [['go-live', 'primary'], ['go-off-air', '']]],
     ['source', 'Send a source', done.source, [['source-start', 'primary'], ['source-stop', '']]],
   ];
-  // The test pattern picker sits in the source step: chosen before sending, or switched while sending.
+  // The source step says what Send will push; the settings themselves live on the Source page.
   list.replaceChildren(...steps.map(([id, title, [complete, status], actions], index) => {
     const current = actions.some(([name]) => name === state.next);
     const busy = id === busyStep;
@@ -71,20 +71,27 @@ export function renderSteps(list, state, onAction) {
       el('div', { class: 'step-body' },
         el('h3', {}, title),
         el('p', { class: 'step-status' }, busy ? busyText + ' Progress is in Last job below.' : status),
-        id === 'source' && state.patterns.length ? patternPicker(state, onAction) : null,
+        id === 'source' && state.settings ? sourceSummary(state.settings) : null,
         el('div', { class: 'actions' }, buttons(state, actions, onAction))));
   }));
 }
 
-function patternPicker(state, onAction) {
-  const select = el('select', { id: 'pattern', class: 'pattern', 'aria-label': 'Test pattern' },
-    state.patterns.map(({ id, label }) => el('option', { value: id, selected: id === state.pattern }, label)));
-  select.addEventListener('change', () => onAction('source-pattern', { pattern: select.value }));
-  return el('div', { class: 'picker' },
-    el('label', { for: 'pattern' }, 'Test pattern'), select,
-    state.sourceRunning
-      ? el('p', { class: 'step-status' }, 'Changing it restarts FFmpeg: a few seconds of black slate while SRT reconnects.')
-      : null);
+function sourceSummary({ current, choices }) {
+  return el('p', { class: 'step-status', id: 'source-summary' },
+    summarise(current, choices), ' — ', el('a', { href: '#source' }, 'Edit on Source'));
+}
+
+// One line for the settings, e.g. Test card · 1080p30 · 6 Mbps · AAC 128k · "livectl test source".
+export function summarise(settings, choices) {
+  const label = (key) => {
+    const choice = choices.find((c) => c.key === key);
+    const value = choice && (choice.values || []).find((v) => v.id === settings[key]);
+    return value ? value.label : String(settings[key]);
+  };
+  const height = settings.size.split('x')[1];
+  const mbps = Number((settings.video_kbps / 1000).toFixed(1));
+  return [label('pattern'), height + 'p' + settings.fps, mbps + ' Mbps',
+    label('audio_codec').toUpperCase() + ' ' + settings.audio_kbps + 'k', '"' + settings.service_name + '"'].join(' · ');
 }
 
 export function renderMaintenance(container, state, onAction) {

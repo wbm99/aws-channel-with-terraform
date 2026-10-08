@@ -569,43 +569,29 @@ def test_the_first_node_is_named_for_the_mediaconnect_source(open_scenario):
 
 
 
-# --- test pattern ------------------------------------------------------------------------------------------
+# --- the source step -------------------------------------------------------------------------------------
 
 
-def test_the_chosen_pattern_is_sent_with_send_test_source(open_scenario):
+def test_the_source_step_summarises_the_settings_and_links_to_the_source_page(open_scenario):
+    page, _ = open_scenario("on-air-no-source")
+
+    expect(page.locator("#source-summary")).to_have_text(
+        'Test card · 1080p30 · 6 Mbps · AAC 128k · "livectl test source" — Edit on Source')
+    expect(page.locator("#pattern")).to_have_count(0)
+
+    page.locator("#source-summary a").click()
+    page.wait_for_function("location.hash === '#source'")
+
+
+def test_send_test_source_on_control_starts_the_saved_settings(open_scenario):
+    from livectl.source import SourceSettings
+
     page, scenario = open_scenario("on-air-no-source")
 
-    page.locator("#pattern").select_option("smpte")
     page.locator('#steps [data-action="source-start"]').click()
 
     expect(page.locator('#steps [data-action="source-stop"]')).to_be_visible()
-    assert scenario.console.source.calls == [("start", "smpte")]
-    expect(page.locator("#pattern")).to_have_value("smpte")
-
-
-def test_changing_the_pattern_while_sending_switches_it_live(open_scenario):
-    page, scenario = open_scenario("source-running")
-    expect(page.locator("#pattern")).to_have_value("testcard")
-    expect(page.locator("#steps")).to_contain_text("restarts FFmpeg")
-
-    page.locator("#pattern").select_option("standby")
-
-    # The dropdown changes at once; the switch reaches the server a moment later, so wait for the calls themselves.
-    deadline = time.monotonic() + 5
-    while scenario.console.source.calls != [("stop",), ("start", "standby")] and time.monotonic() < deadline:
-        page.wait_for_timeout(100)
-    assert scenario.console.source.calls == [("stop",), ("start", "standby")]
-    expect(page.locator("#pattern")).to_have_value("standby")
-    expect(page.locator("#banner")).to_be_hidden()
-
-
-def test_choosing_a_pattern_while_not_sending_starts_nothing(open_scenario):
-    page, scenario = open_scenario("on-air-no-source")
-
-    page.locator("#pattern").select_option("black")
-
-    expect(page.locator("#pattern")).to_have_value("black")
-    assert scenario.console.source.calls == []
+    assert scenario.console.source.calls == [("start", SourceSettings())]
 
 
 def test_the_header_says_who_the_console_acts_as(open_scenario):
