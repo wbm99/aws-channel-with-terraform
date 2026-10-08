@@ -53,6 +53,7 @@ def stub_aws(
     metrics: Optional[dict] = None,
     distribution: str = "Deployed",
     fail: tuple = (),
+    metadata: Optional[dict] = None,
 ) -> dict[str, StubClient]:
     """Clients describing one state of the whole chain. `fail` names operations that raise."""
     error = RuntimeError("AccessDeniedException: stubbed failure")
@@ -66,6 +67,8 @@ def stub_aws(
                 "FlowArn": FLOW_ARN, "Name": "live-sports-aws-demo", "Status": flow,
                 "Source": {"IngestIp": "203.0.113.20", "IngestPort": 5000, "Transport": {"Protocol": "srt-listener"}},
             }}),
+            describe_flow_source_metadata=maybe("describe_flow_source_metadata", metadata or {
+                "FlowArn": FLOW_ARN, "Messages": [], "TransportMediaInfo": {"Programs": []}}),
         ),
         "medialive": StubClient(
             describe_input=maybe("describe_input", {"Id": "4412345", "State": input_state, "Type": "MEDIACONNECT"}),
@@ -88,6 +91,23 @@ def stub_aws(
             }}),
         ),
         "cloudwatch": StubClient(get_metric_data=maybe("get_metric_data", metric_response(metrics or {}))),
+    }
+
+
+def source_metadata(name: str = "livectl test source", number: int = 1, fps: str = "30", width: int = 1920,
+                    height: int = 1080, audio: str = "aac") -> dict:
+    """A DescribeFlowSourceMetadata answer for one program with one video and one stereo 48 kHz audio stream."""
+    return {
+        "FlowArn": FLOW_ARN, "Messages": [], "Timestamp": "2026-10-07T12:00:00Z",
+        "TransportMediaInfo": {"Programs": [{
+            "PcrPid": 256, "ProgramName": name, "ProgramNumber": number, "ProgramPid": 4096,
+            "Streams": [
+                {"StreamType": "Video", "Codec": "h264", "Pid": 256, "FrameRate": fps,
+                 "FrameResolution": {"FrameWidth": width, "FrameHeight": height}},
+                {"StreamType": "Audio", "Codec": audio, "Pid": 257, "Channels": 2, "SampleRate": 48000,
+                 "SampleSize": 16},
+            ],
+        }]},
     }
 
 
