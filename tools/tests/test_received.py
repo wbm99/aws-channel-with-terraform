@@ -1,3 +1,5 @@
+"""Normalising MediaConnect's DescribeFlowSourceMetadata answer, from stub clients."""
+
 from stubs import FLOW_ARN, StubClient, source_metadata
 
 from livectl.received import received

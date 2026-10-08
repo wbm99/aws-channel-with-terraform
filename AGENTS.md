@@ -69,6 +69,8 @@ The ones that matter: `just test` (full offline suite), `just fmt`, `just valida
   - Only `cli.py` builds a real `boto3.Session`.
 - `from __future__ import annotations` at the top, a module docstring on every file, frozen dataclasses for value
   objects, and custom exceptions (`TargetError`, `WaitTimeout`) that `cli.main` turns into exit code 2.
+- `SourceSettings` and `CHOICES` in `livectl/source.py` hold the allowed test-source values; `source/send-srt.sh`
+  mirrors them (its header says so, and `test_send_script.py` checks the two agree). Change both together.
 - Operations must be **idempotent**: `start` and `stop` check current state before acting, so running either twice is
   safe. There is a test for this; do not regress it.
 - **The console binds to loopback only.** `livectl ui --container` additionally allows `0.0.0.0`, because Docker

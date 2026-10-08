@@ -1,7 +1,7 @@
 # Source settings: Design
 
 Date: 2026-10-07
-Status: Draft, awaiting review
+Status: Approved; planned in `docs/superpowers/plans/2026-10-07-plan-9-source-settings.md`
 Branch: `feat/source-settings` (from `main`)
 
 This document has two parts: a product part (PRD: what and why) and a technical part (TRD: how).
@@ -78,12 +78,24 @@ Two changes to current behaviour come with this: audio becomes **stereo at 48 kH
 default for the `sine` generator, and the audio encoder gets an explicit bitrate. The VBV buffer follows the bitrate
 instead of the fixed `12M`.
 
-## To verify in the AWS documentation before implementing
-1. Whether MediaLive accepts MP2 and AC-3 audio in an SRT/MediaConnect input. Any codec it does not accept is dropped
-   from the Audio codec list.
-2. Whether MediaConnect's `ProgramName` in `DescribeFlowSourceMetadata` comes from the SDT service name. If it does
-   not, the readback row is relabelled to show what it really reports, and the service-name check moves to the live
-   checklist only.
+## Checked in the AWS documentation (2026-10-07)
+1. MediaLive's MediaConnect, SRT caller and SRT listener inputs accept AAC, Dolby Digital (AC-3), Dolby Digital Plus,
+   MPEG Audio (MP2), Dolby E in PCM and PCM
+   ([Supported codecs by input type](https://docs.aws.amazon.com/medialive/latest/ug/inputs-supported-codecs-by-input-type.html)).
+   All three audio codecs stay. FFmpeg encodes each at 64 and 256 kbps stereo (`test_send_script.py`).
+2. MediaConnect's program name "is sourced from the service name value in the Service Description Table (SDT)"
+   ([Monitoring using source metadata](https://docs.aws.amazon.com/mediaconnect/latest/ug/monitor-with-source-stream-monitoring.html)).
+   The readback row compares it with the service name sent.
+
+## Changes made while implementing
+- The pipeline payload also carries `source_settings.defaults`, so *Reset to defaults* needs no values in the page.
+- The Source page polls `/api/source/received` whenever it is visible. The server answers `idle` without calling
+  MediaConnect unless the flow is `ACTIVE`, so this costs no AWS call while off air.
+- Browser scenarios: `source-stopped` and `source-refused` are the existing `on-air-no-source` and `off-air`;
+  `source-dirty` is reached by editing in the test; `source-running` gained matching metadata and
+  `source-received-mismatch` is new.
+- Disabled console buttons now look disabled (`button.act:disabled`); before this page, unavailable buttons were
+  always hidden.
 
 ---
 
