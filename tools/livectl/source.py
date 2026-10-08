@@ -11,13 +11,16 @@ other way to pass it.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import subprocess
 import threading
 import time
+import unicodedata
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Mapping, Optional
 
 # Relative to the working directory, like --tf-dir: an installed livectl (the Docker image) lives in site-packages, far
 # from the checkout. `just` runs from the repository root and the container from /work, so both find it.
@@ -32,6 +35,105 @@ PATTERNS = [
     ("standby", "Please stand by"),
 ]
 DEFAULT_PATTERN = "testcard"
+
+
+def _enum(key, group, label, values):
+    return {"key": key, "group": group, "label": label, "kind": "enum",
+            "values": [{"id": value, "label": text} for value, text in values]}
+
+
+def _range(key, group, label, low, high, step, unit):
+    return {"key": key, "group": group, "label": label, "kind": "range", "min": low, "max": high, "step": step,
+            "unit": unit}
+
+
+def _text(key, group, label):
+    return {"key": key, "group": group, "label": label, "kind": "text", "max_length": TEXT_MAX}
+
+
+TEXT_MAX = 60
+# Every setting of the test source and what it may be, in display order. This is the only list of allowed values:
+# the console builds its form from it, the API validates against it, and source/send-srt.sh mirrors it for
+# `just send`. Everything stays inside the channel's input class (AVC, HD, MAX_10_MBPS); see modules/encode.
+CHOICES = [
+    _enum("pattern", "Video", "Pattern", PATTERNS),
+    _enum("size", "Video", "Resolution", [("1280x720", "1280×720"), ("1920x1080", "1920×1080")]),
+    _enum("fps", "Video", "Frame rate", [(25, "25"), (30, "30"), (50, "50"), (60, "60")]),
+    _range("video_kbps", "Video", "Bitrate", 500, 10000, 100, "kbps"),
+    _enum("gop_seconds", "Video", "Keyframe interval", [(1, "1 s"), (2, "2 s"), (4, "4 s")]),
+    _enum("audio_codec", "Audio", "Codec", [("aac", "AAC"), ("mp2", "MP2"), ("ac3", "AC-3")]),
+    _enum("audio_kbps", "Audio", "Bitrate", [(n, f"{n} kbps") for n in (64, 96, 128, 192, 256)]),
+    _enum("tone", "Audio", "Tone", [("440", "440 Hz"), ("1000", "1 kHz"), ("silence", "Silence")]),
+    _text("service_name", "MPEG-TS", "Service name"),
+    _text("service_provider", "MPEG-TS", "Provider"),
+    _range("program_number", "MPEG-TS", "Program number", 1, 65535, 1, ""),
+    _range("latency_ms", "SRT", "Latency", 20, 8000, 10, "ms"),
+]
+_BY_KEY = {choice["key"]: choice for choice in CHOICES}
+
+
+class SettingsError(ValueError):
+    """A setting outside what the source may send; names the field so the page can show the message beside it."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field, self.message = field, message
+
+
+@dataclass(frozen=True)
+class SourceSettings:
+    """What the test source sends. Every value is checked against CHOICES by `merged`."""
+
+    pattern: str = DEFAULT_PATTERN
+    size: str = "1920x1080"
+    fps: int = 30
+    video_kbps: int = 6000
+    gop_seconds: int = 2
+    audio_codec: str = "aac"
+    audio_kbps: int = 128
+    tone: str = "1000"
+    service_name: str = "livectl test source"
+    service_provider: str = "livectl"
+    program_number: int = 1
+    latency_ms: int = 120
+
+    def merged(self, partial: Mapping[str, object]) -> "SourceSettings":
+        """A copy with the given keys changed, refused at the first value outside its choice."""
+        for key, value in partial.items():
+            _check(key, value)
+        return dataclasses.replace(self, **partial)
+
+    def to_dict(self) -> dict:
+        return dataclasses.asdict(self)
+
+    def to_env(self) -> dict[str, str]:
+        """The environment source/send-srt.sh reads."""
+        return {
+            "PATTERN": self.pattern, "SIZE": self.size, "FPS": str(self.fps), "BITRATE": f"{self.video_kbps}k",
+            "GOP_SECONDS": str(self.gop_seconds), "AUDIO_CODEC": self.audio_codec,
+            "AUDIO_BITRATE": f"{self.audio_kbps}k", "TONE": self.tone, "SERVICE_NAME": self.service_name,
+            "SERVICE_PROVIDER": self.service_provider, "PROGRAM_NUMBER": str(self.program_number),
+            "SRT_LATENCY_MS": str(self.latency_ms),
+        }
+
+
+def _check(key: str, value: object) -> None:
+    choice = _BY_KEY.get(key)
+    if choice is None:
+        raise SettingsError(key, f"Unknown setting {key!r}.")
+    label = choice["label"] if choice["group"] != "Audio" or key == "tone" else "Audio " + choice["label"].lower()
+    if choice["kind"] == "enum":
+        ids = [entry["id"] for entry in choice["values"]]
+        if not any(type(value) is type(i) and value == i for i in ids):
+            raise SettingsError(key, f"{label} must be one of {', '.join(str(i) for i in ids)}.")
+    elif choice["kind"] == "range":
+        low, high, unit = choice["min"], choice["max"], choice["unit"]
+        if type(value) is not int or not low <= value <= high:
+            raise SettingsError(key, f"{label} must be a whole number between {low} and {high}"
+                                     f"{' ' + unit if unit else ''}.")
+    elif (type(value) is not str or not 1 <= len(value) <= TEXT_MAX
+          or any(unicodedata.category(ch) == "Cc" for ch in value)):
+        raise SettingsError(key, f"{label} must be 1 to {TEXT_MAX} characters, without control characters.")
 
 
 class SourceBusy(RuntimeError):

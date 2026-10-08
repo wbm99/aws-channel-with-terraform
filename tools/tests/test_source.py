@@ -201,3 +201,73 @@ def test_the_script_is_found_from_the_working_directory_not_the_install():
 
     assert SCRIPT == Path("source/send-srt.sh")
     assert not SCRIPT.is_absolute()
+
+
+# --- settings ----------------------------------------------------------------------------------------------
+
+import dataclasses  # noqa: E402
+import json  # noqa: E402
+
+from livectl.source import CHOICES, SettingsError, SourceSettings  # noqa: E402
+
+
+def test_defaults_match_the_spec():
+    assert SourceSettings().to_dict() == {
+        "pattern": "testcard", "size": "1920x1080", "fps": 30, "video_kbps": 6000, "gop_seconds": 2,
+        "audio_codec": "aac", "audio_kbps": 128, "tone": "1000", "service_name": "livectl test source",
+        "service_provider": "livectl", "program_number": 1, "latency_ms": 120,
+    }
+
+
+def test_merged_changes_only_the_given_keys():
+    merged = SourceSettings().merged({"fps": 25})
+
+    assert merged.fps == 25
+    assert dataclasses.replace(merged, fps=30) == SourceSettings()
+
+
+def _accepted_values():
+    for choice in CHOICES:
+        if choice["kind"] == "enum":
+            yield from ((choice["key"], value["id"]) for value in choice["values"])
+        elif choice["kind"] == "range":
+            yield from ((choice["key"], choice["min"]), (choice["key"], choice["max"]))
+
+
+@pytest.mark.parametrize("key,value", list(_accepted_values()))
+def test_every_enum_value_and_both_range_ends_are_accepted(key, value):
+    assert getattr(SourceSettings().merged({key: value}), key) == value
+
+
+@pytest.mark.parametrize("key,value", [
+    ("video_kbps", 499), ("video_kbps", 10001), ("program_number", 0), ("program_number", 65536),
+    ("latency_ms", 19), ("fps", 24), ("size", "3840x2160"), ("audio_codec", "opus"),
+    ("service_name", "x" * 61), ("service_name", ""), ("service_name", "a\nb"),
+    ("video_kbps", "6000"), ("video_kbps", True), ("video_kbps", None), ("colour", "red"),
+])
+def test_bad_values_are_refused_naming_the_field(key, value):
+    with pytest.raises(SettingsError) as raised:
+        SourceSettings().merged({key: value})
+
+    assert raised.value.field == key
+    assert str(raised.value) == raised.value.message
+
+
+def test_a_non_ascii_name_counts_characters():
+    assert SourceSettings().merged({"service_name": "Jogo ão vivo"}).service_name == "Jogo ão vivo"
+    SourceSettings().merged({"service_name": "é" * 60})
+    with pytest.raises(SettingsError):
+        SourceSettings().merged({"service_name": "é" * 61})
+
+
+def test_to_env_names_the_script_variables():
+    assert SourceSettings().merged({"video_kbps": 500, "tone": "silence"}).to_env() == {
+        "PATTERN": "testcard", "SIZE": "1920x1080", "FPS": "30", "BITRATE": "500k", "GOP_SECONDS": "2",
+        "AUDIO_CODEC": "aac", "AUDIO_BITRATE": "128k", "TONE": "silence", "SERVICE_NAME": "livectl test source",
+        "SERVICE_PROVIDER": "livectl", "PROGRAM_NUMBER": "1", "SRT_LATENCY_MS": "120",
+    }
+
+
+def test_choices_follow_the_fields_and_serialise():
+    assert [c["key"] for c in CHOICES] == [f.name for f in dataclasses.fields(SourceSettings)]
+    json.dumps(CHOICES)
