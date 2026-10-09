@@ -1,0 +1,10 @@
+# Dashboards come from observability/grafana/dashboards in the repository; edits in the UI are refused, so the files
+# stay the truth.
+apiVersion: 1
+providers:
+  - name: live-pipeline
+    folder: Live pipeline
+    type: file
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
