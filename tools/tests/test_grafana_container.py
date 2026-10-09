@@ -47,6 +47,13 @@ def test_grafana_starts_and_provisions(tmp_path):
         board = get(url + "/api/dashboards/uid/mediaconnect-source")
         assert board["meta"]["folderTitle"] == "Live pipeline"
         assert board["dashboard"]["title"] == "MediaConnect source"
+        # DNS rebinding: a page whose own name resolves to 127.0.0.1 must not reach Grafana, which starts with
+        # admin/admin and holds working AWS credentials. Grafana redirects any other Host to 127.0.0.1.
+        port = int(url.rsplit(":", 1)[1])
+        status, location = foreign_host("GET", port, "/login")
+        assert status in (301, 302) and location.startswith("http://127.0.0.1"), (status, location)
+        status, _ = foreign_host("POST", port, "/login", b'{"user": "admin", "password": "smoke"}')
+        assert status != 200
         # Any error counts: with the provisioning folder mounted over the image's, a missing subfolder logs one.
         assert [line for line in compose("logs", "grafana").splitlines() if "level=error" in line] == []
     finally:
@@ -72,3 +79,17 @@ def wait_for_health(url: str, timeout: float = 90.0) -> None:
             pass
         assert time.monotonic() < deadline, "Grafana did not become healthy"
         time.sleep(1)
+
+
+def foreign_host(method: str, port: int, path: str, body: bytes = None) -> tuple:
+    """A request as a rebound page would send it: to 127.0.0.1, under another name. Redirects are not followed."""
+    import http.client
+
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    try:
+        conn.request(method, path, body=body, headers={"Host": f"rebound.example:{port}",
+                                                       "Content-Type": "application/json"})
+        response = conn.getresponse()
+        return response.status, response.getheader("Location") or ""
+    finally:
+        conn.close()

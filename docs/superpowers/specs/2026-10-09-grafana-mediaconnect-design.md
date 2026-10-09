@@ -84,9 +84,9 @@ Not verified:
 
 GetMetricData costs $0.01 per 1,000 metrics requested, and Grafana only queries while a dashboard is open.
 
-- 8 panels × 720 refreshes an hour = 5,760 queries an hour.
-- If a search counts only the live flow: about **$0.06/h** while open.
-- If it counts every flow it matches (7 on 2026-10-09): up to about **$0.40/h** while open. Destroyed flows drop out
+- 9 queries (8 panels; *Loss* has two) × 720 refreshes an hour = 6,480 queries an hour.
+- If a search counts only the live flow: about **$0.065/h** while open.
+- If it counts every flow it matches (7 on 2026-10-09): up to about **$0.45/h** while open. Destroyed flows drop out
   two weeks after their last datapoint.
 - Nothing while the dashboard is closed.
 

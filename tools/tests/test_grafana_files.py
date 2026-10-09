@@ -118,6 +118,9 @@ def test_grafana_is_pinned_runs_as_the_host_user_and_reads_aws_read_only():
 def test_grafana_settings_that_guard_access_and_cost():
     env = compose()["services"]["grafana"]["environment"]
     assert env["GF_AUTH_ANONYMOUS_ENABLED"] == "false"
+    # DNS rebinding: any Host but 127.0.0.1 is redirected there (the console checks its Host header the same way).
+    assert env["GF_SERVER_DOMAIN"] == "127.0.0.1" and env["GF_SERVER_ENFORCE_DOMAIN"] == "true"
+    assert env["GF_SERVER_ROOT_URL"] == "http://127.0.0.1:${GRAFANA_PORT:-3000}/"
     assert env["GF_DASHBOARDS_MIN_REFRESH_INTERVAL"] == "5s"
     assert env["GF_SECURITY_ADMIN_PASSWORD"] == "${GRAFANA_ADMIN_PASSWORD:-admin}"
     assert env["AWS_CONFIG_FILE"] == "/aws/config" and env["AWS_SHARED_CREDENTIALS_FILE"] == "/aws/credentials"
@@ -138,3 +141,10 @@ def test_tiles_say_nothing_is_fine_when_there_is_no_data():
     assert tiles[0]["fieldConfig"]["defaults"]["noValue"] == "no source"
     assert tiles[0]["fieldConfig"]["defaults"]["thresholds"]["steps"][0]["color"] == "text"
     assert [t["options"]["colorMode"] for t in tiles] == ["background", "none", "none", "none", "background"]
+
+
+def test_the_loss_graph_names_its_two_series():
+    # The rename leaves both with the flow's name; the legend must still tell them apart.
+    names = {o["matcher"]["options"]: next(x["value"] for x in o["properties"] if x["id"] == "displayName")
+             for o in panels()[7]["fieldConfig"]["overrides"]}
+    assert names == {"A": "Packet loss", "B": "Not recovered"}

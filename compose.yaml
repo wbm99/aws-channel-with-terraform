@@ -26,7 +26,7 @@ services:
       CONSOLE_URL: http://127.0.0.1:${CONSOLE_PORT:-8765}/
 
   # Grafana on CloudWatch: the MediaConnect source dashboard, provisioned from observability/grafana. It queries AWS
-  # only while a dashboard is open (about 0.06-0.40 USD/hour then), so close the tab when you are not watching.
+  # only while a dashboard is open (about 0.065-0.45 USD/hour then), so close the tab when you are not watching.
   grafana:
     image: grafana/grafana-oss:13.0.2
     # The host user, like the console: ~/.aws/credentials is readable by its owner only.
@@ -59,6 +59,11 @@ services:
       # Read only when Grafana creates its database. With the default, the first login asks for a new password.
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # DNS rebinding: a web page whose own name resolves to 127.0.0.1 could otherwise log in with admin/admin and query
+      # AWS with your credentials. Any Host but 127.0.0.1 is redirected there, where the page cannot read the answer.
+      GF_SERVER_DOMAIN: 127.0.0.1
+      GF_SERVER_ENFORCE_DOMAIN: "true"
+      GF_SERVER_ROOT_URL: http://127.0.0.1:${GRAFANA_PORT:-3000}/
       # Each refresh is a billed CloudWatch query: nobody can pick a faster one than the dashboard's 5 s.
       GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 5s
       # No plugin installs (they fail under a non-grafana UID) and no calls home.

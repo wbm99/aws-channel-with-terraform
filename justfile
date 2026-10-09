@@ -87,14 +87,17 @@ check-clean:
 ui port="8765":
     #!/usr/bin/env bash
     set -uo pipefail
+    # A Grafana already running (from `docker compose up`) is left running when the console exits.
+    running="$(command -v {{docker}} >/dev/null 2>&1 && {{docker}} compose ps -q --status running grafana 2>/dev/null)"
     url="$({{just_executable()}} grafana-up | tail -n 1)"
     echo "$url"
     flags=()
     if [[ "$url" == http* ]]; then
       flags=(--grafana-url "$url")
-      trap '{{just_executable()}} grafana-down' EXIT
+      [[ -n "$running" ]] || trap '{{just_executable()}} grafana-down' EXIT
     fi
-    {{livectl}} ui --port {{port}} "${flags[@]}"
+    # ${flags[@]+...}: bash before 4.4 (macOS's /bin/bash) calls an empty array unbound under `set -u`.
+    {{livectl}} ui --port {{port}} ${flags[@]+"${flags[@]}"}
 
 # Start Grafana (docker compose) and print its dashboard URL; says why and succeeds when it cannot
 grafana-up:
@@ -103,10 +106,14 @@ grafana-up:
     if ! command -v {{docker}} >/dev/null 2>&1; then
       echo "Grafana skipped: docker not found"; exit 0
     fi
+    echo "starting Grafana (the first run pulls its image)..." >&2
     if ! error="$({{docker}} compose up -d grafana 2>&1 >/dev/null)"; then
       echo "Grafana skipped: $(printf '%s\n' "$error" | tail -n 1)"; exit 0
     fi
-    address="$({{docker}} compose port grafana 3000 | tail -n 1)"
+    address="$({{docker}} compose port grafana 3000 2>/dev/null | tail -n 1)"
+    if [[ -z "$address" ]]; then
+      echo "Grafana skipped: Docker published no port for it"; exit 0
+    fi
     echo "http://${address}/d/mediaconnect-source"
 
 # Stop Grafana; does nothing without Docker

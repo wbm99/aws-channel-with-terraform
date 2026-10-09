@@ -651,6 +651,10 @@
               {
                 "id": "custom.drawStyle",
                 "value": "bars"
+              },
+              {
+                "id": "displayName",
+                "value": "Not recovered"
               }
             ]
           },
@@ -663,6 +667,10 @@
               {
                 "id": "unit",
                 "value": "percent"
+              },
+              {
+                "id": "displayName",
+                "value": "Packet loss"
               }
             ]
           }

@@ -302,8 +302,15 @@ publishes its metrics every second; CloudWatch keeps that resolution for 3 hours
   The *Loss* graph shows the last two together: loss with nothing unrecovered means SRT is doing its job.
 - **It finds the flow by itself:** each query is a CloudWatch search for this project's flows, wrapped in
   `REMOVE_EMPTY`, so nothing needs editing after a redeploy.
-- **Cost:** Grafana queries CloudWatch only while a dashboard is open, about 0.06 to 0.40 USD per hour then (see
+- **Cost:** Grafana queries CloudWatch only while a dashboard is open, about 0.065 to 0.45 USD per hour then (see
   [docs/cost-estimate.md](docs/cost-estimate.md)). Close the tab when you are not watching it.
+- **If it does not start:** port 3000 is often taken (Node dev servers, another Grafana); `docker compose up` then
+  fails on Grafana's port, while `just ui` says `Grafana skipped: …` and starts the console alone. Set `GRAFANA_PORT`
+  in `.env`. If your UID changed since Grafana first ran, its database belongs to the old one: `docker compose down -v`
+  resets it (and its password).
+- **Only at 127.0.0.1:** a request under any other name (`localhost` included) is redirected to `127.0.0.1`. This
+  blocks DNS rebinding: a web page whose own name points at 127.0.0.1 could otherwise log in with the default
+  password and query AWS with your credentials.
 - **Credentials:** `~/.aws` is mounted read-only and `AWS_PROFILE` and `AWS_REGION` come from `.env`. Access keys were
   checked; **SSO profiles were not**.
 
@@ -353,7 +360,7 @@ comes out private, make it public in the package's *Package settings*, or `docke
 While the demo runs, the priced items come to about **1.74 USD per hour** (about 0.43 for a 15-minute demo) for a single-pipeline
 channel. When nothing is running, cost is close to zero. Details, assumptions and what could not be priced are in
 [docs/cost-estimate.md](docs/cost-estimate.md). A $25 monthly budget with alerts lives in `bootstrap/`. An open Grafana
-dashboard adds CloudWatch queries, about 0.06 to 0.40 USD per hour, only while it is open.
+dashboard adds CloudWatch queries, about 0.065 to 0.45 USD per hour, only while it is open.
 
 ## Lessons learned
 
