@@ -43,8 +43,6 @@ The author, running and writing about the pipeline, and a reviewer running the s
 - **MediaLive, MediaPackage and CloudFront dashboards.** Later.
 - **Alerting** in Grafana.
 - **Querying at 1 second.** The data exists, but every query stays at a 5-second period.
-- **Fixing the Source page's latency setting**, which has no effect below the flow's 2000 ms minimum (see *Found while
-  designing*). A separate change.
 - **A flow selector.** The search finds the flow by name; a drop-down is the fallback if the search proves expensive.
 
 ## The metrics
@@ -55,7 +53,7 @@ The five, all in the `AWS/MediaConnect` namespace with the `FlowARN` dimension:
 |---|---|---|---|
 | `SourceConnected` | Maximum | tile: connected (green) / disconnected (red) | Is the encoder there at all. |
 | `SourceBitRate` | Average | tile in Mbps, and a graph | Is the feed alive and at the rate it was set to. |
-| `SourceRoundTripTime` | Average | tile in ms, and a graph with a line at 2000 ms | The network path. Retransmissions only help while RTT stays well under the SRT latency. |
+| `SourceRoundTripTime` | Average | tile in ms, and a graph | The network path. Retransmissions only help while RTT stays well under the SRT latency. |
 | `SourcePacketLossPercent` | Average | tile in %, and on the loss graph | Loss on the wire before SRT repairs it: the early warning. |
 | `SourceNotRecoveredPackets` | Sum | tile (sum of the last 5 minutes), and on the loss graph | Loss SRT could not repair: visible damage. |
 
@@ -81,12 +79,6 @@ Not verified:
   first live run.
 - **How a search is billed.** CloudWatch charges $0.01 per 1,000 metrics requested; whether each flow a search matches
   counts as a metric requested is not documented where we looked. See *Cost*.
-
-## Found while designing
-
-The flow's SRT listener has `min_latency = 2000` ms (`modules/ingest`, variable `min_latency_ms`, never overridden).
-SRT uses the larger of the two peers' latencies, so the effective latency is 2000 ms whatever the Source page sends
-below that. The RTT graph's reference line is therefore at 2000 ms, labelled *flow minimum latency*.
 
 ## Cost
 
@@ -169,7 +161,7 @@ that matters, the fallback is a flow drop-down: one flow per query.
      minutes; red above 0.
 - Below:
   6. **Bitrate** (time series).
-  7. **Round trip time** (time series) with a fixed threshold line at 2000 ms, *flow minimum latency*.
+  7. **Round trip time** (time series).
   8. **Loss** (time series): packet loss % on the left axis, not-recovered packets on the right.
 - Series with no values in the range are hidden, so destroyed flows do not fill the legends. Legends show the flow's
   name (the last part of the ARN), not the whole ARN.
@@ -195,7 +187,6 @@ port comes from `GRAFANA_PORT` (default 3000), passed to `livectl ui` by the jus
 - the dashboard is valid JSON; its uid, title and refresh are as above, and the refresh is at least 5 seconds;
 - every panel's queries use the data source uid `cloudwatch`, name one of the five metrics, set a statistic, and
   search with the `live-sports-aws-demo` prefix and a period of 5;
-- the RTT graph has its threshold at 2000, and it matches `min_latency_ms`'s default in `modules/ingest`;
 - `compose.yaml`'s Grafana port line starts with `127.0.0.1:`;
 - the service keeps anonymous access off, the 5-second minimum refresh, and `~/.aws` read-only;
 - the provisioning files name the same data-source uid the dashboard uses.
@@ -220,8 +211,8 @@ needs it, so the `dev` extra lists `pyyaml` explicitly. boto3 stays the only run
 
 ## Docs
 
-- **README:** a *Grafana* section: how it starts, the first login, what each tile means, the 2000 ms line, the cost
-  while open, and that SSO profiles are untested. The live checks above join the checklist.
+- **README:** a *Grafana* section: how it starts, the first login, what each tile means, the cost while open, and
+  that SSO profiles are untested. The live checks above join the checklist.
 - **`docs/cost-estimate.md`:** the GetMetricData line, with both figures.
 - **AGENTS.md:** the `127.0.0.1:` rule covers `GRAFANA_PORT`; *Money first* adds "close the Grafana dashboard when you
   are not watching it"; the repository layout lists `observability/`.
