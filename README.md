@@ -140,7 +140,8 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
 - **Header:** a one-line verdict for the whole pipeline (*Not deployed*, *Off air*, *On air · playing*,
   *On air · no source*, *Partly on*, …), what is billing per hour right now (summed from the resources that are up),
   and, whenever a job runs, a pill with its name, how long it has run and its latest line. Clicking the pill opens the
-  job's output.
+  job's output. Two clocks in the middle read UTC (the time burned into the test source, so the gap to the player is
+  the glass-to-glass delay) and UTC−3.
 - **Pipeline:** one node per resource, left to right: MediaConnect Source (SRT) → MediaConnect Flow → MediaLive Input →
   MediaLive Channel → MediaPackage Channel → CloudFront CDN → Player. Each shows its AWS state, a health colour and a
   key figure. The Player node fetches the playlist through CloudFront and checks that its media sequence advances, the
@@ -187,6 +188,13 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
 - **Sent vs received** puts what FFmpeg is sending next to what MediaConnect parsed from the stream
   (`DescribeFlowSourceMetadata`: codecs, resolution, frame rate, channels, and the program name, which MediaConnect
   takes from the SDT service name). A row that disagrees is highlighted.
+- **Send from your own encoder** gives OBS, vMix or a hardware encoder what it needs to replace the test source: the
+  SRT address, the passphrase (hidden until *Show*) and one `srt://` URL carrying caller mode, AES-256
+  (`pbkeylen=32`), packet size and the latency set above, in microseconds as FFmpeg and OBS read it. In OBS:
+  *Settings → Stream*, Service *Custom…*, the URL as the Server, Stream Key empty. MediaConnect takes one sender, so
+  stop the test source first. The console reads the passphrase from Secrets Manager on each *Show* or *Copy*, never
+  in the regular refresh, and gives it only to a page opened at `127.0.0.1` or `localhost` (a page served under
+  another name that points at 127.0.0.1, DNS rebinding, gets a 403).
 
 **Live** is for watching the broadcast:
 
@@ -260,6 +268,8 @@ the new outputs exist), open `just ui` and check:
 15. Send MP2, then AC-3 audio: the player still has sound (MediaLive re-encodes to AAC).
 16. Set a service name: within seconds *Sent vs received* shows it as MediaConnect's program name, and no row is
     highlighted once the restart has settled.
+17. **From OBS:** stop the test source, copy the URL from *Send from your own encoder* into OBS (*Settings → Stream*,
+    Service *Custom…*) and start streaming. The SRT node turns connected and the player shows the OBS picture.
 
 ## Repository layout
 

@@ -13,6 +13,8 @@
   <span class="verdict" id="verdict" data-health="unknown"><i class="dot"></i><span id="verdict-text">connecting…</span></span>
   <button class="job-pill" id="job-pill" type="button" hidden></button>
   <span class="spacer"></span>
+  <span class="clocks" id="clocks" aria-label="Current time"></span>
+  <span class="spacer"></span>
   <span class="chip muted" id="identity" hidden></span>
   <span class="chip" id="cost">$0.00 / h</span>
   <span class="chip muted" id="freshness"></span>
@@ -86,6 +88,7 @@
           </div>
           <p class="note" id="source-note" role="status"></p>
         </section>
+        <div class="source-side">
         <section class="card" id="received-card" aria-labelledby="received-title">
           <h2 class="card-title" id="received-title">Sent vs received</h2>
           <table class="received" id="source-received" hidden>
@@ -95,6 +98,27 @@
           <p class="note" id="source-received-note" role="status"></p>
           <p class="note" id="source-ffmpeg"></p>
         </section>
+        <section class="card" id="encoder-card" aria-labelledby="encoder-title">
+          <h2 class="card-title" id="encoder-title">Send from your own encoder</h2>
+          <dl class="endpoints encoder">
+            <dt>SRT address</dt>
+            <dd><span class="value" id="encoder-address"></span>
+              <button class="copy" id="encoder-copy-address" type="button">Copy</button></dd>
+            <dt>Passphrase</dt>
+            <dd><span class="value secret" id="encoder-passphrase"></span>
+              <button class="copy" id="encoder-show" type="button" aria-pressed="false">Show</button>
+              <button class="copy" id="encoder-copy-passphrase" type="button">Copy</button></dd>
+            <dt>URL</dt>
+            <dd><span class="value wrap" id="encoder-url"></span>
+              <button class="copy" id="encoder-copy-url" type="button">Copy</button></dd>
+          </dl>
+          <p class="note">In OBS: <b>Settings → Stream</b>, Service <b>Custom…</b>, paste the URL as the Server and leave
+            the Stream Key empty. The URL holds caller mode, AES-256 encryption (<code>pbkeylen=32</code>) and the
+            <span id="encoder-latency"></span> ms latency set above, in microseconds. MediaConnect takes one sender
+            at a time: stop the test source first.</p>
+          <p class="note error" id="encoder-error" role="alert"></p>
+        </section>
+        </div>
       </div>
     </main>
 

@@ -33,3 +33,11 @@ export async function getLogs(tab, after) {
   if (!response.ok) throw new Error('logs answered ' + response.status);
   return response.json();
 }
+
+// The passphrase and the full SRT URL for an encoder of your own; asked for on a click only, never polled.
+export async function getConnection() {
+  const response = await fetch('api/source/connection', { method: 'POST', cache: 'no-store' });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'the console answered ' + response.status);
+  return data;
+}
