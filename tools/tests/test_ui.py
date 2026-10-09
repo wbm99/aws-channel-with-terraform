@@ -863,3 +863,22 @@ def test_the_encoder_card_stacks_on_a_narrow_window(open_scenario):
 
     expect(page.locator("#encoder-show")).to_have_text("Hide")
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+
+# --- the Grafana link --------------------------------------------------------------------------------------
+
+
+def test_the_endpoints_card_opens_grafana(open_scenario):
+    page, _ = open_scenario("on-air-grafana")
+
+    link = page.locator("#endpoints dd", has=page.locator('[data-copy="grafana"]')).locator("a")
+    expect(link).to_have_attribute("href", "http://127.0.0.1:3000/d/mediaconnect-source")
+    expect(link).to_have_text("Open")
+    expect(page.locator("#endpoints dt", has_text="Grafana")).to_have_count(1)
+
+
+def test_the_endpoints_card_has_no_grafana_row_without_it(open_scenario):
+    page, _ = open_scenario("on-air-playing")
+
+    expect(page.locator("#endpoints dt", has_text="SRT ingest")).to_have_count(1)
+    expect(page.locator("#endpoints dt", has_text="Grafana")).to_have_count(0)

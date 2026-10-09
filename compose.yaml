@@ -4,7 +4,8 @@ services:
   console:
     image: ghcr.io/wbm99/aws-channel-with-terraform:latest
     build: { context: ., dockerfile: docker/Dockerfile, target: runtime }
-    command: ["livectl", "ui", "--host", "0.0.0.0", "--container", "--no-browser"]
+    command: ["livectl", "ui", "--host", "0.0.0.0", "--container", "--no-browser",
+              "--grafana-url", "http://127.0.0.1:${GRAFANA_PORT:-3000}/d/mediaconnect-source"]
     # Files written into the checkout (state, provider caches) belong to the host user. Bash does not export UID, so
     # anyone whose `id -u` is not 1000 sets UID and GID in .env.
     user: "${UID:-1000}:${GID:-1000}"

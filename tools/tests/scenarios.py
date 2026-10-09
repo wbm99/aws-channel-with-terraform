@@ -62,6 +62,8 @@ SCENARIOS: dict[str, dict] = {
     "source-dropped": dict(**ON, metrics=LIVE, playing=True, health="DISCONNECTED"),
     "no-credentials": dict(identity="no-credentials"),
     "root-identity": dict(identity="root"),
+    # `just ui` found Docker and started Grafana, so the console was given its URL.
+    "on-air-grafana": dict(**ON, metrics=LIVE, playing=True, grafana="http://127.0.0.1:3000/d/mediaconnect-source"),
 }
 
 
@@ -151,6 +153,7 @@ def build(name: str) -> Scenario:
     source = spec.pop("source", None)
     health = spec.pop("health", "CONNECTED")
     identity = spec.pop("identity", "ok")
+    grafana = spec.pop("grafana", None)
     clients = stub_aws(**spec)
     commands: list = []
 
@@ -164,6 +167,7 @@ def build(name: str) -> Scenario:
     console = Console(**clients, jobs=JobRunner(), runner=runner, command=command,
                       logs=logs_client(recent_events(health)), sts=sts_client(identity))
     console.source = FakeSource(running=source == "running")
+    console.grafana_url = grafana
     console.read_passphrase = lambda arn: "0123456789abcdef0123456789abcdef"
     console.pipeline = Pipeline(**clients, fetch=growing_playlist() if playing else no_playlist,
                                 source_status=console.source.status, logs=console.logs)

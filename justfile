@@ -10,6 +10,8 @@ venv    := ".venv"
 livectl := env("LIVECTL", ".venv/bin/livectl")
 python  := env("LIVECTL_PYTHON", ".venv/bin/python")
 pytest  := env("LIVECTL_PYTEST", ".venv/bin/pytest")
+# Tests point this at a fake; nothing else needs to.
+docker  := env("LIVECTL_DOCKER", "docker")
 
 # Show the available recipes
 default:
@@ -81,9 +83,35 @@ status:
 check-clean:
     {{livectl}} check-clean
 
-# Serve the control center on http://127.0.0.1:8765
+# Serve the control center on http://127.0.0.1:8765, with Grafana beside it when Docker is available
 ui port="8765":
-    {{livectl}} ui --port {{port}}
+    #!/usr/bin/env bash
+    set -uo pipefail
+    url="$({{just_executable()}} grafana-up | tail -n 1)"
+    echo "$url"
+    flags=()
+    if [[ "$url" == http* ]]; then
+      flags=(--grafana-url "$url")
+      trap '{{just_executable()}} grafana-down' EXIT
+    fi
+    {{livectl}} ui --port {{port}} "${flags[@]}"
+
+# Start Grafana (docker compose) and print its dashboard URL; says why and succeeds when it cannot
+grafana-up:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    if ! command -v {{docker}} >/dev/null 2>&1; then
+      echo "Grafana skipped: docker not found"; exit 0
+    fi
+    if ! error="$({{docker}} compose up -d grafana 2>&1 >/dev/null)"; then
+      echo "Grafana skipped: $(printf '%s\n' "$error" | tail -n 1)"; exit 0
+    fi
+    address="$({{docker}} compose port grafana 3000 | tail -n 1)"
+    echo "http://${address}/d/mediaconnect-source"
+
+# Stop Grafana; does nothing without Docker
+grafana-down:
+    @command -v {{docker}} >/dev/null 2>&1 && {{docker}} compose stop grafana >/dev/null 2>&1 || true
 
 # --- source ------------------------------------------------------------------
 
