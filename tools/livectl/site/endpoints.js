@@ -8,7 +8,7 @@ const ROWS = [
   ['passphrase_secret_arn', 'SRT passphrase (Secrets Manager)'],
 ];
 
-async function copy(button, value) {
+export async function copy(button, value) {
   try {
     await navigator.clipboard.writeText(value);
     button.textContent = 'Copied';

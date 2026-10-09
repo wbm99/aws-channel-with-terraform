@@ -22,7 +22,7 @@ from dataclasses import asdict, dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from livectl.actions import Situation, next_action, refusals
 from livectl.cache import TtlCache
@@ -269,18 +269,25 @@ def _logs_payload(console: Console, tab: str, after: int) -> dict:
             "after": max([after] + [line.at_ms for line in lines]), "notes": notes}
 
 
+def _passphrase(console: Console, targets: Targets) -> "tuple[Optional[str], Optional[Response]]":
+    """The SRT passphrase, or the response that says why it cannot be had."""
+    if not (targets.ingest_ip and targets.passphrase_secret_arn):
+        return None, _json(409, {"error": "The ingest address or the passphrase is missing from the Terraform "
+                                          "outputs. Run Deploy stack once to add them."})
+    try:
+        return console.read_passphrase(targets.passphrase_secret_arn), None
+    except Exception as error:  # never echo the error body: keep secrets out of responses on principle
+        return None, _json(502, {"error": "Could not read the SRT passphrase from Secrets Manager "
+                                          f"({type(error).__name__})."})
+
+
 def _start_source(console: Console, *, restart: bool) -> Response:
     """Start the test source on the saved settings. A restart (Apply) costs a few seconds of slate while SRT
     reconnects."""
     targets = console.targets()
-    if not (targets.ingest_ip and targets.passphrase_secret_arn):
-        return _json(409, {"error": "The ingest address or the passphrase is missing from the Terraform "
-                                    "outputs. Run Deploy stack once to add them."})
-    try:
-        passphrase = console.read_passphrase(targets.passphrase_secret_arn)
-    except Exception as error:  # never echo the error body: keep secrets out of responses on principle
-        return _json(502, {"error": "Could not read the SRT passphrase from Secrets Manager "
-                                    f"({type(error).__name__})."})
+    passphrase, refused = _passphrase(console, targets)
+    if refused:
+        return refused
     with console.settings_lock:
         settings = console.settings
     where = dict(host=targets.ingest_ip, port=int(targets.ingest_port or 5000), passphrase=passphrase,
@@ -298,6 +305,36 @@ def _start_source(console: Console, *, restart: bool) -> Response:
     console.pipeline.forget()
     return _json(202, {"saved": True, "restarted": True, "current": settings.to_dict()} if restart
                  else {"started": "source"})
+
+
+def _host_name(header: str) -> str:
+    """The name in a Host header without its port: `127.0.0.1:8765` gives 127.0.0.1, `[::1]:8765` gives ::1."""
+    header = header.strip().lower()
+    if header.startswith("["):
+        return header[1:header.find("]")]
+    return header.split(":", 1)[0]
+
+
+def _connection(console: Console, host: str) -> Response:
+    """Everything an encoder of your own (OBS, vMix, a hardware box) needs to replace the test source, including the
+    passphrase in plain text and one SRT URL that carries it all. Asked for on a click, never by the poll, and never
+    logged. Answered only when the page was loaded by a loopback name: a site that points its own name at 127.0.0.1
+    (DNS rebinding) could otherwise read it."""
+    if _host_name(host) not in LOOPBACK:
+        return _json(403, {"error": "The passphrase is only shown to a console opened at http://127.0.0.1 or "
+                                    "http://localhost."})
+    targets = console.targets()
+    passphrase, refused = _passphrase(console, targets)
+    if refused:
+        return refused
+    with console.settings_lock:
+        latency_ms = console.settings.latency_ms
+    address = f"srt://{targets.ingest_ip}:{int(targets.ingest_port or 5000)}"
+    # The same options source/send-srt.sh sends. Latency goes in microseconds, as FFmpeg and OBS read it.
+    query = urlencode({"mode": "caller", "passphrase": passphrase, "pbkeylen": 32, "pkt_size": 1316,
+                       "latency": latency_ms * 1000})
+    return _json(200, {"address": address, "passphrase": passphrase, "pbkeylen": 32, "latency_ms": latency_ms,
+                       "url": f"{address}?{query}"})
 
 
 def _save_settings(console: Console, body: Any) -> Response:
@@ -339,8 +376,8 @@ def _submit(console: Console, name: str, work: Work) -> Response:
     return _json(202, {"started": name})
 
 
-def route(method: str, path: str, query: dict, body: dict, console: Console) -> Response:
-    """Handle one request. Returns (status, content type, body)."""
+def route(method: str, path: str, query: dict, body: dict, console: Console, host: str = "127.0.0.1") -> Response:
+    """Handle one request; `host` is its Host header. Returns (status, content type, body)."""
     if method == "GET":
         if path in ("/", "/index.html"):
             return _static("index.html")
@@ -401,6 +438,9 @@ def route(method: str, path: str, query: dict, body: dict, console: Console) -> 
     if path == "/api/source/settings":
         return _save_settings(console, body)
 
+    if path == "/api/source/connection":
+        return _connection(console, host)
+
     if path == "/api/source/stop":
         console.source.stop()
         console.pipeline.forget()
@@ -431,7 +471,8 @@ class _Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             body = {}
 
-        status, content_type, payload = route(method, parsed.path, parse_qs(parsed.query), body, self.console)
+        status, content_type, payload = route(method, parsed.path, parse_qs(parsed.query), body, self.console,
+                                              host=self.headers.get("Host") or "")
         try:
             self.send_response(status)
             self.send_header("Content-Type", content_type)

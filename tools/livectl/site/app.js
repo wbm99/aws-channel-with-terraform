@@ -1,7 +1,9 @@
 // Startup, polling, the two pages and the wiring between them.
 // Each region re-renders only when its data changed, so a poll never steals focus or wipes a half-typed word.
-import { getPipeline, getReceived, post } from './api.js';
+import { getConnection, getPipeline, getReceived, post } from './api.js';
 import { renderChain } from './chain.js';
+import { startClocks } from './clocks.js';
+import { EncoderCard } from './encoder-card.js';
 import { renderEndpoints } from './endpoints.js';
 import { ago } from './format.js';
 import { JobsCard, duration } from './jobs-card.js';
@@ -20,6 +22,7 @@ const jobs = new JobsCard({
   meta: $('job-meta'), progress: $('job-progress'), bar: $('job-bar'),
 });
 const sourcePage = new SourcePage({ post, getReceived, act });
+const encoder = new EncoderCard({ getConnection });
 const seen = {};
 let data = null;
 let selected = null;           // the node whose details are open in the drawer
@@ -186,6 +189,7 @@ function render() {
   }
   if (changed('endpoints', data.endpoints)) renderEndpoints($('endpoints'), data.endpoints);
   sourcePage.render(data);
+  encoder.render(data);
   renderPlayer();
 
   // Once the stream plays, point at the Live page if that is not where the person is.
@@ -258,6 +262,7 @@ setInterval(() => {
   renderPill();
 }, 1000);
 
+startClocks($('clocks'));
 showPage();
 poll();
 setInterval(poll, POLL_MS);

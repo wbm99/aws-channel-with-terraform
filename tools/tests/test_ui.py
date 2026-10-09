@@ -783,3 +783,83 @@ def test_no_credentials_shows_one_banner_and_no_chain(open_scenario):
         "The pipeline appears here once the console can use your AWS credentials (see above).")
     expect(page.locator('#steps [data-status="current"]')).to_have_count(0)
     expect(page.locator("#cost")).to_have_text("cost unknown")  # the stack may still be on air
+
+
+# --- the header clocks and an encoder of your own --------------------------------------------------------
+
+
+def test_the_header_shows_utc_and_utc_minus_3(open_scenario):
+    page, _ = open_scenario("on-air-playing")
+    page.clock.set_fixed_time("2026-10-09T01:02:03Z")
+
+    expect(page.locator("#clocks")).to_have_text("UTC 01:02:03UTC−3 22:02:03")
+    header = page.locator("header.top").bounding_box()
+    clocks = page.locator("#clocks").bounding_box()
+    middle = clocks["x"] + clocks["width"] / 2
+    assert header["width"] * 0.3 < middle < header["width"] * 0.7
+
+
+def test_the_passphrase_is_hidden_until_shown_and_hidden_again(open_scenario):
+    page, _ = open_scenario("source-running", "source")
+    passphrase, url = page.locator("#encoder-passphrase"), page.locator("#encoder-url")
+
+    expect(page.locator("#encoder-address")).to_have_text("srt://203.0.113.20:5000")
+    expect(passphrase).to_have_text("••••••••••••")
+    expect(url).to_have_text("srt://203.0.113.20:5000?mode=caller&passphrase=••••••••••••&pbkeylen=32"
+                             "&pkt_size=1316&latency=120000")
+    expect(page.locator("#encoder-latency")).to_have_text("120")
+
+    page.locator("#encoder-show").click()
+    expect(passphrase).to_have_text("0123456789abcdef0123456789abcdef")
+    expect(url).to_have_text("srt://203.0.113.20:5000?mode=caller&passphrase=0123456789abcdef0123456789abcdef"
+                             "&pbkeylen=32&pkt_size=1316&latency=120000")
+    expect(page.locator("#encoder-show")).to_have_text("Hide")
+
+    page.locator("#encoder-show").click()
+    expect(passphrase).to_have_text("••••••••••••")
+
+
+def test_copy_puts_the_full_url_on_the_clipboard_without_showing_it(open_scenario):
+    page, _ = open_scenario("source-running", "source")
+
+    page.locator("#encoder-copy-url").click()
+
+    expect(page.locator("#encoder-copy-url")).to_have_text("Copied")
+    assert page.evaluate("navigator.clipboard.readText()") == (
+        "srt://203.0.113.20:5000?mode=caller&passphrase=0123456789abcdef0123456789abcdef&pbkeylen=32"
+        "&pkt_size=1316&latency=120000")
+    expect(page.locator("#encoder-passphrase")).to_have_text("••••••••••••")
+
+    page.locator("#encoder-copy-passphrase").click()
+    expect(page.locator("#encoder-copy-passphrase")).to_have_text("Copied")
+    assert page.evaluate("navigator.clipboard.readText()") == "0123456789abcdef0123456789abcdef"
+
+
+def test_a_shown_url_follows_a_new_latency(open_scenario):
+    page, _ = open_scenario("source-running", "source")
+    page.locator("#encoder-show").click()
+    expect(page.locator("#encoder-url")).to_contain_text("latency=120000")
+
+    page.locator("#source-latency_ms").fill("400")
+    page.locator("#source-apply").click()
+
+    expect(page.locator("#encoder-url")).to_contain_text("passphrase=0123456789abcdef")
+    expect(page.locator("#encoder-url")).to_contain_text("latency=400000")
+    expect(page.locator("#encoder-latency")).to_have_text("400")
+
+
+def test_the_encoder_card_waits_for_a_deployed_stack(open_scenario):
+    page, _ = open_scenario("not-deployed", "source")
+
+    expect(page.locator("#encoder-address")).to_have_text("Deploy the stack first")
+    for button in ("show", "copy-address", "copy-passphrase", "copy-url"):
+        expect(page.locator(f"#encoder-{button}")).to_be_disabled()
+
+
+def test_the_encoder_card_stacks_on_a_narrow_window(open_scenario):
+    page, _ = open_scenario("source-running", "source")
+    page.set_viewport_size({"width": 600, "height": 900})
+    page.locator("#encoder-show").click()
+
+    expect(page.locator("#encoder-show")).to_have_text("Hide")
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")

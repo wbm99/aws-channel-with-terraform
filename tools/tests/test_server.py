@@ -2,11 +2,12 @@ import io
 import json
 import threading
 
+import pytest
 import boto3
 
 from conftest import make_workflow
 from livectl.jobs import FAILED, SUCCEEDED, JobRunner
-from livectl.server import Console, _Handler, _Server, route
+from livectl.server import Console, _Handler, _Server, make_server, route
 
 OUTPUTS = {
     "flow_arn": {"value": "arn:aws:mediaconnect:us-east-1:123456789012:flow:1-abc:demo"},
@@ -53,8 +54,8 @@ def deployed_console(**overrides) -> Console:
     return make_console(flow_arn=targets.flow_arn, channel_id=targets.channel_id, **overrides)
 
 
-def call(console, method, path, query=None, body=None):
-    status, content_type, payload = route(method, path, query or {}, body or {}, console)
+def call(console, method, path, query=None, body=None, host="127.0.0.1:8765"):
+    status, content_type, payload = route(method, path, query or {}, body or {}, console, host=host)
     if content_type.startswith("application/json"):
         return status, json.loads(payload)
     return status, payload
@@ -706,3 +707,79 @@ def test_a_launch_that_fails_is_a_readable_error_and_does_not_block_the_next_sta
 
     assert status == 500 and "could not start" in payload["error"].lower()
     assert call(console, "GET", "/api/pipeline")[1]["source"]["state"] == "exited"
+
+
+# --- an encoder of your own -----------------------------------------------------
+
+def connection_console():
+    console = source_console()
+    console.runner = lambda args: json.dumps(dict(OUTPUTS, passphrase_secret_arn={"value": "arn:secret"}))
+    console.forget_targets()
+    return console
+
+
+def test_the_connection_carries_the_passphrase_and_the_saved_latency_in_one_url(aws):
+    console = connection_console()
+    call(console, "POST", "/api/source/settings", body={"latency_ms": 250})
+
+    status, payload = call(console, "POST", "/api/source/connection")
+
+    assert status == 200
+    ingest = console.targets().ingest_ip
+    assert payload["address"] == f"srt://{ingest}:5000"
+    assert payload["passphrase"] == SECRET and payload["latency_ms"] == 250 and payload["pbkeylen"] == 32
+    assert payload["url"] == (f"srt://{ingest}:5000?mode=caller&passphrase={SECRET}&pbkeylen=32&pkt_size=1316"
+                              "&latency=250000")
+
+
+def test_the_passphrase_never_reaches_the_poll_or_the_logs(aws):
+    console = connection_console()
+    call(console, "POST", "/api/source/connection")
+
+    _, pipeline = call(console, "GET", "/api/pipeline")
+    _, logs = call(console, "GET", "/api/logs", query={"tab": ["all"]})
+
+    assert SECRET not in json.dumps(pipeline) + json.dumps(logs)
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1:8765", "localhost:8765", "LOCALHOST", "[::1]:8765"])
+def test_the_connection_is_answered_to_loopback_names(aws, host):
+    status, _ = call(connection_console(), "POST", "/api/source/connection", host=host)
+
+    assert status == 200
+
+
+@pytest.mark.parametrize("host", ["rebound.example:8765", "192.168.1.20:8765", "127.0.0.1.nip.io", ""])
+def test_the_connection_is_refused_to_any_other_host(aws, host):
+    status, payload = call(connection_console(), "POST", "/api/source/connection", host=host)
+
+    assert status == 403 and SECRET not in json.dumps(payload)
+
+
+def test_the_connection_needs_the_ingest_outputs(aws):
+    console = source_console()
+    console.runner = lambda args: json.dumps({k: v for k, v in OUTPUTS.items() if k != "ingest_ip"})
+    console.forget_targets()
+
+    status, payload = call(console, "POST", "/api/source/connection")
+
+    assert status == 409 and "Deploy stack" in payload["error"]
+
+
+def test_the_served_console_checks_the_host_header_it_received(aws):
+    import http.client
+
+    server = make_server(connection_console(), port=0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        answers = {}
+        for host in ("127.0.0.1", "rebound.example"):
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("POST", "/api/source/connection", body=b"{}", headers={"Host": host})
+            answers[host] = conn.getresponse().status
+            conn.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert answers == {"127.0.0.1": 200, "rebound.example": 403}
