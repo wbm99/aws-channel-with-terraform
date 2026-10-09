@@ -94,3 +94,29 @@ def test_the_provider_loads_the_dashboards_folder_read_only():
     provider = load_yaml(PROVISIONING / "dashboards" / "provider.yaml")["providers"][0]
     assert provider["folder"] == "Live pipeline" and provider["allowUiUpdates"] is False
     assert provider["options"]["path"] == "/var/lib/grafana/dashboards"
+
+
+# --- compose.yaml -----------------------------------------------------------------------------------------------
+
+def compose() -> dict:
+    return load_yaml(ROOT / "compose.yaml")
+
+
+def test_grafana_is_published_on_loopback_only():
+    assert compose()["services"]["grafana"]["ports"] == ["127.0.0.1:${GRAFANA_PORT:-3000}:3000"]
+
+
+def test_grafana_is_pinned_runs_as_the_host_user_and_reads_aws_read_only():
+    g = compose()["services"]["grafana"]
+    assert g["image"] == "grafana/grafana-oss:13.0.2" and g["user"] == "${UID:-1000}:${GID:-1000}"
+    aws = next(v for v in g["volumes"] if isinstance(v, dict) and v["target"] == "/aws")
+    assert aws["read_only"] is True and aws["bind"] == {"create_host_path": False}
+
+
+def test_grafana_settings_that_guard_access_and_cost():
+    env = compose()["services"]["grafana"]["environment"]
+    assert env["GF_AUTH_ANONYMOUS_ENABLED"] == "false"
+    assert env["GF_DASHBOARDS_MIN_REFRESH_INTERVAL"] == "5s"
+    assert env["GF_SECURITY_ADMIN_PASSWORD"] == "${GRAFANA_ADMIN_PASSWORD:-admin}"
+    assert env["AWS_CONFIG_FILE"] == "/aws/config" and env["AWS_SHARED_CREDENTIALS_FILE"] == "/aws/credentials"
+    assert env["AWS_PROFILE"] == "${AWS_PROFILE:-default}" and env["AWS_REGION"] == "${AWS_REGION:-us-east-1}"

@@ -47,6 +47,8 @@ jobs:
       # test_ui.py launches the installed Google Chrome (channel="chrome"), which the runner image ships.
       - run: google-chrome --version
       - run: just test-ui
+      # Docker is on the runner, not inside the test image, so the Grafana smoke test runs here.
+      - run: just test-grafana
 
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

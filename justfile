@@ -158,6 +158,10 @@ test-py:
 ui-scenario name="on-air-playing" port="8766":
     {{python}} tools/tests/scenarios.py {{name}} {{port}}
 
+# Start the real Grafana service with no AWS credentials and check it provisions (needs Docker; pulls the image once)
+test-grafana:
+    {{pytest}} -q tools/tests/test_grafana_container.py
+
 # Drive the console in Chrome through every scenario (needs: .venv/bin/pip install -e "tools[dev,ui]")
 test-ui:
     {{pytest}} -q tools/tests/test_ui.py
