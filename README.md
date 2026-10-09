@@ -182,7 +182,7 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
   - *SRT:* latency.
 - **Edit, then Apply.** Changed fields are marked, and one *Apply N changes* restarts FFmpeg once with all of them:
   viewers see a few seconds of MediaLive's slate while SRT reconnects. MediaConnect may still hold the old SRT
-  connection for up to about 5 s, so a reconnect it refuses is retried after 1, 2 and 4 s (the log shows *SRT
+  connection for a few seconds, so a reconnect it refuses is retried after 1, 2, 4 and 8 s (the log shows *SRT
   connection refused; trying again*). While the source is stopped the same button reads *Send test source*. The settings last as long as the console process.
 - **Sent vs received** puts what FFmpeg is sending next to what MediaConnect parsed from the stream
   (`DescribeFlowSourceMetadata`: codecs, resolution, frame rate, channels, and the program name, which MediaConnect

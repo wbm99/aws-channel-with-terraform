@@ -8,10 +8,10 @@ Known limitation: FFmpeg receives the passphrase inside its SRT URL argument, so
 process list (`ps`) while the source runs. `just send` has the same exposure; FFmpeg's SRT support offers no
 other way to pass it.
 
-A start can be refused by the listener: MediaConnect takes one SRT sender, and after a restart it may still hold the
-old connection until SRT notices it went quiet (about 5 s) if the old FFmpeg's shutdown packet was lost. FFmpeg then
-prints `Connection setup failure` and exits before sending a frame. That case is retried a few times, with growing
-pauses, before the source is reported as exited.
+A start can be refused by the listener: MediaConnect takes one SRT sender, and for a few seconds after a restart it
+still holds the old connection, even one FFmpeg closed cleanly (seen live: rejected one second after the old FFmpeg
+exited normally). FFmpeg then reports the rejection and exits before sending a frame. That case is retried a few
+times, with growing pauses, before the source is reported as exited.
 """
 
 from __future__ import annotations
@@ -31,10 +31,13 @@ from typing import Callable, Mapping, Optional, Sequence
 # from the checkout. `just` runs from the repository root and the container from /work, so both find it.
 SCRIPT = Path("source/send-srt.sh")
 STOPPED, STARTING, RUNNING, EXITED = "stopped", "starting", "running", "exited"
-# What libsrt reports, through FFmpeg, when the listener rejects the caller or never answers its handshake.
-SETUP_FAILURE = "Connection setup failure"
-# Pauses before each new attempt after a setup failure: about 7 s in all, past SRT's 5 s peer idle timeout.
-RETRY_DELAYS = (1.0, 2.0, 4.0)
+# How FFmpeg reports that the listener rejected the caller or never answered its handshake. The wording depends on
+# the FFmpeg and libsrt versions: recent ones print libsrt's "Connection setup failure: connection rejected"; FFmpeg
+# 4.4 (Ubuntu 22.04) prints "processAsyncConnectRequest: REJECT reported from HS processing" and then
+# "[srt @ ...] Connection to srt://... failed: Input/output error".
+SETUP_FAILURES = ("Connection setup failure", "REJECT reported", "] Connection to srt://")
+# Pauses before each new attempt after a setup failure: 15 s in all, well past SRT's 5 s peer idle timeout.
+RETRY_DELAYS = (1.0, 2.0, 4.0, 8.0)
 # Test patterns source/send-srt.sh can generate (its PATTERN variable), in the order the console lists them.
 PATTERNS = [
     ("testcard", "Test card"),
@@ -258,7 +261,7 @@ class SourceProcess:
             line = raw.rstrip("\n").replace(secret, "***")
             if not line.strip():
                 continue
-            refused = refused or SETUP_FAILURE in line
+            refused = refused or any(marker in line for marker in SETUP_FAILURES)
             with self._lock:
                 if generation != self._generation:
                     continue  # a newer process owns the state; keep draining so the old one can exit

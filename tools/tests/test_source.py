@@ -136,7 +136,7 @@ def test_stop_kills_a_child_that_ignores_sigterm():
 
 def test_a_crash_is_reported_with_its_last_line():
     process = FakeProcess(["Connection to srt://h:5000 failed: Input/output error"], code=1)
-    source = SourceProcess(popen=launcher(process), script="send-srt.sh")
+    source = SourceProcess(popen=launcher(process), script="send-srt.sh", retry_delays=())
 
     source.start(host="h", port=5000, passphrase=SECRET)
     process.finish()
@@ -379,10 +379,18 @@ def test_a_launch_that_fails_does_not_leave_the_source_starting():
 
 REFUSED = ["[srt @ 0x5581] Connection setup failure: connection rejected",
            "[out#0/mpegts @ 0x5582] Error opening output srt://h:5000: Input/output error"]
+# The same rejection as FFmpeg 4.4 (Ubuntu 22.04) printed it live, with the passphrase already redacted.
+REFUSED_FFMPEG_4 = [
+    "15:11:15.313190/SRT:RcvQ:w1!W:SRT.cn: processAsyncConnectRequest: REJECT reported from HS processing: "
+    "Application-defined rejection reason - not processing further",
+    "[srt @ 0x5e1e7b75a3c0] Connection to srt://h:5000?mode=caller&passphrase=***&pbkeylen=32 failed: "
+    "Input/output error",
+    "srt://h:5000?mode=caller&passphrase=***&pbkeylen=32: Input/output error",
+]
 
 
-def refused():
-    process = FakeProcess(REFUSED, code=251)
+def refused(lines=REFUSED):
+    process = FakeProcess(lines, code=1)
     process.finish()
     return process
 
@@ -392,7 +400,7 @@ def test_a_restart_the_listener_refuses_is_retried_until_it_connects():
     from livectl.source import SourceSettings
 
     old, fresh = FakeProcess(["frame= 1"]), FakeProcess(["frame= 1"])
-    processes = iter([old, refused(), refused(), fresh])
+    processes = iter([old, refused(), refused(REFUSED_FFMPEG_4), fresh])
     source = SourceProcess(popen=lambda args, **kwargs: next(processes), script="send-srt.sh",
                            retry_delays=(0, 0, 0))
     source.start(host="h", port=5000, passphrase=SECRET)
@@ -423,7 +431,7 @@ def test_a_source_refused_every_time_is_reported_exited_after_the_last_attempt()
 
     assert len(launches) == 4
     status = source.status()
-    assert status["exit_code"] == 251 and "Input/output error" in status["last_error"]
+    assert status["exit_code"] == 1 and "Input/output error" in status["last_error"]
 
 
 def test_stop_during_the_pause_before_a_retry_cancels_it():
@@ -453,7 +461,7 @@ def test_a_failure_after_the_first_frame_is_not_retried():
 
     def popen(args, **kwargs):
         launches.append(args)
-        process = FakeProcess(["frame= 1", *REFUSED], code=251)
+        process = FakeProcess(["frame= 1", *REFUSED], code=1)
         process.finish()
         return process
 
@@ -462,3 +470,9 @@ def test_a_failure_after_the_first_frame_is_not_retried():
     settle(source, "exited")
 
     assert len(launches) == 1
+
+
+def test_the_default_retries_outlast_the_listener_holding_the_old_connection():
+    from livectl.source import RETRY_DELAYS
+
+    assert sum(RETRY_DELAYS) >= 10
