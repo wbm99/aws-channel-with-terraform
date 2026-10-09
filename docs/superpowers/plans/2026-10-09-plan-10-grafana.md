@@ -21,7 +21,7 @@ bash in the justfile, Python 3 + pytest (+ PyYAML, dev only), the existing stdli
 - `~/.aws` mounted **read-only** at `/aws`, `create_host_path: false`.
 - Anonymous access off; `GF_DASHBOARDS_MIN_REFRESH_INTERVAL=5s`; dashboard refresh `5s`, query period `5`.
 - Data source uid `cloudwatch`; dashboard uid `mediaconnect-source`, title *MediaConnect source*, folder *Live pipeline*.
-- Search expression, exactly: `SEARCH('{AWS/MediaConnect,FlowARN} MetricName="<metric>" live-sports-aws-demo', '<statistic>', 5)`.
+- Search expression, exactly: `REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName="<metric>" live-sports-aws-demo', '<statistic>', 5))`.
 - Every CloudWatch query sets `statistic` (the plugin answers 500 without it).
 - The five metrics and statistics: `SourceConnected` Maximum, `SourceBitRate` Average, `SourceRoundTripTime` Average,
   `SourcePacketLossPercent` Average, `SourceNotRecoveredPackets` Sum.
@@ -76,8 +76,8 @@ def test_every_query_searches_this_projects_flows_every_5_seconds():
         metric = target["metricName"]
         assert target["datasource"]["uid"] == "cloudwatch"
         assert METRICS[metric] == target["statistic"]
-        assert target["expression"] == ("SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"%s\" live-sports-aws-demo', "
-                                        "'%s', 5)" % (metric, target["statistic"]))
+        assert target["expression"] == ("REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"%s\" "
+                                        "live-sports-aws-demo', '%s', 5))" % (metric, target["statistic"]))
         assert target["period"] == "5"
 
 def test_the_panels_are_the_five_tiles_and_three_graphs():

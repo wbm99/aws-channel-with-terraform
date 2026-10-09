@@ -146,7 +146,7 @@ that matters, the fallback is a flow drop-down: one flow per query.
 - Every query: data source `cloudwatch`, region from the data source, code mode with a search expression, period 5:
 
   ```
-  SEARCH('{AWS/MediaConnect,FlowARN} MetricName="<metric>" live-sports-aws-demo', '<statistic>', 5)
+  REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName="<metric>" live-sports-aws-demo', '<statistic>', 5))
   ```
 
   The project prefix keeps the search to this repository's flows, by the same naming rule `check-clean` relies on.
@@ -163,7 +163,9 @@ that matters, the fallback is a flow drop-down: one flow per query.
   6. **Bitrate** (time series).
   7. **Round trip time** (time series).
   8. **Loss** (time series): packet loss % on the left axis, not-recovered packets on the right.
-- Series with no values in the range are hidden, so destroyed flows do not fill the legends. Legends show the flow's
+- Series with no values in the range are dropped by CloudWatch's `REMOVE_EMPTY()`, so destroyed flows (which all
+  share the live flow's name) neither split the tiles nor fill the legends. Found when the dashboard was first
+  rendered against real data: without it each tile showed seven boxes. Legends show the flow's
   name (the last part of the ARN), not the whole ARN.
 
 ## `just`

@@ -44,7 +44,7 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourceConnected",
           "statistic": "Maximum",
-          "expression": "SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceConnected\" live-sports-aws-demo', 'Maximum', 5)",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceConnected\" live-sports-aws-demo', 'Maximum', 5))",
           "period": "5",
           "id": "",
           "label": "${PROP('Dim.FlowARN')}"
@@ -69,7 +69,7 @@
             "steps": [
               {
                 "value": null,
-                "color": "green"
+                "color": "text"
               }
             ]
           },
@@ -104,9 +104,11 @@
         },
         "colorMode": "background",
         "graphMode": "none",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "justifyMode": "center"
-      }
+      },
+      "timeFrom": "2m",
+      "hideTimeOverride": true
     },
     {
       "id": 2,
@@ -136,7 +138,7 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourceBitRate",
           "statistic": "Average",
-          "expression": "SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceBitRate\" live-sports-aws-demo', 'Average', 5)",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceBitRate\" live-sports-aws-demo', 'Average', 5))",
           "period": "5",
           "id": "",
           "label": "${PROP('Dim.FlowARN')}"
@@ -165,7 +167,8 @@
               }
             ]
           },
-          "unit": "bps"
+          "unit": "bps",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -177,11 +180,13 @@
           "fields": "",
           "values": false
         },
-        "colorMode": "background",
+        "colorMode": "none",
         "graphMode": "none",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "justifyMode": "center"
-      }
+      },
+      "timeFrom": "2m",
+      "hideTimeOverride": true
     },
     {
       "id": 3,
@@ -211,7 +216,7 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourceRoundTripTime",
           "statistic": "Average",
-          "expression": "SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceRoundTripTime\" live-sports-aws-demo', 'Average', 5)",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceRoundTripTime\" live-sports-aws-demo', 'Average', 5))",
           "period": "5",
           "id": "",
           "label": "${PROP('Dim.FlowARN')}"
@@ -240,7 +245,8 @@
               }
             ]
           },
-          "unit": "ms"
+          "unit": "ms",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -252,11 +258,13 @@
           "fields": "",
           "values": false
         },
-        "colorMode": "background",
+        "colorMode": "none",
         "graphMode": "none",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "justifyMode": "center"
-      }
+      },
+      "timeFrom": "2m",
+      "hideTimeOverride": true
     },
     {
       "id": 4,
@@ -286,7 +294,7 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourcePacketLossPercent",
           "statistic": "Average",
-          "expression": "SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourcePacketLossPercent\" live-sports-aws-demo', 'Average', 5)",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourcePacketLossPercent\" live-sports-aws-demo', 'Average', 5))",
           "period": "5",
           "id": "",
           "label": "${PROP('Dim.FlowARN')}"
@@ -315,7 +323,8 @@
               }
             ]
           },
-          "unit": "percent"
+          "unit": "percent",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -327,11 +336,13 @@
           "fields": "",
           "values": false
         },
-        "colorMode": "background",
+        "colorMode": "none",
         "graphMode": "none",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "justifyMode": "center"
-      }
+      },
+      "timeFrom": "2m",
+      "hideTimeOverride": true
     },
     {
       "id": 5,
@@ -361,7 +372,7 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourceNotRecoveredPackets",
           "statistic": "Sum",
-          "expression": "SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceNotRecoveredPackets\" live-sports-aws-demo', 'Sum', 5)",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceNotRecoveredPackets\" live-sports-aws-demo', 'Sum', 5))",
           "period": "5",
           "id": "",
           "label": "${PROP('Dim.FlowARN')}"
@@ -394,7 +405,8 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "short",
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -408,10 +420,11 @@
         },
         "colorMode": "background",
         "graphMode": "none",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "justifyMode": "center"
       },
-      "timeFrom": "5m"
+      "timeFrom": "5m",
+      "hideTimeOverride": true
     },
     {
       "id": 6,
@@ -441,7 +454,7 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourceBitRate",
           "statistic": "Average",
-          "expression": "SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceBitRate\" live-sports-aws-demo', 'Average', 5)",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceBitRate\" live-sports-aws-demo', 'Average', 5))",
           "period": "5",
           "id": "",
           "label": "${PROP('Dim.FlowARN')}"
@@ -509,7 +522,7 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourceRoundTripTime",
           "statistic": "Average",
-          "expression": "SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceRoundTripTime\" live-sports-aws-demo', 'Average', 5)",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceRoundTripTime\" live-sports-aws-demo', 'Average', 5))",
           "period": "5",
           "id": "",
           "label": "${PROP('Dim.FlowARN')}"
@@ -577,7 +590,7 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourcePacketLossPercent",
           "statistic": "Average",
-          "expression": "SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourcePacketLossPercent\" live-sports-aws-demo', 'Average', 5)",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourcePacketLossPercent\" live-sports-aws-demo', 'Average', 5))",
           "period": "5",
           "id": "",
           "label": "${PROP('Dim.FlowARN')}"
@@ -595,7 +608,7 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourceNotRecoveredPackets",
           "statistic": "Sum",
-          "expression": "SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceNotRecoveredPackets\" live-sports-aws-demo', 'Sum', 5)",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceNotRecoveredPackets\" live-sports-aws-demo', 'Sum', 5))",
           "period": "5",
           "id": "",
           "label": "${PROP('Dim.FlowARN')}"

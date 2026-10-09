@@ -37,12 +37,14 @@ def test_the_dashboard_identity_and_refresh():
 
 
 def test_every_query_searches_this_projects_flows_every_5_seconds():
+    # REMOVE_EMPTY: every deploy's flow has the same name, and the search returns the destroyed ones of the last two
+    # weeks too. Without it each tile splits into one box per flow and the legends repeat the name.
     for _, target in targets():
         metric = target["metricName"]
         assert target["datasource"]["uid"] == "cloudwatch"
         assert METRICS[metric] == target["statistic"]
-        assert target["expression"] == ("SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"%s\" live-sports-aws-demo', "
-                                        "'%s', 5)" % (metric, target["statistic"]))
+        assert target["expression"] == ("REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"%s\" "
+                                        "live-sports-aws-demo', '%s', 5))" % (metric, target["statistic"]))
         assert target["period"] == "5"
 
 
@@ -120,3 +122,19 @@ def test_grafana_settings_that_guard_access_and_cost():
     assert env["GF_SECURITY_ADMIN_PASSWORD"] == "${GRAFANA_ADMIN_PASSWORD:-admin}"
     assert env["AWS_CONFIG_FILE"] == "/aws/config" and env["AWS_SHARED_CREDENTIALS_FILE"] == "/aws/credentials"
     assert env["AWS_PROFILE"] == "${AWS_PROFILE:-default}" and env["AWS_REGION"] == "${AWS_REGION:-us-east-1}"
+
+
+def test_the_now_tiles_read_only_the_last_2_minutes_and_show_just_the_value():
+    # Over the whole range, lastNotNull would keep a stopped flow "connected" for up to 15 minutes. 2 minutes, not
+    # 1, leaves room for CloudWatch's publishing delay (unmeasured; live check 20).
+    tiles = panels()[:5]
+    assert [t["timeFrom"] for t in tiles] == ["2m", "2m", "2m", "2m", "5m"]
+    assert {t["options"]["textMode"] for t in tiles} == {"value"}
+
+
+def test_tiles_say_nothing_is_fine_when_there_is_no_data():
+    tiles = panels()[:5]
+    assert all(t["hideTimeOverride"] for t in tiles)                     # the titles keep their room
+    assert tiles[0]["fieldConfig"]["defaults"]["noValue"] == "no source"
+    assert tiles[0]["fieldConfig"]["defaults"]["thresholds"]["steps"][0]["color"] == "text"
+    assert [t["options"]["colorMode"] for t in tiles] == ["background", "none", "none", "none", "background"]
