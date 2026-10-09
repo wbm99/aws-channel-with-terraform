@@ -1,4 +1,5 @@
 import json
+import time
 
 import boto3
 
@@ -8,7 +9,9 @@ from livectl.targets import Targets
 FLOW = "arn:aws:mediaconnect:us-east-1:123456789012:flow:1-abc:live-sports-aws-demo"
 CHANNEL = "arn:aws:medialive:us-east-1:123456789012:channel:7387208"
 TARGETS = Targets(flow_arn=FLOW, channel_id="7387208", channel_arn=CHANNEL, events_log_group="/aws/events/demo")
-T = 1_790_000_000_000  # ms
+# An hour ago, not a fixed date: CloudWatch Logs (and moto) refuse events older than 14 days, which turned a fixed
+# timestamp into a test that started failing two weeks after it was written.
+T = (int(time.time()) - 3600) * 1000  # ms
 
 
 def event(source, kind, detail, resources=(FLOW,)):

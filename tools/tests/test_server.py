@@ -509,52 +509,130 @@ def test_the_job_summary_says_how_far_terraform_has_got(aws):
     assert progress == {"done": 1, "total": 2, "percent": 50, "label": "1 of 2 resources"}
 
 
-def test_the_payload_lists_the_patterns(aws):
-    patterns = call(make_console(), "GET", "/api/pipeline")[1]["patterns"]
+# --- source settings -------------------------------------------------------------------------------------
 
-    assert patterns[0] == {"id": "testcard", "label": "Test card"}
-    assert {"id": "standby", "label": "Please stand by"} in patterns
+from livectl.source import CHOICES, SourceSettings  # noqa: E402
 
 
-def test_send_test_source_starts_the_chosen_pattern(aws):
-    process = FakeProcess(["frame= 1"])
-    console = source_console(process=process)
-    console.runner = lambda args: json.dumps(dict(OUTPUTS, passphrase_secret_arn={"value": "arn:secret"}))
-    console.forget_targets()
-
-    status, _ = call(console, "POST", "/api/source/start", body={"pattern": "pal"})
-
-    assert status == 202 and console.source.status()["pattern"] == "pal"
-    process.finish()
-
-
-def test_switching_pattern_while_sending_restarts_the_source_on_the_new_one(aws):
-    first, second = FakeProcess(["frame= 1"]), FakeProcess(["frame= 1"])
-    processes = iter([first, second])
+def sending_console(*processes):
+    """A console on air whose source launches the given fake processes in turn, recording each launch's env."""
     console = source_console()
-    console.source = SourceProcess(popen=lambda args, **kwargs: next(processes), script="send-srt.sh")
+    queue, launches = iter(processes), []
+
+    def popen(args, **kwargs):
+        launches.append(kwargs["env"])
+        return next(queue)
+
+    console.source = SourceProcess(popen=popen, script="send-srt.sh")
     console.runner = lambda args: json.dumps(dict(OUTPUTS, passphrase_secret_arn={"value": "arn:secret"}))
     console.forget_targets()
-    call(console, "POST", "/api/source/start", body={"pattern": "testcard"})
+    return console, launches
 
-    status, payload = call(console, "POST", "/api/source/pattern", body={"pattern": "black"})
 
-    assert (status, payload) == (202, {"switched": "black"})
-    assert first.signals == ["TERM"], "the old FFmpeg is stopped first"
-    assert console.source.status()["pattern"] == "black"
+def test_the_payload_carries_the_settings_and_their_choices(aws):
+    payload = call(make_console(), "GET", "/api/pipeline")[1]
+
+    assert payload["source_settings"]["current"] == SourceSettings().to_dict()
+    assert payload["source_settings"]["choices"] == CHOICES
+    assert payload["source_settings"]["defaults"] == SourceSettings().to_dict()
+    assert "patterns" not in payload
+
+
+def test_settings_saved_while_stopped_start_nothing(aws):
+    console, launches = sending_console()
+
+    status, payload = call(console, "POST", "/api/source/settings", body={"fps": 25})
+
+    assert (status, payload["saved"]) == (200, True) and payload["current"]["fps"] == 25
+    assert console.settings.fps == 25 and launches == []
+
+
+def test_settings_applied_while_running_restart_once_with_the_merged_settings(aws):
+    first, second = FakeProcess(["frame= 1"]), FakeProcess(["frame= 1"])
+    console, launches = sending_console(first, second)
+    call(console, "POST", "/api/source/start")
+
+    status, payload = call(console, "POST", "/api/source/settings", body={"fps": 50, "service_name": "Match 1"})
+
+    assert status == 202 and payload["restarted"] is True
+    assert len(launches) == 2 and first.signals == ["TERM"]
+    assert (launches[1]["FPS"], launches[1]["SERVICE_NAME"], launches[1]["PATTERN"]) == ("50", "Match 1", "testcard")
     second.finish()
 
 
-def test_switching_pattern_needs_a_running_source(aws):
-    status, payload = call(source_console(), "POST", "/api/source/pattern", body={"pattern": "black"})
+def test_settings_applied_after_the_source_exited_only_save_them(aws):
+    from test_source import settle
 
-    assert status == 409 and "not running" in payload["error"]
+    crashed = FakeProcess(["Connection failed"], code=1)
+    console, launches = sending_console(crashed, FakeProcess(["frame= 1"]))
+    call(console, "POST", "/api/source/start")
+    crashed.finish()
+    settle(console.source, "exited")
+
+    status, _ = call(console, "POST", "/api/source/settings", body={"pattern": "smpte"})
+    assert status == 200 and len(launches) == 1
+
+    call(console, "POST", "/api/source/start")
+    assert launches[1]["PATTERN"] == "smpte"
+    console.source.stop()
 
 
-def test_an_unknown_pattern_is_a_400(aws):
-    status, payload = call(source_console(), "POST", "/api/source/start", body={"pattern": "rainbow"})
+def test_a_bad_setting_names_its_field(aws):
+    console, _ = sending_console()
 
-    assert status == 400 and "rainbow" in payload["error"]
+    status, payload = call(console, "POST", "/api/source/settings", body={"video_kbps": 20000})
+
+    assert status == 400 and payload["field"] == "video_kbps" and "10000" in payload["error"]
+    assert console.settings == SourceSettings()
+
+
+def test_a_settings_body_that_is_not_an_object_is_a_400(aws):
+    console, _ = sending_console()
+
+    assert call(console, "POST", "/api/source/settings", body=["fps"])[0] == 400
+
+
+def test_start_uses_the_saved_settings_and_ignores_its_body(aws):
+    console, launches = sending_console(FakeProcess(["frame= 1"]))
+    call(console, "POST", "/api/source/settings", body={"pattern": "pal"})
+
+    status, _ = call(console, "POST", "/api/source/start", body={"pattern": "black"})
+
+    assert status == 202 and launches[0]["PATTERN"] == "pal"
+    console.source.stop()
+
+
+def test_the_old_pattern_route_is_gone(aws):
+    assert call(source_console(), "POST", "/api/source/pattern", body={"pattern": "black"})[0] == 404
+
+
+def received_console(**state):
+    console = stub_console(**state)
+    console.mediaconnect = stub_aws(**state)["mediaconnect"]
+    return console
+
+
+def test_received_is_idle_while_the_flow_is_off(aws):
+    status, payload = call(received_console(flow="STANDBY"), "GET", "/api/source/received")
+
+    assert status == 200 and payload == {"state": "idle", "note": "The flow is not active."}
+
+
+def test_received_reports_the_programs(aws):
+    from stubs import source_metadata
+
+    payload = call(received_console(flow="ACTIVE", metadata=source_metadata(name="Match 1")), "GET",
+                   "/api/source/received")[1]
+
+    assert payload["state"] == "ok" and payload["programs"][0]["name"] == "Match 1"
+
+
+def test_received_reports_an_error_without_its_body(aws):
+    payload = call(received_console(flow="ACTIVE", fail=("describe_flow_source_metadata",)), "GET",
+                   "/api/source/received")[1]
+
+    assert payload["state"] == "error" and "RuntimeError" in payload["note"]
+    assert "stubbed failure" not in json.dumps(payload)
 
 
 # --- identity --------------------------------------------------------------------
@@ -615,3 +693,16 @@ def test_post_deploy_is_refused_without_credentials(aws):
 
     assert status == 403 and "No AWS credentials" in payload["error"]
     assert calls == []
+
+
+def test_a_launch_that_fails_is_a_readable_error_and_does_not_block_the_next_start(aws):
+    console, _ = sending_console()
+
+    def missing(args, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory")
+
+    console.source._popen = missing
+    status, payload = call(console, "POST", "/api/source/start")
+
+    assert status == 500 and "could not start" in payload["error"].lower()
+    assert call(console, "GET", "/api/pipeline")[1]["source"]["state"] == "exited"

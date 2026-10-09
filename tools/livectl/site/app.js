@@ -1,6 +1,6 @@
 // Startup, polling, the two pages and the wiring between them.
 // Each region re-renders only when its data changed, so a poll never steals focus or wipes a half-typed word.
-import { getPipeline, post } from './api.js';
+import { getPipeline, getReceived, post } from './api.js';
 import { renderChain } from './chain.js';
 import { renderEndpoints } from './endpoints.js';
 import { ago } from './format.js';
@@ -8,16 +8,18 @@ import { JobsCard, duration } from './jobs-card.js';
 import { renderStats } from './live.js';
 import { LogsPanel, TAB_FOR_NODE } from './logs-panel.js';
 import { renderDetail } from './node-detail.js';
+import { SourcePage } from './source-page.js';
 import { renderLiveActions, renderMaintenance, renderSteps } from './steps.js';
 
 const POLL_MS = 2000;
-const PAGES = ['control', 'live', 'logs'];
+const PAGES = ['control', 'source', 'live', 'logs'];
 const $ = (id) => document.getElementById(id);
 const logs = new LogsPanel($('tabs'), $('log'));
 const jobs = new JobsCard({
   title: $('job-title'), state: $('job-state'), log: $('job-log'), toggle: $('job-toggle'),
   meta: $('job-meta'), progress: $('job-progress'), bar: $('job-bar'),
 });
+const sourcePage = new SourcePage({ post, getReceived, act });
 const seen = {};
 let data = null;
 let selected = null;           // the node whose details are open in the drawer
@@ -27,7 +29,6 @@ let lastFailedJob = null;
 let playerHealth = null;
 let polling = false;         // a poll in flight; the next tick waits for it instead of piling up
 let lostContact = false;     // the banner currently says the console is not answering
-let chosenPattern = 'testcard';  // the pattern the next Send test source will use
 
 function changed(key, value) {
   const json = JSON.stringify(value);
@@ -57,6 +58,7 @@ function showPage() {
   $('log-expand').textContent = current === 'logs' ? 'Back to Live' : 'Expand';
   $('log-expand').setAttribute('href', current === 'logs' ? '#live' : '#logs');
   for (const view of document.querySelectorAll('[data-view]')) view.hidden = view.dataset.view !== current;
+  sourcePage.visible(current === 'source');
   for (const link of document.querySelectorAll('.menu [data-page]')) {
     if (link.dataset.page === current) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
@@ -175,15 +177,15 @@ function render() {
 
   const sourceRunning = Boolean(data.source && ['starting', 'running'].includes(data.source.state));
   const job = data.job && data.job.state === 'running' ? data.job.name : null;
-  const pattern = sourceRunning && data.source.pattern ? data.source.pattern : chosenPattern;
   const state = { actions: data.actions, next: data.next, nodes: stable, deployed: data.deployed, sourceRunning, job,
-    patterns: data.patterns || [], pattern };
+    settings: data.source_settings || null };
   if (changed('actions', state)) {
     renderSteps($('steps'), state, act);
     renderMaintenance($('maintenance'), state, act);
     renderLiveActions($('live-actions'), state, act);
   }
   if (changed('endpoints', data.endpoints)) renderEndpoints($('endpoints'), data.endpoints);
+  sourcePage.render(data);
   renderPlayer();
 
   // Once the stream plays, point at the Live page if that is not where the person is.
@@ -218,12 +220,6 @@ async function poll() {
 }
 
 async function act(name, body) {
-  if (name === 'source-pattern') {
-    chosenPattern = body.pattern;
-    const running = data && data.source && ['starting', 'running'].includes(data.source.state);
-    if (!running) { delete seen.actions; render(); return; }   // just remembered for the next start
-  }
-  if (name === 'source-start' && !body) body = { pattern: chosenPattern };
   if (name === 'teardown' && !body) {
     $('confirm').hidden = false;
     $('confirm-input').focus();
@@ -232,13 +228,14 @@ async function act(name, body) {
   const result = await post(name, body);
   if (!result.ok) {
     banner(result.data.error || name + ' was refused (' + result.status + ')');
-    return;
+    return false;
   }
   banner('');
   // The test source's output is in its log tab; everything else runs as a job, shown on the Control page.
   if (name.startsWith('source-')) logs.select('srt');
   delete seen.actions;
   poll();
+  return true;
 }
 
 $('confirm-go').addEventListener('click', async () => {

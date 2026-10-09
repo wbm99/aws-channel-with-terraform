@@ -18,7 +18,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from livectl.jobs import JobRunner  # noqa: E402
 from livectl.pipeline import Pipeline  # noqa: E402
 from livectl.server import Console, make_server  # noqa: E402
-from stubs import CHANNEL_ID, FLOW_ARN, logs_client, sts_client, stub_aws  # noqa: E402
+from livectl.source import SourceSettings  # noqa: E402
+from stubs import CHANNEL_ID, FLOW_ARN, logs_client, source_metadata, sts_client, stub_aws  # noqa: E402
 
 CHANNEL_ARN = f"arn:aws:medialive:us-east-1:123456789012:channel:{CHANNEL_ID}"
 
@@ -53,7 +54,10 @@ SCENARIOS: dict[str, dict] = {
     "degraded": dict(**ON, metrics=dict(LIVE, src_not_recovered=12.0), playing=True),
     "partly-on": dict(flow="ACTIVE"),
     "probe-error": dict(fail=("describe_flow", "describe_channel")),
-    "source-running": dict(**ON, metrics=LIVE, playing=True, source="running"),
+    "source-running": dict(**ON, metrics=LIVE, playing=True, source="running", metadata=source_metadata()),
+    # MediaConnect reports a service name other than the one sent: FFmpeg's default, as if the setting were lost.
+    "source-received-mismatch": dict(**ON, metrics=LIVE, playing=True, source="running",
+                                     metadata=source_metadata(name="Service01")),
     # The live run of 2026-09-27: the source has just stopped, MediaConnect has said so, CloudWatch has not yet.
     "source-dropped": dict(**ON, metrics=LIVE, playing=True, health="DISCONNECTED"),
     "no-credentials": dict(identity="no-credentials"),
@@ -80,18 +84,18 @@ def recent_events(health: str = "CONNECTED") -> list[tuple[int, str]]:
 class FakeSource:
     """Stands in for SourceProcess in every scenario, so no browser test can start a real FFmpeg.
 
-    It starts, stops and switches pattern like the real one, records each call, and when running shows the banner
-    FFmpeg prints, already redacted.
+    It starts, stops and restarts on new settings like the real one, records each call, and when running shows the
+    banner FFmpeg prints, already redacted.
     """
 
-    def __init__(self, running: bool = False, pattern: str = "testcard") -> None:
+    def __init__(self, running: bool = False, settings: SourceSettings = SourceSettings()) -> None:
         self.running = running
-        self.pattern = pattern
+        self.settings = settings
         self.calls: list[tuple] = []
 
     def status(self) -> dict:
         return {"state": "running" if self.running else "stopped", "exit_code": None, "last_error": None,
-                "progress": "frame= 900 fps=30" if self.running else None, "pattern": self.pattern}
+                "progress": "frame= 900 fps=30" if self.running else None, "settings": self.settings.to_dict()}
 
     def lines(self, after_ms: int) -> list[tuple[int, str]]:
         if not self.running:
@@ -100,9 +104,13 @@ class FakeSource:
         banner = "Output #0, mpegts, to 'srt://203.0.113.20:5000?mode=caller&passphrase=***&pbkeylen=32':"
         return [(at, banner)] if at > after_ms else []
 
-    def start(self, *, pattern: str = "testcard", **_) -> None:
-        self.calls.append(("start", pattern))
-        self.running, self.pattern = True, pattern
+    def start(self, *, settings: SourceSettings = SourceSettings(), **_) -> None:
+        self.calls.append(("start", settings))
+        self.running, self.settings = True, settings
+
+    def restart(self, *, settings: SourceSettings, **_) -> None:
+        self.calls.append(("restart", settings))
+        self.running, self.settings = True, settings
 
     def stop(self) -> None:
         self.calls.append(("stop",))

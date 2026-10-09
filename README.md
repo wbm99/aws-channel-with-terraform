@@ -113,6 +113,7 @@ just up                                            # a few minutes, CloudFront i
 # 3. Go live
 just start                                         # flow first, then the channel (about 2 minutes)
 just send                                          # FFmpeg test pattern; leave it running
+                                                   # tune it: FPS=25 SERVICE_NAME="Match 1" just send
 just player                                        # the URL to open in a browser
 
 # 4. Tear down (do not skip: MediaLive and MediaConnect bill by the hour while running)
@@ -122,7 +123,9 @@ just down                                          # destroy, then verify nothin
 
 **Without `just`:** every recipe is an ordinary shell command, so read the `justfile` and run them directly. `just send`
 is the one worth copying rather than retyping: it reads the ingest address from `terraform output` and the passphrase
-from Secrets Manager at the moment of use, so the secret never lands in a file or your shell history.
+from Secrets Manager at the moment of use, so the secret never lands in a file or your shell history. Its settings
+(pattern, resolution, frame rate, bitrate, keyframe interval, audio, MPEG-TS service name and program, SRT latency)
+are environment variables, listed with their allowed values at the top of `source/send-srt.sh`.
 
 `livectl` reads the flow ARN and channel ID from `terraform output` by default. If Terraform state is not available,
 pass them directly: `livectl stop --flow-arn <arn> --channel-id <id>`.
@@ -156,9 +159,8 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
   | Go live / Go off air | starts the flow, then the channel / stops the test source, the channel, then the flow |
   | Send test source / Stop test source | runs `source/send-srt.sh` against the ingest |
 
-  The source step has a **test pattern** picker: test card, SMPTE HD colour bars, PAL/EBU 100% bars, black, or a
-  "Please stand by" slate, all with the UTC clock burned in. Changing it while sending restarts FFmpeg, so viewers see
-  a few seconds of MediaLive's black slate while SRT reconnects. From a terminal: `PATTERN=smpte just send`.
+  The source step sums up what Send will push (`Test card · 1080p30 · 6 Mbps · AAC 128k · "livectl test source"`)
+  and links to the Source page, where the settings live.
 
 - **Last job:** the output of the latest job, full width, each line with its UTC date and time, with *Show all*.
   A stopwatch and a progress bar show how far it has got: Terraform's own plan gives deploy and teardown an exact
@@ -168,6 +170,23 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
   button that copies exactly the value.
 - **Maintenance,** apart from the steps: *Scan for leftovers* and *Tear down stack* (`terraform destroy`, after you
   type `destroy`; refused while on air).
+
+**Source** tunes the FFmpeg test source:
+
+- **Settings** in four groups, every value inside the channel's input class (H.264, HD, up to 10 Mbps):
+  - *Video:* pattern (test card, SMPTE HD bars, PAL/EBU bars, black, "Please stand by", all with the UTC clock
+    burned in), 720p or 1080p, 25/30/50/60 fps (the channel outputs 30, so 25 and 50 show frame-rate conversion),
+    0.5-10 Mbps, keyframe interval;
+  - *Audio:* AAC, MP2 or AC-3, bitrate, a 440 Hz or 1 kHz tone or silence;
+  - *MPEG-TS:* service name, provider, program number;
+  - *SRT:* latency.
+- **Edit, then Apply.** Changed fields are marked, and one *Apply N changes* restarts FFmpeg once with all of them:
+  viewers see a few seconds of MediaLive's slate while SRT reconnects. MediaConnect may still hold the old SRT
+  connection for a few seconds, so a reconnect it refuses is retried after 1, 2, 4 and 8 s (the log shows *SRT
+  connection refused; trying again*). While the source is stopped the same button reads *Send test source*. The settings last as long as the console process.
+- **Sent vs received** puts what FFmpeg is sending next to what MediaConnect parsed from the stream
+  (`DescribeFlowSourceMetadata`: codecs, resolution, frame rate, channels, and the program name, which MediaConnect
+  takes from the SDT service name). A row that disagrees is highlighted.
 
 **Live** is for watching the broadcast:
 
@@ -231,6 +250,16 @@ the new outputs exist), open `just ui` and check:
     1-10 from `docker compose up` with an SSO profile. The header names the role and account.
 12. **With Docker and SSO:** leave the console running across the SSO access-token refresh (about an hour): the
     header keeps the role, no node shows a token error, and a Deploy started after the refresh succeeds.
+13. **Apply while playing** (Apply sometimes left the source stopped, likely because MediaConnect refused the new
+    SRT connection while it still held the old one): change two settings on the Source page and Apply, ten times.
+    The source ends up sending every time, the log shows any *trying again* lines, and FFmpeg never reads *exited*.
+    Note what the player, the slate, the SRT node and the next-step hint each do, and how long until the player shows
+    the new picture without a reload.
+14. Set 25 fps, then 50 fps: both play, and the channel node still reads *input* at the new rate while the output
+    stays 30 fps.
+15. Send MP2, then AC-3 audio: the player still has sound (MediaLive re-encodes to AAC).
+16. Set a service name: within seconds *Sent vs received* shows it as MediaConnect's program name, and no row is
+    highlighted once the restart has settled.
 
 ## Repository layout
 

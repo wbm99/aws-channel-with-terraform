@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import threading
 import time
 import webbrowser
 from dataclasses import asdict, dataclass, field
@@ -33,9 +34,8 @@ from livectl.jobs import RUNNING, JobBusy, JobRunner, Work, command_job
 from livectl.logs import LOG_TABS, LOOKBACK_MS, LogLine, LogReader, event_lines, medialive_lines
 from livectl.pipeline import REDEPLOY_HINT, Pipeline
 from livectl.progress import job_progress
-from livectl.source import DEFAULT_PATTERN, PATTERNS, SourceBusy, SourceProcess, now_ms
-
-PATTERN_IDS = [key for key, _ in PATTERNS]
+from livectl.received import received
+from livectl.source import CHOICES, SettingsError, SourceBusy, SourceProcess, SourceSettings, now_ms
 from livectl.targets import NotDeployed, Runner, TargetError, Targets, resolve_targets, run_command
 from livectl.verdict import hourly_rate, verdict
 
@@ -82,6 +82,8 @@ class Console:
     region: str = "us-east-1"
     logs: Any = None
     source: SourceProcess = field(default_factory=SourceProcess)
+    settings: SourceSettings = field(default_factory=SourceSettings)  # what the next start or Apply sends
+    settings_lock: threading.Lock = field(default_factory=threading.Lock)
     read_passphrase: Callable[[str], str] = _no_passphrase
     clock_ms: Callable[[], int] = now_ms
     pipeline: Optional[Pipeline] = None
@@ -225,7 +227,9 @@ ROUTED_ACTIONS = ("deploy", "teardown", "scan", "go-live", "go-off-air", "source
 
 def _pipeline_payload(console: Console, offset: int = 0, job_key: Optional[str] = None) -> dict:
     payload, situation = _snapshot(console, offset, job_key)
-    payload["patterns"] = [{"id": key, "label": label} for key, label in PATTERNS]
+    with console.settings_lock:
+        payload["source_settings"] = {"current": console.settings.to_dict(), "choices": CHOICES,
+                                      "defaults": SourceSettings().to_dict()}
     payload["actions"] = {name: (r.message if r else None)
                           for name, r in refusals(situation).items() if name in ROUTED_ACTIONS}
     source = next((n for n in payload["nodes"] if n["id"] == "srt_source"), None)
@@ -265,8 +269,9 @@ def _logs_payload(console: Console, tab: str, after: int) -> dict:
             "after": max([after] + [line.at_ms for line in lines]), "notes": notes}
 
 
-def _start_source(console: Console, pattern: str, *, switching: bool) -> Response:
-    """Start the test source on a pattern. Switching restarts FFmpeg: SRT reconnects, a few seconds of slate."""
+def _start_source(console: Console, *, restart: bool) -> Response:
+    """Start the test source on the saved settings. A restart (Apply) costs a few seconds of slate while SRT
+    reconnects."""
     targets = console.targets()
     if not (targets.ingest_ip and targets.passphrase_secret_arn):
         return _json(409, {"error": "The ingest address or the passphrase is missing from the Terraform "
@@ -276,15 +281,48 @@ def _start_source(console: Console, pattern: str, *, switching: bool) -> Respons
     except Exception as error:  # never echo the error body: keep secrets out of responses on principle
         return _json(502, {"error": "Could not read the SRT passphrase from Secrets Manager "
                                     f"({type(error).__name__})."})
-    if switching:
-        console.source.stop()
+    with console.settings_lock:
+        settings = console.settings
+    where = dict(host=targets.ingest_ip, port=int(targets.ingest_port or 5000), passphrase=passphrase,
+                 settings=settings)
     try:
-        console.source.start(host=targets.ingest_ip, port=int(targets.ingest_port or 5000), passphrase=passphrase,
-                             pattern=pattern)
+        if restart:
+            console.source.restart(**where)
+        else:
+            console.source.start(**where)
     except SourceBusy:
         return _json(409, {"error": "The test source is already running."})
+    except OSError as error:  # the script is missing or cannot run: the console was started outside the checkout?
+        return _json(500, {"error": f"Could not start the test source ({error.strerror or type(error).__name__}). "
+                                    "Run the console from the repository root, where source/send-srt.sh is."})
     console.pipeline.forget()
-    return _json(202, {"switched": pattern} if switching else {"started": "source"})
+    return _json(202, {"saved": True, "restarted": True, "current": settings.to_dict()} if restart
+                 else {"started": "source"})
+
+
+def _save_settings(console: Console, body: Any) -> Response:
+    """Save the changed fields; if the source is sending, restart it once on them."""
+    if not isinstance(body, dict):
+        return _json(400, {"error": "Send the changed settings as a JSON object.", "field": None})
+    try:
+        with console.settings_lock:
+            console.settings = console.settings.merged(body)
+            current = console.settings.to_dict()
+    except SettingsError as error:
+        return _json(400, {"error": error.message, "field": error.field})
+    if console.source.running:
+        return _start_source(console, restart=True)
+    return _json(200, {"saved": True, "current": current})
+
+
+def _received_payload(console: Console) -> dict:
+    _, situation = _snapshot(console)
+    if situation.flow_state != "ACTIVE":
+        return {"state": "idle", "note": "The flow is not active."}
+    try:
+        return {"state": "ok", **received(console.mediaconnect, console.targets().flow_arn, clock_ms=console.clock_ms)}
+    except Exception as error:  # the type only: an AWS error body is not for the page
+        return {"state": "error", "note": f"Could not read the source metadata ({type(error).__name__})."}
 
 
 def _refused(console: Console, action: str) -> Optional[Response]:
@@ -316,6 +354,8 @@ def route(method: str, path: str, query: dict, body: dict, console: Console) -> 
                 return _json(400, {"error": f"unknown log tab: {tab}"})
             after = int(query.get("after", ["0"])[0] or 0) or console.clock_ms() - LOOKBACK_MS
             return _json(200, _logs_payload(console, tab, after))
+        if path == "/api/source/received":
+            return _json(200, _received_payload(console))
         if path == "/api/pipeline":
             offset = int(query.get("offset", ["0"])[0] or 0)
             return _json(200, _pipeline_payload(console, offset, query.get("job", [None])[0]))
@@ -355,17 +395,11 @@ def route(method: str, path: str, query: dict, body: dict, console: Console) -> 
 
         return _submit(console, name, _after_job(console, go_live if name == "go-live" else off_air))
 
-    if path in ("/api/source/start", "/api/source/pattern"):
-        pattern = body.get("pattern") or DEFAULT_PATTERN
-        if pattern not in PATTERN_IDS:
-            return _json(400, {"error": f"Unknown pattern {pattern!r}; choose one of {', '.join(PATTERN_IDS)}."})
-        if path.endswith("start"):
-            refused = _refused(console, "source-start")
-            if refused:
-                return refused
-        elif not console.source.running:
-            return _json(409, {"error": "The test source is not running; pick the pattern and press Send test source."})
-        return _start_source(console, pattern, switching=path.endswith("pattern"))
+    if path == "/api/source/start":
+        return _refused(console, "source-start") or _start_source(console, restart=False)
+
+    if path == "/api/source/settings":
+        return _save_settings(console, body)
 
     if path == "/api/source/stop":
         console.source.stop()
