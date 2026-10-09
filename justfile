@@ -10,6 +10,8 @@ venv    := ".venv"
 livectl := env("LIVECTL", ".venv/bin/livectl")
 python  := env("LIVECTL_PYTHON", ".venv/bin/python")
 pytest  := env("LIVECTL_PYTEST", ".venv/bin/pytest")
+# Tests point this at a fake; nothing else needs to.
+docker  := env("LIVECTL_DOCKER", "docker")
 
 # Show the available recipes
 default:
@@ -81,9 +83,42 @@ status:
 check-clean:
     {{livectl}} check-clean
 
-# Serve the control center on http://127.0.0.1:8765
+# Serve the control center on http://127.0.0.1:8765, with Grafana beside it when Docker is available
 ui port="8765":
-    {{livectl}} ui --port {{port}}
+    #!/usr/bin/env bash
+    set -uo pipefail
+    # A Grafana already running (from `docker compose up`) is left running when the console exits.
+    running="$(command -v {{docker}} >/dev/null 2>&1 && {{docker}} compose ps -q --status running grafana 2>/dev/null)"
+    url="$({{just_executable()}} grafana-up | tail -n 1)"
+    echo "$url"
+    flags=()
+    if [[ "$url" == http* ]]; then
+      flags=(--grafana-url "$url")
+      [[ -n "$running" ]] || trap '{{just_executable()}} grafana-down' EXIT
+    fi
+    # ${flags[@]+...}: bash before 4.4 (macOS's /bin/bash) calls an empty array unbound under `set -u`.
+    {{livectl}} ui --port {{port}} ${flags[@]+"${flags[@]}"}
+
+# Start Grafana (docker compose) and print its dashboard URL; says why and succeeds when it cannot
+grafana-up:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    if ! command -v {{docker}} >/dev/null 2>&1; then
+      echo "Grafana skipped: docker not found"; exit 0
+    fi
+    echo "starting Grafana (the first run pulls its image)..." >&2
+    if ! error="$({{docker}} compose up -d grafana 2>&1 >/dev/null)"; then
+      echo "Grafana skipped: $(printf '%s\n' "$error" | tail -n 1)"; exit 0
+    fi
+    address="$({{docker}} compose port grafana 3000 2>/dev/null | tail -n 1)"
+    if [[ -z "$address" ]]; then
+      echo "Grafana skipped: Docker published no port for it"; exit 0
+    fi
+    echo "http://${address}/d/mediaconnect-source"
+
+# Stop Grafana; does nothing without Docker
+grafana-down:
+    @command -v {{docker}} >/dev/null 2>&1 && {{docker}} compose stop grafana >/dev/null 2>&1 || true
 
 # --- source ------------------------------------------------------------------
 
@@ -157,6 +192,10 @@ test-py:
 # Serve the console in a named fake state, with no AWS (see tools/tests/scenarios.py)
 ui-scenario name="on-air-playing" port="8766":
     {{python}} tools/tests/scenarios.py {{name}} {{port}}
+
+# Start the real Grafana service with no AWS credentials and check it provisions (needs Docker; pulls the image once)
+test-grafana:
+    {{pytest}} -q tools/tests/test_grafana_container.py
 
 # Drive the console in Chrome through every scenario (needs: .venv/bin/pip install -e "tools[dev,ui]")
 test-ui:

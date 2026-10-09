@@ -4,7 +4,8 @@ services:
   console:
     image: ghcr.io/wbm99/aws-channel-with-terraform:latest
     build: { context: ., dockerfile: docker/Dockerfile, target: runtime }
-    command: ["livectl", "ui", "--host", "0.0.0.0", "--container", "--no-browser"]
+    command: ["livectl", "ui", "--host", "0.0.0.0", "--container", "--no-browser",
+              "--grafana-url", "http://127.0.0.1:${GRAFANA_PORT:-3000}/d/mediaconnect-source"]
     # Files written into the checkout (state, provider caches) belong to the host user. Bash does not export UID, so
     # anyone whose `id -u` is not 1000 sets UID and GID in .env.
     user: "${UID:-1000}:${GID:-1000}"
@@ -23,3 +24,52 @@ services:
     environment:
       AWS_PROFILE: ${AWS_PROFILE:-default}
       CONSOLE_URL: http://127.0.0.1:${CONSOLE_PORT:-8765}/
+
+  # Grafana on CloudWatch: the MediaConnect source dashboard, provisioned from observability/grafana. It queries AWS
+  # only while a dashboard is open (about 0.065-0.45 USD/hour then), so close the tab when you are not watching.
+  grafana:
+    image: grafana/grafana-oss:13.0.2
+    # The host user, like the console: ~/.aws/credentials is readable by its owner only.
+    user: "${UID:-1000}:${GID:-1000}"
+    ports:
+      # Keep the 127.0.0.1 prefix, as for the console: Grafana holds working AWS credentials.
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - type: bind
+        source: ./observability/grafana/provisioning
+        target: /etc/grafana/provisioning
+        read_only: true
+      - type: bind
+        source: ./observability/grafana/dashboards
+        target: /var/lib/grafana/dashboards
+        read_only: true
+      # Read-only: Grafana never writes credentials. SSO profiles are untested here (see the README).
+      - type: bind
+        source: ${HOME}/.aws
+        target: /aws
+        read_only: true
+        bind: { create_host_path: false }
+      # The admin password and Grafana's own database survive restarts here.
+      - grafana-data:/var/lib/grafana
+    environment:
+      AWS_CONFIG_FILE: /aws/config
+      AWS_SHARED_CREDENTIALS_FILE: /aws/credentials
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      # Read only when Grafana creates its database. With the default, the first login asks for a new password.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # DNS rebinding: a web page whose own name resolves to 127.0.0.1 could otherwise log in with admin/admin and query
+      # AWS with your credentials. Any Host but 127.0.0.1 is redirected there, where the page cannot read the answer.
+      GF_SERVER_DOMAIN: 127.0.0.1
+      GF_SERVER_ENFORCE_DOMAIN: "true"
+      GF_SERVER_ROOT_URL: http://127.0.0.1:${GRAFANA_PORT:-3000}/
+      # Each refresh is a billed CloudWatch query: nobody can pick a faster one than the dashboard's 5 s.
+      GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 5s
+      # No plugin installs (they fail under a non-grafana UID) and no calls home.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+
+volumes:
+  grafana-data:

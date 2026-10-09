@@ -57,6 +57,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="running in a container whose published port is bound to the host's loopback; "
                          "allows --host 0.0.0.0")
     ui.add_argument("--no-browser", action="store_true", help="do not open a browser window")
+    ui.add_argument("--grafana-url", default=None,
+                    help="Grafana dashboard to link from the Endpoints card (`just ui` passes it when Grafana runs)")
     ui.add_argument("--prefix", default="live-sports-aws", help="name prefix used by the clean check")
     return parser
 
@@ -135,6 +137,7 @@ def main(argv: Optional[Sequence[str]] = None, *, runner: Runner = run_command) 
                 logs=client("logs"),
                 sts=client("sts"),
                 profile=session.profile_name,
+                grafana_url=args.grafana_url,
                 # Read only when "Send test source" is clicked, and handed straight to the child's environment.
                 read_passphrase=lambda arn: client("secretsmanager").get_secret_value(
                     SecretId=arn)["SecretString"],

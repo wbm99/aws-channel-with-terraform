@@ -17,6 +17,8 @@ This repository creates resources that bill **by the hour while running**, not b
   viewers and no source connected.
 - **Always run `just check-clean` after `just down`.** It exits 1 if a billable flow, channel, input, channel group or
   distribution survived the destroy.
+- **Close the Grafana dashboard when you are not watching it:** each open tab queries CloudWatch every 5 seconds
+  (about 0.065-0.45 USD/hour, see `docs/cost-estimate.md`).
 - **Never run `apply`, `destroy`, `start` or `stop` against a real account unless the user asked in this session.**
   Everything worth checking can be checked offline (see Testing).
 - `bootstrap/` holds the $25 monthly budget with email alerts. It exists because an earlier version put the budget
@@ -93,8 +95,12 @@ The ones that matter: `just test` (full offline suite), `just fmt`, `just valida
   the host's `.terraform/`. `LIVECTL`, `LIVECTL_PYTHON` and `LIVECTL_PYTEST` point the justfile at the installed
   tools (prefixed, because a host often exports `PYTHON` for other tools).
 - `source.SCRIPT` and `--tf-dir` are relative to the working directory: an installed livectl is far from the checkout.
-- CI (`.github/workflows/image.yml`) runs `just test-tf test-py` in the `test` image and `just test-ui` on the runner
-  on every pull request, and publishes the image on merge to `main`.
+- CI (`.github/workflows/image.yml`) runs `just test-tf test-py` in the `test` image and `just test-ui` and
+  `just test-grafana` on the runner on every pull request, and publishes the image on merge to `main`.
+- Compose also runs `grafana` (`grafana/grafana-oss`, pinned): provisioning from `observability/grafana/`, `~/.aws`
+  mounted **read-only** (Grafana never writes credentials), as the host UID so it can read `~/.aws/credentials`. Its
+  port line is `"127.0.0.1:${GRAFANA_PORT:-3000}:3000"`; the same `127.0.0.1:` rule applies, since it holds working
+  AWS credentials. `LIVECTL_DOCKER` points the justfile at a fake Docker in tests.
 
 ## Testing
 

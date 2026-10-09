@@ -85,6 +85,7 @@ class Console:
     settings: SourceSettings = field(default_factory=SourceSettings)  # what the next start or Apply sends
     settings_lock: threading.Lock = field(default_factory=threading.Lock)
     read_passphrase: Callable[[str], str] = _no_passphrase
+    grafana_url: Optional[str] = None  # given by `just ui` or compose when Grafana runs beside the console
     clock_ms: Callable[[], int] = now_ms
     pipeline: Optional[Pipeline] = None
     sts: Any = None  # None: identity is not checked (tests that do not care)
@@ -213,6 +214,7 @@ def _snapshot(console: Console, offset: int = 0, job_key: Optional[str] = None) 
             "player": targets.player_url,
             "manifest": targets.manifest_url,
             "passphrase_secret_arn": targets.passphrase_secret_arn,
+            "grafana": console.grafana_url,
         },
         "job": job,
         "source": console.source.status(),

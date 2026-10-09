@@ -783,3 +783,29 @@ def test_the_served_console_checks_the_host_header_it_received(aws):
         server.server_close()
 
     assert answers == {"127.0.0.1": 200, "rebound.example": 403}
+
+
+# --- the Grafana link ----------------------------------------------------------
+
+def test_the_grafana_link_is_an_endpoint_when_given(aws):
+    console = stub_console()
+    console.grafana_url = "http://127.0.0.1:3000/d/mediaconnect-source"
+
+    _, payload = call(console, "GET", "/api/pipeline")
+
+    assert payload["endpoints"]["grafana"] == "http://127.0.0.1:3000/d/mediaconnect-source"
+
+
+def test_no_grafana_link_without_one(aws):
+    _, payload = call(stub_console(), "GET", "/api/pipeline")
+
+    assert payload["endpoints"]["grafana"] is None
+
+
+def test_livectl_ui_takes_a_grafana_url():
+    from livectl.cli import build_parser
+
+    args = build_parser().parse_args(["ui", "--grafana-url", "http://127.0.0.1:3999/d/mediaconnect-source"])
+
+    assert args.grafana_url == "http://127.0.0.1:3999/d/mediaconnect-source"
+    assert build_parser().parse_args(["ui"]).grafana_url is None

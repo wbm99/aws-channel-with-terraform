@@ -5,6 +5,7 @@ const ROWS = [
   ['ingest', 'SRT ingest'],
   ['player', 'Player'],
   ['manifest', 'HLS manifest'],
+  ['grafana', 'Grafana'],
   ['passphrase_secret_arn', 'SRT passphrase (Secrets Manager)'],
 ];
 
@@ -21,13 +22,14 @@ export async function copy(button, value) {
 export function renderEndpoints(list, endpoints) {
   list.replaceChildren(...ROWS.flatMap(([key, label]) => {
     const value = endpoints[key];
+    if (key === 'grafana' && !value) return [];   // Grafana is optional: no row unless it runs
     return [
       el('dt', {}, label),
       el('dd', {},
         el('span', { class: 'value', title: value || '' }, value || '—'),
         value ? el('button', { class: 'copy', type: 'button', 'data-copy': key,
           onclick: (event) => copy(event.currentTarget, value) }, 'Copy') : null,
-        value && key === 'player' ? el('a', { href: value, target: '_blank', rel: 'noopener' }, 'Open') : null),
+        value && (key === 'player' || key === 'grafana') ? el('a', { href: value, target: '_blank', rel: 'noopener' }, 'Open') : null),
     ];
   }));
 }
