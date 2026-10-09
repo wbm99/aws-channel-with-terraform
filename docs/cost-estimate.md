@@ -67,19 +67,23 @@ demo does not use.
 | S3 state bucket | not priced here; it holds a few kilobytes |
 | AWS Budget | not looked up; the budget is a standard cost budget with no actions |
 
-## While the Grafana dashboard is open
+## While a Grafana dashboard is open
 
-Grafana queries CloudWatch only while a dashboard is open in a browser. GetMetricData costs 0.01 USD per 1,000 metrics
-requested; the dashboard's 8 panels hold 9 queries (the *Loss* graph has two), each refreshing every 5 seconds: 6,480
-queries an hour.
+Grafana queries CloudWatch only while a dashboard is open in a browser, every 5 seconds (720 times an hour).
+GetMetricData costs 0.01 USD per 1,000 metrics requested. Panels that repeat another panel's data (the
+*Disconnections* tile, the Priority 1 graph) reuse it through Grafana's *Dashboard* data source and add no query.
 
-| If a search counts | Metrics requested per hour | Cost per hour |
-|---|---|---|
-| only the live flow | 6,480 | about 0.065 |
-| every flow it matches (7 on 2026-10-09: each deploy leaves one, kept for two weeks) | about 45,000 | about 0.45 |
+| Dashboard | Metric queries | Metrics requested per hour | Cost per hour, live flow only | If every matched flow counts (8 on 2026-10-09) |
+|---|---|---|---|---|
+| MediaConnect source (overview) | 11 | 7,920 | about 0.08 | about 0.63 |
+| Transport stream & SRT, Priority 2 row closed | 12 | 8,640 | about 0.09 | about 0.69 |
+| Transport stream & SRT, Priority 2 row open | 16 | 11,520 | about 0.12 | about 0.92 |
 
-How a search is billed is not documented where I looked; Cost Explorer settles it the day after the dashboard is used
-(README live check 23). Nothing is charged while the dashboard is closed.
+Each dashboard also runs a CloudWatch Logs Insights query for its *Source events* table, billed at 0.005 USD per GB
+scanned; the events log group holds kilobytes, so this rounds to nothing (not checked on a bill).
+
+How a search is billed, per live flow or per matched flow, is not documented where I looked; Cost Explorer settles it
+the day after the dashboards are used (README live check 23). Nothing is charged while they are closed.
 
 ## Guardrails
 

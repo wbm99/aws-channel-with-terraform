@@ -15,6 +15,7 @@
   "graphTooltip": 1,
   "schemaVersion": 41,
   "version": 1,
+  "description": "The SRT source of the live-sports-aws demo flow, from CloudWatch at a 5-second period.",
   "panels": [
     {
       "id": 1,
@@ -22,7 +23,7 @@
       "title": "Connected",
       "gridPos": {
         "h": 5,
-        "w": 5,
+        "w": 4,
         "x": 0,
         "y": 0
       },
@@ -61,6 +62,7 @@
       ],
       "fieldConfig": {
         "defaults": {
+          "noValue": "no source",
           "color": {
             "mode": "thresholds"
           },
@@ -89,8 +91,7 @@
                 }
               }
             }
-          ],
-          "noValue": "no source"
+          ]
         },
         "overrides": []
       },
@@ -113,11 +114,90 @@
     {
       "id": 2,
       "type": "stat",
+      "title": "Up for",
+      "gridPos": {
+        "h": 5,
+        "w": 3,
+        "x": 4,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaConnect",
+          "metricName": "SourceUpTime",
+          "statistic": "Maximum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceUpTime\" live-sports-aws-demo', 'Maximum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.FlowARN')}"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": ".*:([^:]+)$",
+            "renamePattern": "$1"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "text"
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "timeFrom": "2m",
+      "hideTimeOverride": true,
+      "description": "Seconds since the source last connected; resets on every reconnect, an Apply included."
+    },
+    {
+      "id": 3,
+      "type": "stat",
       "title": "Bitrate",
       "gridPos": {
         "h": 5,
-        "w": 5,
-        "x": 5,
+        "w": 3,
+        "x": 7,
         "y": 0
       },
       "datasource": {
@@ -155,6 +235,7 @@
       ],
       "fieldConfig": {
         "defaults": {
+          "noValue": "\u2014",
           "color": {
             "mode": "thresholds"
           },
@@ -163,12 +244,11 @@
             "steps": [
               {
                 "value": null,
-                "color": "green"
+                "color": "text"
               }
             ]
           },
-          "unit": "bps",
-          "noValue": "\u2014"
+          "unit": "bps"
         },
         "overrides": []
       },
@@ -189,12 +269,12 @@
       "hideTimeOverride": true
     },
     {
-      "id": 3,
+      "id": 4,
       "type": "stat",
       "title": "Round trip",
       "gridPos": {
         "h": 5,
-        "w": 5,
+        "w": 3,
         "x": 10,
         "y": 0
       },
@@ -233,6 +313,7 @@
       ],
       "fieldConfig": {
         "defaults": {
+          "noValue": "\u2014",
           "color": {
             "mode": "thresholds"
           },
@@ -241,12 +322,11 @@
             "steps": [
               {
                 "value": null,
-                "color": "green"
+                "color": "text"
               }
             ]
           },
-          "unit": "ms",
-          "noValue": "\u2014"
+          "unit": "ms"
         },
         "overrides": []
       },
@@ -267,13 +347,13 @@
       "hideTimeOverride": true
     },
     {
-      "id": 4,
+      "id": 5,
       "type": "stat",
       "title": "Packet loss",
       "gridPos": {
         "h": 5,
-        "w": 5,
-        "x": 15,
+        "w": 3,
+        "x": 13,
         "y": 0
       },
       "datasource": {
@@ -311,6 +391,7 @@
       ],
       "fieldConfig": {
         "defaults": {
+          "noValue": "\u2014",
           "color": {
             "mode": "thresholds"
           },
@@ -319,12 +400,11 @@
             "steps": [
               {
                 "value": null,
-                "color": "green"
+                "color": "text"
               }
             ]
           },
-          "unit": "percent",
-          "noValue": "\u2014"
+          "unit": "percent"
         },
         "overrides": []
       },
@@ -345,13 +425,13 @@
       "hideTimeOverride": true
     },
     {
-      "id": 5,
+      "id": 6,
       "type": "stat",
       "title": "Not recovered, last 5 min",
       "gridPos": {
         "h": 5,
         "w": 4,
-        "x": 20,
+        "x": 16,
         "y": 0
       },
       "datasource": {
@@ -389,6 +469,7 @@
       ],
       "fieldConfig": {
         "defaults": {
+          "noValue": "\u2014",
           "color": {
             "mode": "thresholds"
           },
@@ -405,8 +486,7 @@
               }
             ]
           },
-          "unit": "short",
-          "noValue": "\u2014"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -427,7 +507,84 @@
       "hideTimeOverride": true
     },
     {
-      "id": 6,
+      "id": 7,
+      "type": "stat",
+      "title": "Disconnections",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 8
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterByRefId",
+          "options": {
+            "include": "B"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": ".*:([^:]+)$",
+            "renamePattern": "$1"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "description": "Drops from connected to disconnected in the selected range (reuses the Bitrate graph's query)."
+    },
+    {
+      "id": 8,
       "type": "timeseries",
       "title": "Bitrate",
       "gridPos": {
@@ -458,6 +615,24 @@
           "period": "5",
           "id": "",
           "label": "${PROP('Dim.FlowARN')}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaConnect",
+          "metricName": "SourceDisconnections",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceDisconnections\" live-sports-aws-demo', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.FlowARN')}"
         }
       ],
       "transformations": [
@@ -480,7 +655,51 @@
           },
           "unit": "bps"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "Disconnections"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Bitrate"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -492,10 +711,11 @@
           "mode": "multi",
           "sort": "none"
         }
-      }
+      },
+      "description": "Red bars mark the moments the source disconnected."
     },
     {
-      "id": 7,
+      "id": 9,
       "type": "timeseries",
       "title": "Round trip time",
       "gridPos": {
@@ -563,7 +783,7 @@
       }
     },
     {
-      "id": 8,
+      "id": 10,
       "type": "timeseries",
       "title": "Loss",
       "gridPos": {
@@ -687,7 +907,121 @@
           "sort": "none"
         }
       }
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Source events",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "MediaConnect source health, alerts and flow status changes, from the EventBridge log group the observability module fills.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Logs",
+          "id": "",
+          "region": "default",
+          "logGroupNames": [
+            "/aws/events/live-sports-aws-demo"
+          ],
+          "expression": "filter `detail-type` in [\"MediaConnect Source Health\", \"MediaConnect Alert\", \"MediaConnect Flow Status Change\"]\n| fields replace(`detail-type`, \"MediaConnect \", \"\") as Event, coalesce(detail.current.state, detail.currentStatus, `detail.error-code`) as State, detail.errored as Alert, coalesce(`detail.error-message`, detail.previousStatus) as Detail\n| sort @timestamp desc\n| limit 50",
+          "statsGroups": []
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "@timestamp",
+                "Event",
+                "State",
+                "Alert",
+                "Detail"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "@timestamp": "Time"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Alert"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "1": {
+                        "text": "raised",
+                        "color": "red",
+                        "index": 0
+                      },
+                      "0": {
+                        "text": "cleared",
+                        "color": "green",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      }
     }
   ],
-  "description": "The SRT source of the live-sports-aws demo flow, from CloudWatch at a 5-second period."
+  "links": [
+    {
+      "type": "link",
+      "title": "Transport stream & SRT",
+      "url": "/d/mediaconnect-detail",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    }
+  ]
 }

@@ -272,11 +272,14 @@ the new outputs exist), open `just ui` and check:
     Service *Custom…*) and start streaming. The SRT node turns connected and the player shows the OBS picture.
 18. **Grafana:** `just ui` starts Grafana too; Ctrl-C stops both (`docker compose ps` lists no `grafana`).
 19. The first Grafana login asks for a new password; after another `just ui` it is kept.
-20. On air with the test source: the five tiles show values within about 30 s. Note the delay between *Send test
+20. On air with the test source: the overview's tiles show values within about 30 s. Note the delay between *Send test
     source* and the first bitrate point; the tiles read the last 2 minutes, so a delay longer than that empties them.
 21. Stop the source: *Connected* turns red and the bitrate graph drops.
 22. Legends and tiles show only the live flow, once (destroyed flows share its name; `REMOVE_EMPTY` keeps them out).
 23. The next day, Cost Explorer's CloudWatch GetMetricData charge for the hours the dashboard was open.
+24. **Detail dashboard:** the link in the overview's header opens it with the same time range; the Priority 1 tiles
+    read 0 on the test source, *SRT recovery* moves when *Packet loss* does, and opening the Priority 2 row draws it.
+25. Stop and start the test source: *Source events* shows an alert *raised*, then *cleared*, and *Up for* restarts.
 
 ## Grafana
 
@@ -289,21 +292,39 @@ publishes its metrics every second; CloudWatch keeps that resolution for 3 hours
 - **Opening it:** <http://127.0.0.1:3000> (`GRAFANA_PORT` in `.env` moves it; it is always bound to 127.0.0.1). Log in
   as `admin` / `admin`; Grafana then asks for a new password and keeps it in the `grafana-data` volume. To skip that,
   set `GRAFANA_ADMIN_PASSWORD` in `.env` before Grafana first starts (it is read only when the volume is created).
-- **The dashboard,** *Live pipeline → MediaConnect source*, refreshes every 5 s:
+- **Two dashboards,** in the *Live pipeline* folder, each linking to the other and refreshing every 5 s.
+
+  *MediaConnect source* is the overview, the one to keep open:
 
   | Tile / graph | Metric | Read it as |
   |---|---|---|
   | Connected | `SourceConnected` | Is the encoder there at all. *no source* when nothing has reported for 2 minutes. |
+  | Up for | `SourceUpTime` | Time since the source last connected; every reconnect, an Apply included, resets it. |
   | Bitrate | `SourceBitRate` | Is the feed alive and at the rate it was set to. |
   | Round trip | `SourceRoundTripTime` | The network path. SRT can only resend lost packets while the round trip stays well under its latency. |
   | Packet loss | `SourcePacketLossPercent` | Loss on the wire before SRT repairs it: the early warning. |
   | Not recovered, last 5 min | `SourceNotRecoveredPackets` | Loss SRT could not repair: visible damage. Red above 0. It reads 0, not —, with no source. |
+  | Disconnections | `SourceDisconnections` | Drops in the selected range, red above 0; they also show as red bars on the *Bitrate* graph. |
 
-  The *Loss* graph shows the last two together: loss with nothing unrecovered means SRT is doing its job.
+  The *Loss* graph shows packet loss and unrecovered packets together: loss with nothing unrecovered means SRT is
+  doing its job. *Source events* lists MediaConnect's source health changes, alerts (*raised* / *cleared*) and flow
+  status changes, newest first, from the EventBridge log group `/aws/events/live-sports-aws-demo`.
+
+  *MediaConnect source: transport stream & SRT* is the detail, opened when something looks wrong:
+  - **TR 101 290 Priority 1:** continuity, PAT, PMT, PID, TS sync loss and TS byte errors in the range (red above 0),
+    and the same six over time: is the transport stream itself intact.
+  - **SRT recovery:** dropped, recovered, ARQ requested and ARQ recovered packets: how hard retransmission is working.
+  - **Network:** jitter and latency.
+  - **TR 101 290 Priority 2** (PCR, PCR accuracy, PTS, CRC: the encoder's timing) in a collapsed row; Grafana queries
+    it only once opened.
+  - *Source events*, as on the overview.
 - **It finds the flow by itself:** each query is a CloudWatch search for this project's flows, wrapped in
   `REMOVE_EMPTY`, so nothing needs editing after a redeploy.
-- **Cost:** Grafana queries CloudWatch only while a dashboard is open, about 0.065 to 0.45 USD per hour then (see
-  [docs/cost-estimate.md](docs/cost-estimate.md)). Close the tab when you are not watching it.
+- **Cost:** Grafana queries CloudWatch only while a dashboard is open: about 0.08 to 0.65 USD per hour for the
+  overview, about as much again for the detail (see [docs/cost-estimate.md](docs/cost-estimate.md)). Close the tabs
+  when you are not watching them.
+- **No event markers on the graphs:** Grafana's CloudWatch annotations read alarm history only, not log queries, so
+  the events are a table instead. Disconnections, from the metrics, are the red bars on the *Bitrate* graph.
 - **If it does not start:** port 3000 is often taken (Node dev servers, another Grafana); `docker compose up` then
   fails on Grafana's port, while `just ui` says `Grafana skipped: …` and starts the console alone. Set `GRAFANA_PORT`
   in `.env`. If your UID changed since Grafana first ran, its database belongs to the old one: `docker compose down -v`
@@ -360,7 +381,7 @@ comes out private, make it public in the package's *Package settings*, or `docke
 While the demo runs, the priced items come to about **1.74 USD per hour** (about 0.43 for a 15-minute demo) for a single-pipeline
 channel. When nothing is running, cost is close to zero. Details, assumptions and what could not be priced are in
 [docs/cost-estimate.md](docs/cost-estimate.md). A $25 monthly budget with alerts lives in `bootstrap/`. An open Grafana
-dashboard adds CloudWatch queries, about 0.065 to 0.45 USD per hour, only while it is open.
+dashboard adds CloudWatch queries, about 0.08 to 0.65 USD per hour per dashboard, only while it is open.
 
 ## Lessons learned
 
