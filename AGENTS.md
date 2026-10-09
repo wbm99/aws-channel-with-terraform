@@ -18,7 +18,7 @@ This repository creates resources that bill **by the hour while running**, not b
 - **Always run `just check-clean` after `just down`.** It exits 1 if a billable flow, channel, input, channel group or
   distribution survived the destroy.
 - **Close the Grafana dashboard when you are not watching it:** each open tab queries CloudWatch every 5 seconds
-  (about 0.065-0.45 USD/hour, see `docs/cost-estimate.md`).
+  (about 0.08-0.65 USD/hour per dashboard, see `docs/cost-estimate.md`).
 - **Never run `apply`, `destroy`, `start` or `stop` against a real account unless the user asked in this session.**
   Everything worth checking can be checked offline (see Testing).
 - `bootstrap/` holds the $25 monthly budget with email alerts. It exists because an earlier version put the budget

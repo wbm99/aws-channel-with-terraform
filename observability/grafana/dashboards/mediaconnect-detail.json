@@ -1,0 +1,980 @@
+{
+  "uid": "mediaconnect-detail",
+  "title": "MediaConnect source: transport stream & SRT",
+  "tags": [
+    "live-sports-aws",
+    "mediaconnect"
+  ],
+  "timezone": "utc",
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "description": "TR 101 290, SRT recovery and network quality for the demo flow's source; costs only while open.",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "TR 101 290 Priority 1, errors in range",
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaConnect",
+          "metricName": "SourceContinuityCounter",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceContinuityCounter\" live-sports-aws-demo', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.FlowARN')}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaConnect",
+          "metricName": "SourcePATError",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourcePATError\" live-sports-aws-demo', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.FlowARN')}"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaConnect",
+          "metricName": "SourcePMTError",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourcePMTError\" live-sports-aws-demo', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.FlowARN')}"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaConnect",
+          "metricName": "SourcePIDError",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourcePIDError\" live-sports-aws-demo', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.FlowARN')}"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaConnect",
+          "metricName": "SourceTSSyncLoss",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceTSSyncLoss\" live-sports-aws-demo', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.FlowARN')}"
+        },
+        {
+          "refId": "F",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaConnect",
+          "metricName": "SourceTSByteError",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceTSByteError\" live-sports-aws-demo', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.FlowARN')}"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": ".*:([^:]+)$",
+            "renamePattern": "$1"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Continuity"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "PAT"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "PMT"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "PID"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "E"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "TS sync loss"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "F"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "TS byte"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center"
+      },
+      "description": "The first checks a broadcast engineer reads: is the transport stream itself intact."
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "TR 101 290 Priority 1",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 1
+        }
+      ],
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": ".*:([^:]+)$",
+            "renamePattern": "$1"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never"
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Continuity"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "PAT"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "PMT"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "PID"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "E"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "TS sync loss"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "F"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "TS byte"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "description": "Same data as the tiles above (no extra CloudWatch query)."
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "SRT recovery",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaConnect",
+          "metricName": "SourceDroppedPackets",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceDroppedPackets\" live-sports-aws-demo', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.FlowARN')}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaConnect",
+          "metricName": "SourceRecoveredPackets",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceRecoveredPackets\" live-sports-aws-demo', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.FlowARN')}"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaConnect",
+          "metricName": "SourceARQRequests",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceARQRequests\" live-sports-aws-demo', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.FlowARN')}"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaConnect",
+          "metricName": "SourceARQRecovered",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceARQRecovered\" live-sports-aws-demo', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.FlowARN')}"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": ".*:([^:]+)$",
+            "renamePattern": "$1"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never"
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Dropped"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Recovered"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "ARQ requested"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "ARQ recovered"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "description": "Lost on the wire, then asked for again and recovered by SRT's retransmission."
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Network",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaConnect",
+          "metricName": "SourceJitter",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceJitter\" live-sports-aws-demo', 'Average', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.FlowARN')}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaConnect",
+          "metricName": "SourceLatency",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceLatency\" live-sports-aws-demo', 'Average', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.FlowARN')}"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": ".*:([^:]+)$",
+            "renamePattern": "$1"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never"
+          },
+          "unit": "ms"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Jitter"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Latency"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Source events",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "MediaConnect source health, alerts and flow status changes, from the EventBridge log group the observability module fills.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Logs",
+          "id": "",
+          "region": "default",
+          "logGroupNames": [
+            "/aws/events/live-sports-aws-demo"
+          ],
+          "expression": "filter `detail-type` in [\"MediaConnect Source Health\", \"MediaConnect Alert\", \"MediaConnect Flow Status Change\"]\n| fields replace(`detail-type`, \"MediaConnect \", \"\") as Event, coalesce(detail.current.state, detail.currentStatus, `detail.error-code`) as State, detail.errored as Alert, coalesce(`detail.error-message`, detail.previousStatus) as Detail\n| sort @timestamp desc\n| limit 50",
+          "statsGroups": []
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "@timestamp",
+                "Event",
+                "State",
+                "Alert",
+                "Detail"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "@timestamp": "Time"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Alert"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "1": {
+                        "text": "raised",
+                        "color": "red",
+                        "index": 0
+                      },
+                      "0": {
+                        "text": "cleared",
+                        "color": "green",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "TR 101 290 Priority 2 (encoder timing; queried only when open)",
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "panels": [
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "TR 101 290 Priority 2",
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 30
+          },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "cloudwatch",
+                "uid": "cloudwatch"
+              },
+              "queryMode": "Metrics",
+              "metricQueryType": 0,
+              "metricEditorMode": 1,
+              "region": "default",
+              "namespace": "AWS/MediaConnect",
+              "metricName": "SourcePCRError",
+              "statistic": "Sum",
+              "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourcePCRError\" live-sports-aws-demo', 'Sum', 5))",
+              "period": "5",
+              "id": "",
+              "label": "${PROP('Dim.FlowARN')}"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "cloudwatch",
+                "uid": "cloudwatch"
+              },
+              "queryMode": "Metrics",
+              "metricQueryType": 0,
+              "metricEditorMode": 1,
+              "region": "default",
+              "namespace": "AWS/MediaConnect",
+              "metricName": "SourcePCRAccuracyError",
+              "statistic": "Sum",
+              "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourcePCRAccuracyError\" live-sports-aws-demo', 'Sum', 5))",
+              "period": "5",
+              "id": "",
+              "label": "${PROP('Dim.FlowARN')}"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "cloudwatch",
+                "uid": "cloudwatch"
+              },
+              "queryMode": "Metrics",
+              "metricQueryType": 0,
+              "metricEditorMode": 1,
+              "region": "default",
+              "namespace": "AWS/MediaConnect",
+              "metricName": "SourcePTSError",
+              "statistic": "Sum",
+              "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourcePTSError\" live-sports-aws-demo', 'Sum', 5))",
+              "period": "5",
+              "id": "",
+              "label": "${PROP('Dim.FlowARN')}"
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "cloudwatch",
+                "uid": "cloudwatch"
+              },
+              "queryMode": "Metrics",
+              "metricQueryType": 0,
+              "metricEditorMode": 1,
+              "region": "default",
+              "namespace": "AWS/MediaConnect",
+              "metricName": "SourceCRCError",
+              "statistic": "Sum",
+              "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceCRCError\" live-sports-aws-demo', 'Sum', 5))",
+              "period": "5",
+              "id": "",
+              "label": "${PROP('Dim.FlowARN')}"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": ".*:([^:]+)$",
+                "renamePattern": "$1"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "spanNulls": false,
+                "showPoints": "never"
+              },
+              "unit": "short"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "A"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "PCR"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "B"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "PCR accuracy"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "C"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "PTS"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "D"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "CRC"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "type": "link",
+      "title": "Overview",
+      "url": "/d/mediaconnect-source",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    }
+  ]
+}

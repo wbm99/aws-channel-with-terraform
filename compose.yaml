@@ -26,7 +26,7 @@ services:
       CONSOLE_URL: http://127.0.0.1:${CONSOLE_PORT:-8765}/
 
   # Grafana on CloudWatch: the MediaConnect source dashboard, provisioned from observability/grafana. It queries AWS
-  # only while a dashboard is open (about 0.065-0.45 USD/hour then), so close the tab when you are not watching.
+  # only while a dashboard is open (about 0.08-0.65 USD/hour per dashboard then), so close the tab when you are not watching.
   grafana:
     image: grafana/grafana-oss:13.0.2
     # The host user, like the console: ~/.aws/credentials is readable by its owner only.
