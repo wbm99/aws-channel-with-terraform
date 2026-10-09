@@ -67,6 +67,19 @@ demo does not use.
 | S3 state bucket | not priced here; it holds a few kilobytes |
 | AWS Budget | not looked up; the budget is a standard cost budget with no actions |
 
+## While the Grafana dashboard is open
+
+Grafana queries CloudWatch only while a dashboard is open in a browser. GetMetricData costs 0.01 USD per 1,000 metrics
+requested; the dashboard has 8 panels refreshing every 5 seconds, so 5,760 queries an hour.
+
+| If a search counts | Metrics requested per hour | Cost per hour |
+|---|---|---|
+| only the live flow | 5,760 | about 0.06 |
+| every flow it matches (7 on 2026-10-09: each deploy leaves one, kept for two weeks) | about 40,000 | about 0.40 |
+
+How a search is billed is not documented where I looked; Cost Explorer settles it the day after the dashboard is used
+(README live check 23). Nothing is charged while the dashboard is closed.
+
 ## Guardrails
 
 A $25 monthly budget (alerts at 50% and 80% of actual spend and at 100% of forecast) lives in `bootstrap/` and survives

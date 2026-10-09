@@ -23,6 +23,7 @@ EXPECTED = {
     "going-live": ("Going live…", []),
     "on-air-no-source": ("On air · no source", ["scan", "go-off-air", "source-start"]),
     "on-air-playing": ("On air · playing", ["scan", "go-off-air", "source-start"]),
+    "on-air-grafana": ("On air · playing", ["scan", "go-off-air", "source-start"]),
     "degraded": ("On air · source degraded", ["scan", "go-off-air", "source-start"]),
     "partly-on": ("Partly on", ["scan", "go-live", "go-off-air", "source-start"]),
     "probe-error": ("Unknown", ["deploy", "teardown", "scan", "go-live", "go-off-air"]),

@@ -270,13 +270,49 @@ the new outputs exist), open `just ui` and check:
     highlighted once the restart has settled.
 17. **From OBS:** stop the test source, copy the URL from *Send from your own encoder* into OBS (*Settings → Stream*,
     Service *Custom…*) and start streaming. The SRT node turns connected and the player shows the OBS picture.
+18. **Grafana:** `just ui` starts Grafana too; Ctrl-C stops both (`docker compose ps` lists no `grafana`).
+19. The first Grafana login asks for a new password; after another `just ui` it is kept.
+20. On air with the test source: the five tiles show values within about 30 s. Note the delay between *Send test
+    source* and the first bitrate point; the tiles read the last 2 minutes, so a delay longer than that empties them.
+21. Stop the source: *Connected* turns red and the bitrate graph drops.
+22. Legends and tiles show only the live flow, once (destroyed flows share its name; `REMOVE_EMPTY` keeps them out).
+23. The next day, Cost Explorer's CloudWatch GetMetricData charge for the hours the dashboard was open.
+
+## Grafana
+
+A local Grafana shows the MediaConnect source at a 5-second resolution, read straight from CloudWatch (MediaConnect
+publishes its metrics every second; CloudWatch keeps that resolution for 3 hours).
+
+- **Starting it:** `docker compose up` starts it beside the console, and `just ui` starts it before the console and
+  stops it when the console exits. Without Docker, `just ui` prints `Grafana skipped: …` and starts the console
+  alone. The console's Endpoints card links to the dashboard.
+- **Opening it:** <http://127.0.0.1:3000> (`GRAFANA_PORT` in `.env` moves it; it is always bound to 127.0.0.1). Log in
+  as `admin` / `admin`; Grafana then asks for a new password and keeps it in the `grafana-data` volume. To skip that,
+  set `GRAFANA_ADMIN_PASSWORD` in `.env` before Grafana first starts (it is read only when the volume is created).
+- **The dashboard,** *Live pipeline → MediaConnect source*, refreshes every 5 s:
+
+  | Tile / graph | Metric | Read it as |
+  |---|---|---|
+  | Connected | `SourceConnected` | Is the encoder there at all. *no source* when nothing has reported for 2 minutes. |
+  | Bitrate | `SourceBitRate` | Is the feed alive and at the rate it was set to. |
+  | Round trip | `SourceRoundTripTime` | The network path. SRT can only resend lost packets while the round trip stays well under its latency. |
+  | Packet loss | `SourcePacketLossPercent` | Loss on the wire before SRT repairs it: the early warning. |
+  | Not recovered, last 5 min | `SourceNotRecoveredPackets` | Loss SRT could not repair: visible damage. Red above 0. It reads 0, not —, with no source. |
+
+  The *Loss* graph shows the last two together: loss with nothing unrecovered means SRT is doing its job.
+- **It finds the flow by itself:** each query is a CloudWatch search for this project's flows, wrapped in
+  `REMOVE_EMPTY`, so nothing needs editing after a redeploy.
+- **Cost:** Grafana queries CloudWatch only while a dashboard is open, about 0.06 to 0.40 USD per hour then (see
+  [docs/cost-estimate.md](docs/cost-estimate.md)). Close the tab when you are not watching it.
+- **Credentials:** `~/.aws` is mounted read-only and `AWS_PROFILE` and `AWS_REGION` come from `.env`. Access keys were
+  checked; **SSO profiles were not**.
 
 ## Repository layout
 
 ```
 AGENTS.md           conventions and cost rules for agents working here (CLAUDE.md symlinks to it)
 justfile            every command in the project; `just --list` to see them
-compose.yaml        the console in Docker; docker/Dockerfile builds the image, .env.example lists the settings
+compose.yaml        the console and Grafana in Docker; docker/Dockerfile builds the image, .env.example lists the settings
 .github/workflows/  CI: tests on every pull request, image published to GHCR on merge to main
 bootstrap/          one-time root: state bucket and the budget (never destroyed)
 modules/
@@ -289,6 +325,7 @@ modules/
   guardrails/       AWS Budgets alerts
   observability/    EventBridge rule and log group for MediaLive and MediaConnect events
 envs/demo/          wires the modules together
+observability/      Grafana: the CloudWatch data source and the MediaConnect source dashboard
 tools/livectl/      Python CLI and the browser console (site/), with tests in tools/tests
 source/             FFmpeg SRT source script
 scripts/            price lookup for the cost estimate
@@ -302,6 +339,7 @@ Everything runs offline with no AWS credentials:
 ```bash
 just test          # terraform test for every root (mocked providers), then pytest over tools (moto)
 just test-ui       # drive the console in Chrome through every scenario (pip install -e "tools[dev,ui]")
+just test-grafana  # start the real Grafana service with no AWS credentials and check it provisions (needs Docker)
 just validate      # formatting check and terraform validate for every root
 just frame         # renders one frame to /tmp/clock.png to check the burned-in clock
 ```
@@ -314,7 +352,8 @@ comes out private, make it public in the package's *Package settings*, or `docke
 
 While the demo runs, the priced items come to about **1.74 USD per hour** (about 0.43 for a 15-minute demo) for a single-pipeline
 channel. When nothing is running, cost is close to zero. Details, assumptions and what could not be priced are in
-[docs/cost-estimate.md](docs/cost-estimate.md). A $25 monthly budget with alerts lives in `bootstrap/`.
+[docs/cost-estimate.md](docs/cost-estimate.md). A $25 monthly budget with alerts lives in `bootstrap/`. An open Grafana
+dashboard adds CloudWatch queries, about 0.06 to 0.40 USD per hour, only while it is open.
 
 ## Lessons learned
 
