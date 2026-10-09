@@ -375,3 +375,90 @@ def test_a_launch_that_fails_does_not_leave_the_source_starting():
     status = source.status()
     assert status["state"] == "exited" and "No such file" in status["last_error"]
     assert not source.running
+
+
+REFUSED = ["[srt @ 0x5581] Connection setup failure: connection rejected",
+           "[out#0/mpegts @ 0x5582] Error opening output srt://h:5000: Input/output error"]
+
+
+def refused():
+    process = FakeProcess(REFUSED, code=251)
+    process.finish()
+    return process
+
+
+def test_a_restart_the_listener_refuses_is_retried_until_it_connects():
+    """MediaConnect may still hold the old SRT connection right after an Apply; the new FFmpeg tries again."""
+    from livectl.source import SourceSettings
+
+    old, fresh = FakeProcess(["frame= 1"]), FakeProcess(["frame= 1"])
+    processes = iter([old, refused(), refused(), fresh])
+    source = SourceProcess(popen=lambda args, **kwargs: next(processes), script="send-srt.sh",
+                           retry_delays=(0, 0, 0))
+    source.start(host="h", port=5000, passphrase=SECRET)
+    settle(source, "running")
+
+    source.restart(host="h", port=5000, passphrase=SECRET, settings=SourceSettings().merged({"fps": 25}))
+    settle(source, "running")
+
+    assert source.status()["settings"]["fps"] == 25
+    assert [text for _, text in source.lines(0) if "trying again" in text] == [
+        "SRT connection refused; trying again in 0 s (attempt 2 of 4)",
+        "SRT connection refused; trying again in 0 s (attempt 3 of 4)",
+    ]
+    source.stop()
+    assert fresh.signals == ["TERM"]
+
+
+def test_a_source_refused_every_time_is_reported_exited_after_the_last_attempt():
+    launches = []
+
+    def popen(args, **kwargs):
+        launches.append(args)
+        return refused()
+
+    source = SourceProcess(popen=popen, script="send-srt.sh", retry_delays=(0, 0, 0))
+    source.start(host="h", port=5000, passphrase=SECRET)
+    settle(source, "exited")
+
+    assert len(launches) == 4
+    status = source.status()
+    assert status["exit_code"] == 251 and "Input/output error" in status["last_error"]
+
+
+def test_stop_during_the_pause_before_a_retry_cancels_it():
+    launches = []
+
+    def popen(args, **kwargs):
+        launches.append(args)
+        return refused()
+
+    source = SourceProcess(popen=popen, script="send-srt.sh", retry_delays=(30, 30, 30))
+    source.start(host="h", port=5000, passphrase=SECRET)
+    deadline = time.monotonic() + 2
+    while not any("trying again" in text for _, text in source.lines(0)) and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    started = time.monotonic()
+    source.stop()
+
+    assert time.monotonic() - started < 2       # the 30 s pause was cut short
+    assert source.status()["state"] == "stopped" and not source.running
+    time.sleep(0.05)
+    assert len(launches) == 1
+
+
+def test_a_failure_after_the_first_frame_is_not_retried():
+    launches = []
+
+    def popen(args, **kwargs):
+        launches.append(args)
+        process = FakeProcess(["frame= 1", *REFUSED], code=251)
+        process.finish()
+        return process
+
+    source = SourceProcess(popen=popen, script="send-srt.sh", retry_delays=(0, 0, 0))
+    source.start(host="h", port=5000, passphrase=SECRET)
+    settle(source, "exited")
+
+    assert len(launches) == 1

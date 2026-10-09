@@ -7,6 +7,11 @@ update the status instead of filling the buffer.
 Known limitation: FFmpeg receives the passphrase inside its SRT URL argument, so it is visible in the local
 process list (`ps`) while the source runs. `just send` has the same exposure; FFmpeg's SRT support offers no
 other way to pass it.
+
+A start can be refused by the listener: MediaConnect takes one SRT sender, and after a restart it may still hold the
+old connection until SRT notices it went quiet (about 5 s) if the old FFmpeg's shutdown packet was lost. FFmpeg then
+prints `Connection setup failure` and exits before sending a frame. That case is retried a few times, with growing
+pauses, before the source is reported as exited.
 """
 
 from __future__ import annotations
@@ -20,12 +25,16 @@ import unicodedata
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Mapping, Optional
+from typing import Callable, Mapping, Optional, Sequence
 
 # Relative to the working directory, like --tf-dir: an installed livectl (the Docker image) lives in site-packages, far
 # from the checkout. `just` runs from the repository root and the container from /work, so both find it.
 SCRIPT = Path("source/send-srt.sh")
 STOPPED, STARTING, RUNNING, EXITED = "stopped", "starting", "running", "exited"
+# What libsrt reports, through FFmpeg, when the listener rejects the caller or never answers its handshake.
+SETUP_FAILURE = "Connection setup failure"
+# Pauses before each new attempt after a setup failure: about 7 s in all, past SRT's 5 s peer idle timeout.
+RETRY_DELAYS = (1.0, 2.0, 4.0)
 # Test patterns source/send-srt.sh can generate (its PATTERN variable), in the order the console lists them.
 PATTERNS = [
     ("testcard", "Test card"),
@@ -147,11 +156,15 @@ def now_ms() -> int:
 class SourceProcess:
     """One FFmpeg at a time. Each start is a new generation: a reader thread left over from an older process (its
     stop timed out waiting for it) may drain its output, but never changes the state, the buffer or the redaction
-    of the process that replaced it."""
+    of the process that replaced it. A launch whose SRT connection is refused before the first frame is retried
+    after each of `retry_delays`; a stop cancels the pause."""
 
     def __init__(self, *, script: "Path | str" = SCRIPT, popen=subprocess.Popen,
-                 clock_ms: Callable[[], int] = now_ms, max_lines: int = 500, grace: float = 5.0) -> None:
+                 clock_ms: Callable[[], int] = now_ms, max_lines: int = 500, grace: float = 5.0,
+                 retry_delays: Sequence[float] = RETRY_DELAYS) -> None:
         self._script, self._popen, self._clock_ms, self._grace = str(script), popen, clock_ms, grace
+        self._retry_delays = tuple(retry_delays)
+        self._cancel = threading.Event()
         self._lock = threading.Lock()
         self._restart_lock = threading.Lock()
         self._lines: deque[tuple[int, str]] = deque(maxlen=max_lines)
@@ -182,11 +195,16 @@ class SourceProcess:
             generation = self._generation
             self._state, self._stopping, self._settings = STARTING, False, settings
             self._exit_code = self._progress = self._last_line = None
+            self._cancel = cancel = threading.Event()
         env = {**os.environ, **settings.to_env(),
                "SRT_HOST": host, "SRT_PORT": str(port), "SRT_PASSPHRASE": passphrase}
+
+        def launch():
+            return self._popen([self._script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               text=True, bufsize=1, env=env)
+
         try:
-            process = self._popen([self._script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                  text=True, bufsize=1, env=env)
+            process = launch()
         except OSError as error:
             # Nothing was launched: say why instead of staying "starting", which would refuse every later start.
             line = f"could not start {self._script}: {error.strerror or error}"
@@ -197,21 +215,50 @@ class SourceProcess:
             raise
         with self._lock:
             self._process = process
-        self._reader = threading.Thread(target=self._pump, args=(process, generation, passphrase), daemon=True,
-                                        name="livectl-source")
+        self._reader = threading.Thread(target=self._pump, args=(process, generation, passphrase, launch, cancel),
+                                        daemon=True, name="livectl-source")
         self._reader.start()
 
     def restart(self, *, host: str, port: int, passphrase: str, settings: SourceSettings) -> None:
-        """Stop, then start on new settings. Two restarts at once run one after the other, never interleaved."""
+        """Stop, then start on new settings. Two restarts at once run one after the other, never interleaved. If
+        the listener still holds the old connection, the start is retried (see the module docstring)."""
         with self._restart_lock:
             self._stop()
             self._start(host, port, passphrase, settings)
 
-    def _pump(self, process, generation: int, secret: str) -> None:
+    def _pump(self, process, generation: int, secret: str, launch, cancel: threading.Event) -> None:
+        for attempt, delay in enumerate((*self._retry_delays, None), start=1):
+            refused = self._drain(process, generation, secret)
+            code = process.wait()
+            with self._lock:
+                if generation != self._generation or self._state not in (STARTING, RUNNING):
+                    return
+                if not (refused and delay is not None and self._state == STARTING and not self._stopping):
+                    self._exit_code = code
+                    self._state = STOPPED if self._stopping else EXITED
+                    return
+                self._note(f"SRT connection refused; trying again in {delay:g} s "
+                           f"(attempt {attempt + 1} of {len(self._retry_delays) + 1})")
+            if cancel.wait(delay):
+                return  # stopped during the pause; the stop has already recorded it
+            with self._lock:  # launch under the lock, so a stop either cancels it or finds the new process
+                if generation != self._generation or self._stopping:
+                    return
+                try:
+                    process = self._process = launch()
+                except OSError as error:
+                    self._note(f"could not start {self._script}: {error.strerror or error}")
+                    self._state, self._exit_code = EXITED, -1
+                    return
+
+    def _drain(self, process, generation: int, secret: str) -> bool:
+        """Read one FFmpeg's output to the end; True if libsrt reported that the connection was refused."""
+        refused = False
         for raw in process.stdout:
             line = raw.rstrip("\n").replace(secret, "***")
             if not line.strip():
                 continue
+            refused = refused or SETUP_FAILURE in line
             with self._lock:
                 if generation != self._generation:
                     continue  # a newer process owns the state; keep draining so the old one can exit
@@ -220,13 +267,13 @@ class SourceProcess:
                     if self._state == STARTING:
                         self._state = RUNNING
                     continue
-                self._lines.append((self._clock_ms(), line))
-                self._last_line = line
-        code = process.wait()
-        with self._lock:
-            if generation == self._generation and self._state in (STARTING, RUNNING):
-                self._exit_code = code
-                self._state = STOPPED if self._stopping else EXITED
+                self._note(line)
+        return refused
+
+    def _note(self, line: str) -> None:
+        """Keep a line for the log and as the last error. Called with the lock held."""
+        self._lines.append((self._clock_ms(), line))
+        self._last_line = line
 
     def stop(self) -> None:
         # Waits for a restart in progress, then stops what it started: a Stop pressed after Apply always wins.
@@ -237,8 +284,13 @@ class SourceProcess:
         with self._lock:
             process = self._process
             if process is None or process.poll() is not None:
+                if self._state in (STARTING, RUNNING):  # pausing before another attempt: cancel it
+                    self._generation += 1
+                    self._state, self._stopping = STOPPED, True
+                    self._cancel.set()
                 return
             self._stopping = True
+            self._cancel.set()
         process.terminate()
         try:
             code = process.wait(timeout=self._grace)

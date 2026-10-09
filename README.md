@@ -181,8 +181,9 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
   - *MPEG-TS:* service name, provider, program number;
   - *SRT:* latency.
 - **Edit, then Apply.** Changed fields are marked, and one *Apply N changes* restarts FFmpeg once with all of them:
-  viewers see a few seconds of MediaLive's slate while SRT reconnects. While the source is stopped the same button
-  reads *Send test source*. The settings last as long as the console process.
+  viewers see a few seconds of MediaLive's slate while SRT reconnects. MediaConnect may still hold the old SRT
+  connection for up to about 5 s, so a reconnect it refuses is retried after 1, 2 and 4 s (the log shows *SRT
+  connection refused; trying again*). While the source is stopped the same button reads *Send test source*. The settings last as long as the console process.
 - **Sent vs received** puts what FFmpeg is sending next to what MediaConnect parsed from the stream
   (`DescribeFlowSourceMetadata`: codecs, resolution, frame rate, channels, and the program name, which MediaConnect
   takes from the SDT service name). A row that disagrees is highlighted.
@@ -249,9 +250,11 @@ the new outputs exist), open `just ui` and check:
     1-10 from `docker compose up` with an SSO profile. The header names the role and account.
 12. **With Docker and SSO:** leave the console running across the SSO access-token refresh (about an hour): the
     header keeps the role, no node shows a token error, and a Deploy started after the refresh succeeds.
-13. **Apply while playing** (an earlier pattern switch misbehaved; what went wrong was not recorded): change two
-    settings on the Source page and Apply. Note what the player, the slate, the SRT node and the next-step hint each
-    do, and how long until the player shows the new picture without a reload.
+13. **Apply while playing** (Apply sometimes left the source stopped, likely because MediaConnect refused the new
+    SRT connection while it still held the old one): change two settings on the Source page and Apply, ten times.
+    The source ends up sending every time, the log shows any *trying again* lines, and FFmpeg never reads *exited*.
+    Note what the player, the slate, the SRT node and the next-step hint each do, and how long until the player shows
+    the new picture without a reload.
 14. Set 25 fps, then 50 fps: both play, and the channel node still reads *input* at the new rate while the output
     stays 30 fps.
 15. Send MP2, then AC-3 audio: the player still has sound (MediaLive re-encodes to AAC).
