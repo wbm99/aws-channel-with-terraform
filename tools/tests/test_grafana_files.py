@@ -61,7 +61,8 @@ def test_the_two_dashboards_identity_refresh_and_links():
         d = dashboard(uid)
         assert (d["uid"], d["title"], d["refresh"], d["timezone"]) == (uid, title, "5s", "utc")
         assert d["time"] == {"from": "now-15m", "to": "now"}
-        assert [(link["url"], link["keepTime"]) for link in d["links"]] == [(f"/d/{other}", True)]
+        assert [(link["url"], link["keepTime"]) for link in d["links"]] == [(f"/d/{other}", True),
+                                                                            ("/d/medialive-channel", True)]
 
 
 def test_every_metric_query_searches_this_projects_flows_every_5_seconds():
@@ -253,3 +254,165 @@ def test_grafana_settings_that_guard_access_and_cost():
     assert env["GF_SECURITY_ADMIN_PASSWORD"] == "${GRAFANA_ADMIN_PASSWORD:-admin}"
     assert env["AWS_CONFIG_FILE"] == "/aws/config" and env["AWS_SHARED_CREDENTIALS_FILE"] == "/aws/credentials"
     assert env["AWS_PROFILE"] == "${AWS_PROFILE:-default}" and env["AWS_REGION"] == "${AWS_REGION:-us-east-1}"
+
+
+# --- MediaLive channel ------------------------------------------------------------------------------------------
+
+ML = "medialive-channel"
+# Every MediaLive metric the dashboard reads: its statistic and the exact dimension set a search must name, or it
+# silently matches nothing.
+CHANNEL = "ChannelId,Pipeline"
+ML_METRICS = {
+    # Maximum, not Sum: InputLossSeconds adds 1 a second while input is lost, then one large negative sample when it
+    # returns (-241 on 2026-10-09), so a sum across a recovery cancels the loss and dips below 0. The maximum of a
+    # bucket is 1 if input was lost in it. ChannelInputErrorSeconds has the same shape and is treated the same way.
+    "ActiveAlerts": ("Maximum", CHANNEL), "InputLossSeconds": ("Maximum", CHANNEL),
+    "ChannelInputErrorSeconds": ("Maximum", CHANNEL), "TsInputContinuityCounterErrors": ("Sum", CHANNEL),
+    "InputVideoFrameRate": ("Average", CHANNEL), "DroppedFrames": ("Sum", CHANNEL), "FillMsec": ("Maximum", CHANNEL),
+    "SvqTime": ("Average", CHANNEL), "NetworkIn": ("Average", CHANNEL), "NetworkOut": ("Average", CHANNEL),
+    "OutputVideoFrameRate": ("Average", "ChannelId,OutputName,Pipeline"),
+    "ActiveOutputs": ("Minimum", "ChannelId,OutputGroupName,Pipeline"),
+    "Output4xxErrors": ("Sum", "ChannelId,OutputGroupName,Pipeline"),
+    "Output5xxErrors": ("Sum", "ChannelId,OutputGroupName,Pipeline"),
+    "OutputAudioLevelLkfs": ("Average", "AudioDescriptionName,ChannelId,Pipeline"),
+    "OutputAudioLevelDbfs": ("Average", "AudioDescriptionName,ChannelId,Pipeline"),
+}
+NOW_TILES = ("Active alerts", "Input frame rate", "SVQ time")
+LAST_5_MIN_TILES = ("Input loss, last 5 min", "Dropped frames, last 5 min", "Push errors, last 5 min")
+
+
+def test_the_medialive_dashboard_identity_and_links():
+    d = dashboard(ML)
+    assert (d["uid"], d["title"], d["refresh"], d["timezone"]) == (ML, "MediaLive channel", "5s", "utc")
+    assert d["time"] == {"from": "now-15m", "to": "now"}
+    assert (d["editable"], d["graphTooltip"], d["tags"]) == (False, 1, ["live-sports-aws", "medialive"])
+    assert [(link["url"], link["keepTime"]) for link in d["links"]] == [
+        (f"/d/{OVERVIEW}", True), (f"/d/{DETAIL}", True)]
+
+
+def test_the_channel_drop_down_defaults_to_all_which_searches_every_channel():
+    # A channel ID is a number with no name in it and changes with every deploy, so the search cannot find "ours" by
+    # name as the MediaConnect dashboards do. All substitutes the term ChannelId, which every series carries, and
+    # REMOVE_EMPTY keeps the channels with data: the running one. Settled against real data on 2026-10-10. The
+    # custom value also keeps All working while the list is still empty.
+    [variable] = dashboard(ML)["templating"]["list"]
+    assert (variable["name"], variable["type"], variable["datasource"]["uid"]) == ("channel", "query", "cloudwatch")
+    query = variable["query"]
+    assert (query["queryType"], query["namespace"], query["metricName"], query["dimensionKey"]) == (
+        "dimensionValues", "AWS/MediaLive", "ActiveAlerts", "ChannelId")
+    assert (variable["includeAll"], variable["allValue"], variable["multi"], variable["refresh"]) == (
+        True, "ChannelId", False, 1)
+    assert variable["current"]["value"] == "$__all"
+
+
+def test_every_medialive_query_searches_the_picked_channel_every_5_seconds():
+    for target in metric_targets(ML):
+        metric = target["metricName"]
+        statistic, dims = ML_METRICS[metric]
+        assert target["datasource"]["uid"] == "cloudwatch" and target["namespace"] == "AWS/MediaLive"
+        assert target["statistic"] == statistic, metric
+        assert target["expression"] == ("REMOVE_EMPTY(SEARCH('{AWS/MediaLive,%s} MetricName=\"%s\" $channel', "
+                                        "'%s', 5))" % (dims, metric, statistic))
+        assert target["period"] == "5"
+
+
+def test_the_medialive_dashboard_reads_every_metric_and_repeats_only_the_tiles():
+    # A tile reading the last minutes cannot reuse a graph's whole range, so the five that show a graph's metric
+    # query it again. Active alerts has no graph.
+    read = [t["metricName"] for t in metric_targets(ML)]
+    assert set(read) == set(ML_METRICS)
+    assert sorted(m for m in set(read) if read.count(m) > 1) == [
+        "DroppedFrames", "InputLossSeconds", "InputVideoFrameRate", "Output4xxErrors", "Output5xxErrors", "SvqTime"]
+    assert len(read) == 22
+
+
+def test_the_medialive_panels_follow_the_signal():
+    assert [(p["type"], p["title"]) for p in panels(ML)] == [
+        ("stat", "Active alerts"), ("stat", "Input frame rate"), ("stat", "Input loss, last 5 min"),
+        ("stat", "Dropped frames, last 5 min"), ("stat", "SVQ time"), ("stat", "Push errors, last 5 min"),
+        ("timeseries", "Input frame rate"), ("timeseries", "Input problems"), ("timeseries", "Encoder"),
+        ("timeseries", "Output frame rate"), ("timeseries", "Push to MediaPackage"), ("timeseries", "Network"),
+        ("timeseries", "Audio"), ("table", "Channel events")]
+
+
+def test_medialive_tiles_read_now_or_the_last_5_minutes():
+    for title in NOW_TILES:
+        tile = panel(title, ML, "stat")
+        assert (tile["timeFrom"], tile["hideTimeOverride"]) == ("2m", True), title
+        assert tile["options"]["reduceOptions"]["calcs"] == ["lastNotNull"], title
+    for title in LAST_5_MIN_TILES:
+        tile = panel(title, ML, "stat")
+        assert (tile["timeFrom"], tile["hideTimeOverride"]) == ("5m", True), title
+        expected = ["max"] if title == "Input loss, last 5 min" else ["sum"]
+        assert tile["options"]["reduceOptions"]["calcs"] == expected, title
+
+
+def test_medialive_problem_tiles_turn_red_from_1():
+    for title in ("Active alerts", "SVQ time", "Dropped frames, last 5 min", "Push errors, last 5 min"):
+        tile = panel(title, ML, "stat")
+        steps = tile["fieldConfig"]["defaults"]["thresholds"]["steps"]
+        assert [(s["value"], s["color"]) for s in steps] == [(None, "green"), (1, "red")], title
+        assert tile["options"]["colorMode"] == "background", title
+    # A frame rate is not good or bad on its own: neutral, with or without data.
+    assert panel("Input frame rate", ML, "stat")["options"]["colorMode"] == "none"
+    assert names(panel("Push errors, last 5 min", ML)) == {"A": "4xx", "B": "5xx"}
+    assert panel("Push errors, last 5 min", ML)["options"]["textMode"] == "value_and_name"
+
+
+def test_medialive_graphs_name_their_series():
+    assert names(panel("Input problems", ML)) == {"A": "Input loss", "B": "Input errors", "C": "Continuity errors"}
+    assert names(panel("Encoder", ML)) == {"A": "Dropped frames", "B": "SVQ time", "C": "Fill"}
+    assert names(panel("Push to MediaPackage", ML)) == {"A": "4xx", "B": "5xx", "C": "Active outputs"}
+    assert names(panel("Network", ML)) == {"A": "In", "B": "Out"}
+    assert names(panel("Audio", ML)) == {"A": "Loudness (LKFS)", "B": "Level (dBFS)"}
+
+
+def test_medialive_legends_name_the_rendition_or_the_channel():
+    # Graphs with one metric keep CloudWatch's label: the rendition on Output frame rate, else the channel ID, which
+    # also tells two channels apart after a redeploy within the range.
+    for target in metric_targets(ML):
+        expected = "${PROP('Dim.OutputName')}" if target["metricName"] == "OutputVideoFrameRate" \
+            else "${PROP('Dim.ChannelId')}"
+        assert target["label"] == expected, target["metricName"]
+
+
+def test_medialive_units():
+    unit = lambda title, kind=None: panel(title, ML, kind)["fieldConfig"]["defaults"].get("unit")
+    assert unit("Input frame rate", "stat") == unit("Input frame rate", "timeseries") == "suffix: fps"
+    assert unit("Output frame rate") == "suffix: fps"
+    assert unit("SVQ time") == "percent"
+    # CloudWatch stores NetworkIn and NetworkOut in Megabits/Second; bps showed a 10 Mbps output as "10 b/s".
+    assert unit("Network") == "Mbits"
+    # Each FillMsec sample is the fill over the trailing minute (60,000 throughout an input loss, read on
+    # 2026-10-09), so a sum over 5 seconds would count the same fill five times.
+    fill = next(t for t in metric_targets(ML) if t["metricName"] == "FillMsec")
+    assert fill["statistic"] == "Maximum"
+
+
+def test_channel_events_list_medialive_events_from_the_event_log_group():
+    table = panel("Channel events", ML)
+    query = table["targets"][0]
+    assert query["queryMode"] == "Logs" and query["logGroupNames"] == [EVENTS_GROUP]
+    assert "filter `detail-type` like /^MediaLive /" in query["expression"]
+    # The field names livectl's log formatter reads; unverified against a real event (live check).
+    for field in ("detail.state", "detail.alarm_state", "detail.alert_type", "detail.message"):
+        assert field in query["expression"], field
+    assert table["transformations"][0] == {"id": "filterFieldsByName", "options": {"include": {
+        "names": ["@timestamp", "Event", "State", "Alert", "Detail"]}}}
+    assert table["options"]["sortBy"] == [{"displayName": "Time", "desc": True}]
+
+
+def test_medialive_counter_graphs_start_at_0():
+    # Without it, Input problems drew its seconds axis down to -3 minutes. Audio levels are negative: not there.
+    for title in ("Input problems", "Encoder", "Push to MediaPackage", "Network"):
+        assert panel(title, ML)["fieldConfig"]["defaults"]["custom"]["axisSoftMin"] == 0, title
+    assert "axisSoftMin" not in panel("Audio", ML)["fieldConfig"]["defaults"]["custom"]
+
+
+def test_input_loss_says_lost_or_none():
+    # Any part of a second lost counts: samples at the edge of a loss read 0.77.
+    tile = panel("Input loss, last 5 min", ML)["fieldConfig"]["defaults"]
+    assert [(s["value"], s["color"]) for s in tile["thresholds"]["steps"]] == [(None, "green"), (0.01, "red")]
+    [none, lost] = tile["mappings"]
+    assert (none["type"], none["options"]["0"]["text"]) == ("value", "none")
+    assert (lost["type"], lost["options"]["from"], lost["options"]["result"]["text"]) == ("range", 0.01, "lost")

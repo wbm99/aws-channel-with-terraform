@@ -50,6 +50,9 @@ def test_grafana_starts_and_provisions(tmp_path):
         detail = get(url + "/api/dashboards/uid/mediaconnect-detail")
         assert detail["meta"]["folderTitle"] == "Live pipeline"
         assert detail["dashboard"]["title"] == "MediaConnect source: transport stream & SRT"
+        channel = get(url + "/api/dashboards/uid/medialive-channel")
+        assert channel["meta"]["folderTitle"] == "Live pipeline"
+        assert channel["dashboard"]["title"] == "MediaLive channel"
         # DNS rebinding: a page whose own name resolves to 127.0.0.1 must not reach Grafana, which starts with
         # admin/admin and holds working AWS credentials. Grafana redirects any other Host to 127.0.0.1.
         port = int(url.rsplit(":", 1)[1])

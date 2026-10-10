@@ -73,14 +73,21 @@ Grafana queries CloudWatch only while a dashboard is open in a browser, every 5 
 GetMetricData costs 0.01 USD per 1,000 metrics requested. Panels that repeat another panel's data (the
 *Disconnections* tile, the Priority 1 graph) reuse it through Grafana's *Dashboard* data source and add no query.
 
-| Dashboard | Metric queries | Metrics requested per hour | Cost per hour, live flow only | If every matched flow counts (8 on 2026-10-09) |
+| Dashboard | Metric queries | Metrics requested per hour | Cost per hour, live flow or channel only | If every matched flow or channel counts (8 of each on 2026-10-09) |
 |---|---|---|---|---|
 | MediaConnect source (overview) | 11 | 7,920 | about 0.08 | about 0.63 |
 | Transport stream & SRT, Priority 2 row closed | 12 | 8,640 | about 0.09 | about 0.69 |
 | Transport stream & SRT, Priority 2 row open | 16 | 11,520 | about 0.12 | about 0.92 |
+| MediaLive channel, *All* selected | 22 | 15,840 | about 0.16 | about 1.38 |
+| MediaLive channel, one channel picked | 22 | 15,840 | about 0.16 | about 0.16 |
 
 Each dashboard also runs a CloudWatch Logs Insights query for its *Source events* table, billed at 0.005 USD per GB
 scanned; the events log group holds kilobytes, so this rounds to nothing (not checked on a bill).
+
+On the MediaLive dashboard, six tiles repeat a graph's metric, because they read the last 2 or 5 minutes and a
+*Dashboard* reuse would get the graph's whole range. With *All*, its 22 searches match 192 series (21 metrics × 8
+channels, and three renditions × 8 channels for the output frame rate); picking one channel in the drop-down limits
+every search to it.
 
 How a search is billed, per live flow or per matched flow, is not documented where I looked; Cost Explorer settles it
 the day after the dashboards are used (README live check 23). Nothing is charged while they are closed.
