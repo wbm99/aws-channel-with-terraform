@@ -975,6 +975,14 @@
       "keepTime": true,
       "icon": "dashboard",
       "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "MediaLive channel",
+      "url": "/d/medialive-channel",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
     }
   ]
 }

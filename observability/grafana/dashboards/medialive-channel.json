@@ -1,0 +1,1460 @@
+{
+  "uid": "medialive-channel",
+  "title": "MediaLive channel",
+  "tags": [
+    "live-sports-aws",
+    "medialive"
+  ],
+  "timezone": "utc",
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "description": "The live-sports-aws demo channel, from CloudWatch at a 5-second period: input, encoder, the push to MediaPackage and audio, in signal order.",
+  "links": [
+    {
+      "type": "link",
+      "title": "MediaConnect source",
+      "url": "/d/mediaconnect-source",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Transport stream & SRT",
+      "url": "/d/mediaconnect-detail",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "channel",
+        "label": "Channel",
+        "type": "query",
+        "datasource": {
+          "type": "cloudwatch",
+          "uid": "cloudwatch"
+        },
+        "description": "All shows whichever channel has data in the range: the running one. The list also holds destroyed channels from the last two weeks.",
+        "query": {
+          "queryType": "dimensionValues",
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "ActiveAlerts",
+          "dimensionKey": "ChannelId",
+          "dimensionFilters": {},
+          "refId": "A"
+        },
+        "includeAll": true,
+        "allValue": "ChannelId",
+        "multi": false,
+        "refresh": 1,
+        "sort": 0,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Active alerts",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Alerts MediaLive has raised on the channel and not cleared. The Channel events table names them.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "ActiveAlerts",
+          "statistic": "Maximum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,Pipeline} MetricName=\"ActiveAlerts\" $channel', 'Maximum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "timeFrom": "2m",
+      "hideTimeOverride": true,
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Input frame rate",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Frame rate of the video MediaLive receives from MediaConnect. Should match the source.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "InputVideoFrameRate",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,Pipeline} MetricName=\"InputVideoFrameRate\" $channel', 'Average', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "text"
+              }
+            ]
+          },
+          "unit": "suffix: fps",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "timeFrom": "2m",
+      "hideTimeOverride": true,
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Input loss, last 5 min",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Whether input was lost at any point in the last 5 minutes: MediaLive showed its input-loss slate. A count of seconds is not possible: the metric adds 1 a second while input is lost, then subtracts most of it in one negative sample when input returns.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "InputLossSeconds",
+          "statistic": "Maximum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,Pipeline} MetricName=\"InputLossSeconds\" $channel', 'Maximum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 0.01,
+                "color": "red"
+              }
+            ]
+          },
+          "unit": "none",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "none",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 0.01,
+                "to": 1000000,
+                "result": {
+                  "text": "lost",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "max"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "timeFrom": "5m",
+      "hideTimeOverride": true,
+      "id": 3
+    },
+    {
+      "type": "stat",
+      "title": "Dropped frames, last 5 min",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Frames the encoder dropped in the last 5 minutes.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "DroppedFrames",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,Pipeline} MetricName=\"DroppedFrames\" $channel', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "timeFrom": "5m",
+      "hideTimeOverride": true,
+      "id": 4
+    },
+    {
+      "type": "stat",
+      "title": "SVQ time",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Percentage of time MediaLive reduced quality optimisations to keep up in real time. Above 0 the encoder is struggling.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "SvqTime",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,Pipeline} MetricName=\"SvqTime\" $channel', 'Average', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          },
+          "unit": "percent",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "timeFrom": "2m",
+      "hideTimeOverride": true,
+      "id": 5
+    },
+    {
+      "type": "stat",
+      "title": "Push errors, last 5 min",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "HTTP errors pushing HLS to MediaPackage in the last 5 minutes. 4xx: MediaPackage refused the push (credentials or path). 5xx: MediaPackage failed.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "Output4xxErrors",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,OutputGroupName,Pipeline} MetricName=\"Output4xxErrors\" $channel', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "Output5xxErrors",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,OutputGroupName,Pipeline} MetricName=\"Output5xxErrors\" $channel', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "4xx"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "5xx"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center"
+      },
+      "timeFrom": "5m",
+      "hideTimeOverride": true,
+      "id": 6
+    },
+    {
+      "type": "timeseries",
+      "title": "Input frame rate",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Frame rate of the video MediaLive receives, per channel.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "InputVideoFrameRate",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,Pipeline} MetricName=\"InputVideoFrameRate\" $channel', 'Average', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0
+          },
+          "unit": "suffix: fps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 7
+    },
+    {
+      "type": "timeseries",
+      "title": "Input problems",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Input loss and input errors are 1 for each 5 seconds in which input was missing or unusable. Continuity errors count transport stream damage on arrival. Compare continuity errors with SourceContinuityCounter on the MediaConnect dashboards: errors here but not there broke between MediaConnect and MediaLive.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "InputLossSeconds",
+          "statistic": "Maximum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,Pipeline} MetricName=\"InputLossSeconds\" $channel', 'Maximum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "ChannelInputErrorSeconds",
+          "statistic": "Maximum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,Pipeline} MetricName=\"ChannelInputErrorSeconds\" $channel', 'Maximum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "TsInputContinuityCounterErrors",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,Pipeline} MetricName=\"TsInputContinuityCounterErrors\" $channel', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "displayName",
+                "value": "Input loss"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "displayName",
+                "value": "Input errors"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "displayName",
+                "value": "Continuity errors"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 8
+    },
+    {
+      "type": "timeseries",
+      "title": "Encoder",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Frames dropped, the share of time quality was reduced to stay real-time, and the fill MediaLive inserted for missing input over the trailing minute: 60,000 ms is a whole minute of fill.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "DroppedFrames",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,Pipeline} MetricName=\"DroppedFrames\" $channel', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "SvqTime",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,Pipeline} MetricName=\"SvqTime\" $channel', 'Average', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "FillMsec",
+          "statistic": "Maximum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,Pipeline} MetricName=\"FillMsec\" $channel', 'Maximum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "displayName",
+                "value": "Dropped frames"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "displayName",
+                "value": "SVQ time"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "displayName",
+                "value": "Fill"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 9
+    },
+    {
+      "type": "timeseries",
+      "title": "Output frame rate",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Frame rate of each rendition MediaLive encodes. Every line should sit at 30.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "OutputVideoFrameRate",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,OutputName,Pipeline} MetricName=\"OutputVideoFrameRate\" $channel', 'Average', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.OutputName')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0
+          },
+          "unit": "suffix: fps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 10
+    },
+    {
+      "type": "timeseries",
+      "title": "Push to MediaPackage",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 21
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "HTTP errors pushing HLS segments to MediaPackage, and the outputs running in hls-to-mediapackage.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "Output4xxErrors",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,OutputGroupName,Pipeline} MetricName=\"Output4xxErrors\" $channel', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "Output5xxErrors",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,OutputGroupName,Pipeline} MetricName=\"Output5xxErrors\" $channel', 'Sum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "ActiveOutputs",
+          "statistic": "Minimum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,OutputGroupName,Pipeline} MetricName=\"ActiveOutputs\" $channel', 'Minimum', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "displayName",
+                "value": "4xx"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "displayName",
+                "value": "5xx"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "displayName",
+                "value": "Active outputs"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 11
+    },
+    {
+      "type": "timeseries",
+      "title": "Network",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 21
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Megabits per second into and out of the channel.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "NetworkIn",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,Pipeline} MetricName=\"NetworkIn\" $channel', 'Average', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "NetworkOut",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,ChannelId,Pipeline} MetricName=\"NetworkOut\" $channel', 'Average', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0
+          },
+          "unit": "Mbits"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "In"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Out"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 12
+    },
+    {
+      "type": "timeseries",
+      "title": "Audio",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Loudness and level of audio_main as MediaLive outputs it. A drop to the floor is silence.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "OutputAudioLevelLkfs",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,AudioDescriptionName,ChannelId,Pipeline} MetricName=\"OutputAudioLevelLkfs\" $channel', 'Average', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaLive",
+          "metricName": "OutputAudioLevelDbfs",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaLive,AudioDescriptionName,ChannelId,Pipeline} MetricName=\"OutputAudioLevelDbfs\" $channel', 'Average', 5))",
+          "period": "5",
+          "id": "",
+          "label": "${PROP('Dim.ChannelId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: LKFS"
+              },
+              {
+                "id": "displayName",
+                "value": "Loudness (LKFS)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: dBFS"
+              },
+              {
+                "id": "displayName",
+                "value": "Level (dBFS)"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 13
+    },
+    {
+      "type": "table",
+      "title": "Channel events",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "MediaLive channel state changes and alerts, from the EventBridge log group the observability module fills. Detail falls back to the whole event when it carries no message.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Logs",
+          "id": "",
+          "region": "default",
+          "logGroupNames": [
+            "/aws/events/live-sports-aws-demo"
+          ],
+          "expression": "filter `detail-type` like /^MediaLive /\n| fields replace(`detail-type`, \"MediaLive \", \"\") as Event, coalesce(detail.alarm_state, detail.state) as State, detail.alert_type as Alert, coalesce(detail.message, @message) as Detail\n| sort @timestamp desc\n| limit 50",
+          "statsGroups": []
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "@timestamp",
+                "Event",
+                "State",
+                "Alert",
+                "Detail"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "@timestamp": "Time"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "id": 14
+    }
+  ]
+}
