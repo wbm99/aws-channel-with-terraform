@@ -48,15 +48,15 @@ All in the `AWS/MediaLive` namespace. Sixteen, by the dimensions they carry:
 | Metric | Dimensions | Statistic | Why |
 |---|---|---|---|
 | `ActiveAlerts` | ChannelId, Pipeline | Maximum | MediaLive's own alarms; 0 is good. |
-| `InputLossSeconds` | ChannelId, Pipeline | Sum | Seconds with no input: the input-loss slate is on air. |
-| `ChannelInputErrorSeconds` | ChannelId, Pipeline | Sum | Seconds with input that could not be used. |
+| `InputLossSeconds` | ChannelId, Pipeline | Maximum | 1 in any 5 seconds with no input: the input-loss slate is on air. Not Sum (finding 5). |
+| `ChannelInputErrorSeconds` | ChannelId, Pipeline | Maximum | 1 in any 5 seconds with input that could not be used. Same shape as input loss, so the same statistic. |
 | `TsInputContinuityCounterErrors` | ChannelId, Pipeline | Sum | TS damage after the SRT leg. Compare with `SourceContinuityCounter` to tell which leg broke. |
 | `InputVideoFrameRate` | ChannelId, Pipeline | Average | Should match the source's frame rate. |
 | `DroppedFrames` | ChannelId, Pipeline | Sum | Frames the encoder dropped. |
-| `FillMsec` | ChannelId, Pipeline | Sum | Milliseconds of fill MediaLive inserted because input was late. |
+| `FillMsec` | ChannelId, Pipeline | Maximum | Fill MediaLive inserted for missing input over the trailing minute; 60,000 ms is a whole minute (finding 6). |
 | `SvqTime` | ChannelId, Pipeline | Average | Percentage of time MediaLive cut quality to stay real-time: the encoder is struggling. |
-| `NetworkIn` | ChannelId, Pipeline | Average | Bits per second in. |
-| `NetworkOut` | ChannelId, Pipeline | Average | Bits per second out. |
+| `NetworkIn` | ChannelId, Pipeline | Average | Megabits per second in (finding 7). |
+| `NetworkOut` | ChannelId, Pipeline | Average | Megabits per second out. |
 | `OutputVideoFrameRate` | ChannelId, OutputName, Pipeline | Average | One line per rendition (480p, 720p, 1080p); each should read 30. |
 | `ActiveOutputs` | ChannelId, OutputGroupName, Pipeline | Minimum | Outputs running in `hls-to-mediapackage`; Minimum shows a dip. |
 | `Output4xxErrors` | ChannelId, OutputGroupName, Pipeline | Sum | MediaPackage refused the push: usually credentials or path. |
@@ -81,9 +81,22 @@ the panels quote it.
    `OutputGroupName` `hls-to-mediapackage`; `AudioDescriptionName` `audio_main`.
 4. **Eight channel IDs** have metrics from the last two weeks; one is live at a time.
 
+Found while rendering the dashboard against 2026-10-09's data at a 60-second period (a throwaway copy; 5-second data
+older than 3 hours is gone):
+
+5. **`InputLossSeconds` goes negative.** Each per-second sample is 1 while input is lost, then one large negative
+   sample arrives when input returns: -241.22 at 18:36 and -199.27 at 19:25 on channel `6482454`, -799.02 on
+   `7761634`. A sum across a recovery cancels most of the loss and drew the graph's axis down to -3 minutes. The
+   maximum of a bucket is reliable: 1 if input was lost in it. The tile therefore says *lost* or *none* for the last 5
+   minutes; a count of seconds lost cannot be read from this metric. No other metric checked went negative.
+6. **`FillMsec` is a trailing-minute value**, not a per-second amount: it reads 60,000 for every second of a full
+   input loss, so a 60-second sum read 3,600,000 (an hour). Maximum reads 0 to 60,000 ms.
+7. **`NetworkIn` and `NetworkOut` are stored in Megabits/Second** (`get-metric-statistics` returns the unit); with
+   Grafana's `bps` a 10.8 Mbps output showed as "10.8 b/s".
+8. **Grafana substitutes the variable literally:** with *All* the browser sent `... MetricName="NetworkIn" ChannelId`,
+   with one picked `... 6482454`. The drop-down listed *All* and the eight IDs.
+
 Not verified:
-- **How the drop-down's value reaches a search expression**, *All* included. Settled first while implementing (see
-  *Finding the channel*).
 - **MediaLive EventBridge field names** (`detail.state`, `detail.alert_type`, `detail.message`): the events log group
   is destroyed with the stack, so no event could be read today. The table falls back to the raw detail.
 - **How a search is billed**, as for MediaConnect.
@@ -92,11 +105,12 @@ Not verified:
 
 GetMetricData costs 0.01 USD per 1,000 metrics requested, only while the dashboard is open.
 
-- 16 metric queries (tiles that repeat a graph reuse it through the *Dashboard* data source) × 720 refreshes an hour
-  = 11,520 metrics an hour: about **0.12 USD/h** if only the live channel counts.
+- 22 metric queries × 720 refreshes an hour = 15,840 metrics an hour: about **0.16 USD/h** if only the live channel
+  counts. The sixteen metrics, plus six that a tile repeats: a tile reads the last 2 or 5 minutes, and a panel reusing
+  a graph through the *Dashboard* data source gets the graph's whole range, as on *MediaConnect source*.
 - With *All* and every matched channel counting (8 channels; `OutputVideoFrameRate` matches three series each):
-  about 104,000 an hour, up to about **1.04 USD/h**. Picking one channel in the drop-down brings it back to the
-  lower figure.
+  192 series a refresh, about 138,000 an hour, up to about **1.38 USD/h**. Picking one channel in the drop-down
+  brings it back to the lower figure.
 - The *Channel events* table adds a Logs Insights query over kilobytes: rounds to nothing.
 
 This is the most expensive dashboard in the folder if the higher figure holds; the README says to close it, and to
@@ -136,11 +150,13 @@ deploy. Hence a variable:
 - With one channel picked, the term restricts to it; with *All*, it matches every channel and `REMOVE_EMPTY` keeps the
   one with data, as it keeps the live flow on the MediaConnect dashboards.
 
-The exact `<channel term>`, and the variable's custom *All* value, depend on how Grafana 13's CloudWatch plugin
-interpolates a variable into a search expression. **The first implementation step settles it** with a throwaway
-query through the compose Grafana against the author's account (a few GetMetricData calls): one picked ID must return
-only that channel; *All* must return the live channel with the others removed. The result is written back into this
-section.
+**Settled 2026-10-10** with GetMetricData on the author's account (60-second period, 2026-10-09 17:00 to 22:00 UTC):
+
+- `<channel term>` is the bare `$channel`. A channel ID as a bare search term returned only that channel (94 points),
+  the same as `ChannelId="6482454"`; on `OutputVideoFrameRate` it returned the three renditions of that channel.
+- *All* has the custom value `ChannelId`, a dimension name every series carries: it matched all eight channels, and
+  `REMOVE_EMPTY` kept the two with data in the window. A custom *All* value is substituted literally, and it also
+  keeps *All* working while the list is still empty (no credentials yet, or no channel yet).
 
 This scopes to the account and region, not to the project: another MediaLive channel in the same region would show
 under *All*. The demo assumes there is none, since one would also be billing about 1.20 USD/h.
@@ -151,16 +167,16 @@ under *All*. The demo assumes there is none, since one would also be billing abo
   `5s`, timezone UTC, not editable, shared crosshair; links to `mediaconnect-source` and `mediaconnect-detail`
   (`keepTime`).
 - Every metric query: data source `cloudwatch`, region default, code mode, `statistic` set (the plugin answers 500
-  without it), period 5. Legends name the series by `OutputName` or `AudioDescriptionName` where there is one, else by
-  channel ID.
+  without it), period 5. Its label is the rendition (`OutputName`) on *Output frame rate*, else the channel ID; graphs
+  with several metrics name each by its refId, as the MediaConnect dashboards do.
 - **Tiles**, as on *MediaConnect source*: "now" tiles read the last 2 minutes and show the last value; "last 5 min"
   tiles show the total; neutral without data; red on the threshold given.
   1. **Active alerts** (now), red above 0.
   2. **Input frame rate** (now), fps.
-  3. **Input loss, last 5 min**, seconds, red above 0.
+  3. **Input loss, last 5 min**: *lost* (red) if input was missing at any point, else *none* (green).
   4. **Dropped frames, last 5 min**, red above 0.
   5. **SVQ time** (now), %, red above 0.
-  6. **Push errors, last 5 min**: 4xx + 5xx, red above 0.
+  6. **Push errors, last 5 min**: two boxes, 4xx and 5xx, red above 0.
 - **Rows**, in signal order:
   - **Input:** *Input frame rate* (graph); *Input problems*: input loss seconds, input error seconds, continuity counter
     errors.
@@ -170,7 +186,8 @@ under *All*. The demo assumes there is none, since one would also be billing abo
   - **Network:** in and out, in Mbps.
   - **Audio:** LKFS and dBFS of `audio_main`.
   - **Channel events** (table): the events log group, `detail-type` starting with `MediaLive`, newest first, 50 rows;
-    columns Event, State, Detail with `coalesce()` over the field names above and the raw detail as the last resort.
+    columns Event, State, Alert, Detail over the field names livectl's log formatter reads, with the whole event as
+    Detail's last resort.
 
 ## Testing
 

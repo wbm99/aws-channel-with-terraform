@@ -280,11 +280,18 @@ the new outputs exist), open `just ui` and check:
 24. **Detail dashboard:** the link in the overview's header opens it with the same time range; the Priority 1 tiles
     read 0 on the test source, *SRT recovery* moves when *Packet loss* does, and opening the Priority 2 row draws it.
 25. Stop and start the test source: *Source events* shows an alert *raised*, then *cleared*, and *Up for* restarts.
+26. **MediaLive dashboard:** on air with the test source, the tiles fill within about 30 s and *Output frame rate* has
+    three lines (480p, 720p, 1080p), each at 30.
+27. Stop the source: *Input loss* rises, the input frame rate drops, and *Channel events* shows the alert. Check the
+    *State*, *Alert* and *Detail* columns are filled: the MediaLive event field names are not yet checked against a
+    real event.
+28. The *Channel* drop-down lists old channels too; picking the live one shows the same values as *All*.
+29. The next day, Cost Explorer's GetMetricData charge for the hours the MediaLive dashboard was open.
 
 ## Grafana
 
-A local Grafana shows the MediaConnect source at a 5-second resolution, read straight from CloudWatch (MediaConnect
-publishes its metrics every second; CloudWatch keeps that resolution for 3 hours).
+A local Grafana shows the MediaConnect source and the MediaLive channel at a 5-second resolution, read straight from
+CloudWatch (both services publish their metrics every second; CloudWatch keeps that resolution for 3 hours).
 
 - **Starting it:** `docker compose up` starts it beside the console, and `just ui` starts it before the console and
   stops it when the console exits. Without Docker, `just ui` prints `Grafana skipped: …` and starts the console
@@ -292,7 +299,7 @@ publishes its metrics every second; CloudWatch keeps that resolution for 3 hours
 - **Opening it:** <http://127.0.0.1:3000> (`GRAFANA_PORT` in `.env` moves it; it is always bound to 127.0.0.1). Log in
   as `admin` / `admin`; Grafana then asks for a new password and keeps it in the `grafana-data` volume. To skip that,
   set `GRAFANA_ADMIN_PASSWORD` in `.env` before Grafana first starts (it is read only when the volume is created).
-- **Two dashboards,** in the *Live pipeline* folder, each linking to the other and refreshing every 5 s.
+- **Three dashboards,** in the *Live pipeline* folder, linked to each other and refreshing every 5 s.
 
   *MediaConnect source* is the overview, the one to keep open:
 
@@ -318,11 +325,33 @@ publishes its metrics every second; CloudWatch keeps that resolution for 3 hours
   - **TR 101 290 Priority 2** (PCR, PCR accuracy, PTS, CRC: the encoder's timing) in a collapsed row; Grafana queries
     it only once opened.
   - *Source events*, as on the overview.
-- **It finds the flow by itself:** each query is a CloudWatch search for this project's flows, wrapped in
-  `REMOVE_EMPTY`, so nothing needs editing after a redeploy.
+
+  *MediaLive channel* follows the signal through the encoder, top to bottom:
+
+  | Tile | Metric | Read it as |
+  |---|---|---|
+  | Active alerts | `ActiveAlerts` | Alerts MediaLive has raised and not cleared; *Channel events* names them. Red above 0. |
+  | Input frame rate | `InputVideoFrameRate` | The video MediaLive receives from MediaConnect. Should match the source. |
+  | Input loss, last 5 min | `InputLossSeconds` | *lost* if input was missing at any point: the input-loss slate was on air. Not a count of seconds: the metric subtracts most of a loss in one negative sample when input returns. |
+  | Dropped frames, last 5 min | `DroppedFrames` | Frames the encoder dropped. Red above 0. |
+  | SVQ time | `SvqTime` | Share of time MediaLive cut quality to keep up in real time: the encoder is struggling. Red from 1%. |
+  | Push errors, last 5 min | `Output4xxErrors`, `Output5xxErrors` | Pushing HLS to MediaPackage. 4xx: refused (credentials or path); 5xx: MediaPackage failed. |
+
+  Below them: *Input problems* (input loss and unusable input, 1 for each 5 seconds affected, and continuity errors:
+  compare with the MediaConnect continuity counter to tell which leg broke), *Encoder* (dropped frames, SVQ time, and
+  the fill inserted for missing input over the last minute, 60,000 ms at most),
+  *Output frame rate* per rendition, *Push to MediaPackage*, *Network* in and out, *Audio* loudness and level of
+  `audio_main` (silence shows at once), and *Channel events* from the same log group.
+- **It finds the flow and the channel by itself:** each MediaConnect query is a CloudWatch search for this project's
+  flows, wrapped in `REMOVE_EMPTY`, so nothing needs editing after a redeploy. A MediaLive channel ID is a number with
+  no name in it, so the MediaLive dashboard has a *Channel* drop-down instead. Its default, *All*, searches every
+  channel in the region and `REMOVE_EMPTY` keeps the one with data, the running one. The list also holds destroyed
+  channels from the last two weeks; pick one to look back at an earlier run. Another MediaLive channel in the same
+  region would show under *All* too.
 - **Cost:** Grafana queries CloudWatch only while a dashboard is open: about 0.08 to 0.65 USD per hour for the
-  overview, about as much again for the detail (see [docs/cost-estimate.md](docs/cost-estimate.md)). Close the tabs
-  when you are not watching them.
+  overview, about as much again for the detail, and about 0.16 to 1.38 for the MediaLive dashboard, the higher figure
+  only with *All* selected (see [docs/cost-estimate.md](docs/cost-estimate.md)). Close the tabs when you are not
+  watching them, and pick the channel when watching the MediaLive one for long.
 - **No event markers on the graphs:** Grafana's CloudWatch annotations read alarm history only, not log queries, so
   the events are a table instead. Disconnections, from the metrics, are the red bars on the *Bitrate* graph.
 - **If it does not start:** port 3000 is often taken (Node dev servers, another Grafana); `docker compose up` then
@@ -353,7 +382,7 @@ modules/
   guardrails/       AWS Budgets alerts
   observability/    EventBridge rule and log group for MediaLive and MediaConnect events
 envs/demo/          wires the modules together
-observability/      Grafana: the CloudWatch data source and the MediaConnect source dashboard
+observability/      Grafana: the CloudWatch data source, the MediaConnect and MediaLive dashboards
 tools/livectl/      Python CLI and the browser console (site/), with tests in tools/tests
 source/             FFmpeg SRT source script
 scripts/            price lookup for the cost estimate
@@ -381,7 +410,7 @@ comes out private, make it public in the package's *Package settings*, or `docke
 While the demo runs, the priced items come to about **1.74 USD per hour** (about 0.43 for a 15-minute demo) for a single-pipeline
 channel. When nothing is running, cost is close to zero. Details, assumptions and what could not be priced are in
 [docs/cost-estimate.md](docs/cost-estimate.md). A $25 monthly budget with alerts lives in `bootstrap/`. An open Grafana
-dashboard adds CloudWatch queries, about 0.08 to 0.65 USD per hour per dashboard, only while it is open.
+dashboard adds CloudWatch queries, about 0.08 to 1.38 USD per hour per dashboard, only while it is open.
 
 ## Lessons learned
 
@@ -402,6 +431,11 @@ dashboard adds CloudWatch queries, about 0.08 to 0.65 USD per hour per dashboard
 - **Metrics are for trends, events are for state.** The console first read "is the source connected?" from the
   `SourceConnected` metric, so a stopped source still showed as connected minutes later. MediaConnect's Source Health
   event had said so within a second.
+- **Read a metric's raw samples before choosing its statistic.** The MediaLive dashboard first summed
+  `InputLossSeconds` and drew an axis down to -3 minutes: the metric adds 1 a second while input is lost, then one
+  large negative sample when it returns. `FillMsec` is a trailing-minute value, so its sum read an hour, and
+  `NetworkIn` is in megabits, so `bps` showed "10 b/s". The offline tests had passed all three; one render against real
+  data caught them.
 - **IAM is eventually consistent, so dependencies must say so.** A rehearsal from scratch failed with a 403 because the MediaLive input was created before its role's policy existed. The role's `role_arn` output now depends on the policy. Earlier runs had only been lucky.
 
 ## Known limitations
