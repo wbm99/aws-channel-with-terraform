@@ -536,3 +536,8 @@ dashboard adds CloudWatch queries, about 0.005 to 1.38 USD per hour per dashboar
 - MediaLive creates the `ElementalMediaLive` log group itself, so it outlives `terraform destroy`. The leftover scan
   lists it as information (log storage only, not billed by the hour).
 - `livectl check-clean` covers the media resources and CloudFront (flows, channels, inputs, channel groups, distributions). It does not look at secrets, IAM roles or S3 buckets; `terraform destroy` removes those, and the README's teardown ends with it.
+- Possible drift on MediaLive, seen once (2026-10-11, about 15 minutes after a fresh deploy, while on air): a plan
+  wanted to set the running channel's `log_level` from `DISABLED` back to `INFO` and to add the default tags to the
+  input. Not investigated: whether it recurs on every plan, whether an apply off air clears it, or why AWS reads it
+  back that way. It matters only for a deploy while on air, which the console refuses anyway; it is why switching the
+  ad duration mode cannot be applied live.
