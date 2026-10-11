@@ -108,3 +108,22 @@ run "exposes_the_names_the_console_reads" {
     error_message = "The HLS endpoint is named <name>-hls."
   }
 }
+
+run "turns_splice_inserts_into_dateranges" {
+  command = plan
+
+  assert {
+    condition     = awscc_mediapackagev2_origin_endpoint.hls.segment.scte.scte_filter == tolist(["SPLICE_INSERT"])
+    error_message = "Splice inserts must be kept as ad markers, or MediaPackage drops them."
+  }
+
+  assert {
+    condition     = awscc_mediapackagev2_origin_endpoint.hls.hls_manifests[0].scte_hls.ad_marker_hls == "DATERANGE"
+    error_message = "Breaks must appear in the HLS manifest as EXT-X-DATERANGE."
+  }
+
+  assert {
+    condition     = awscc_mediapackagev2_origin_endpoint.hls.hls_manifests[0].program_date_time_interval_seconds == 6
+    error_message = "EXT-X-PROGRAM-DATE-TIME is required beside EXT-X-DATERANGE and lets the player place a break on its timeline."
+  }
+}

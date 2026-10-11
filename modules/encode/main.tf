@@ -81,6 +81,8 @@ resource "aws_medialive_channel" "this" {
       output_group_settings {
         hls_group_settings {
           segment_length = 6
+          # Marks SCTE-35 breaks in the manifests MediaPackage ingests, beside the markers carried in the TS.
+          ad_markers = ["ELEMENTAL_SCTE35"]
 
           destination {
             destination_ref_id = "mediapackage-v2"
@@ -111,7 +113,10 @@ resource "aws_medialive_channel" "this" {
 
               hls_settings {
                 standard_hls_settings {
-                  m3u8_settings {}
+                  m3u8_settings {
+                    # Without this a splice insert cued on the channel never leaves MediaLive.
+                    scte35_behavior = "PASSTHROUGH"
+                  }
                 }
               }
             }

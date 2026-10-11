@@ -32,9 +32,22 @@ resource "awscc_mediapackagev2_origin_endpoint" "hls" {
   origin_endpoint_name = "${var.name}-hls"
   container_type       = "TS"
 
+  # Keep splice inserts as ad markers; without a filter MediaPackage drops SCTE-35.
+  segment = {
+    scte = {
+      scte_filter = ["SPLICE_INSERT"]
+    }
+  }
+
   hls_manifests = [
     {
       manifest_name = "index"
+      # Breaks appear as EXT-X-DATERANGE. HLS requires EXT-X-PROGRAM-DATE-TIME beside them, and MediaPackage writes
+      # it only when an interval is set; the player uses it to place a break on its timeline.
+      scte_hls = {
+        ad_marker_hls = "DATERANGE"
+      }
+      program_date_time_interval_seconds = 6
     }
   ]
 }

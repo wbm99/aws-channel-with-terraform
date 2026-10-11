@@ -110,3 +110,20 @@ run "rejects_an_unknown_log_level" {
 
   expect_failures = [var.log_level]
 }
+
+run "passes_scte35_through_to_mediapackage" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      for output in aws_medialive_channel.this.encoder_settings[0].output_groups[0].outputs :
+      output.output_settings[0].hls_output_settings[0].hls_settings[0].standard_hls_settings[0].m3u8_settings[0].scte35_behavior == "PASSTHROUGH"
+    ])
+    error_message = "Every rendition must carry SCTE-35 in its TS segments, or a cued break never leaves MediaLive."
+  }
+
+  assert {
+    condition     = aws_medialive_channel.this.encoder_settings[0].output_groups[0].output_group_settings[0].hls_group_settings[0].ad_markers == tolist(["ELEMENTAL_SCTE35"])
+    error_message = "The HLS group must mark SCTE-35 breaks in the manifests MediaPackage ingests."
+  }
+}
