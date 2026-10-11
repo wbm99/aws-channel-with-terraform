@@ -69,8 +69,8 @@ demo does not use.
 
 ## While a Grafana dashboard is open
 
-Grafana queries CloudWatch only while a dashboard is open in a browser, every 5 seconds (720 times an hour), or every
-minute (60 times an hour) on *MediaPackage origin*.
+Grafana queries CloudWatch only while a dashboard is open in a browser, every 5 seconds (720 times an hour);
+the MediaPackage and CloudFront dashboards every minute (60 times an hour), since both services publish per minute.
 GetMetricData costs 0.01 USD per 1,000 metrics requested. Panels that repeat another panel's data (the
 *Disconnections* tile, the Priority 1 graph) reuse it through Grafana's *Dashboard* data source and add no query.
 
@@ -82,6 +82,7 @@ GetMetricData costs 0.01 USD per 1,000 metrics requested. Panels that repeat ano
 | MediaLive channel, *All* selected | 22 | 15,840 | about 0.16 | about 1.38 |
 | MediaLive channel, one channel picked | 22 | 15,840 | about 0.16 | about 0.16 |
 | MediaPackage origin (about 30 series a refresh) | 18 | about 1,800 | about 0.02 | about 0.02 |
+| CloudFront distribution (refreshes every minute) | 8 | 480 | about 0.005 | about 0.04 |
 
 Each MediaConnect and MediaLive dashboard also runs a CloudWatch Logs Insights query for its *Source events* table, billed at 0.005 USD per GB
 scanned; the events log group holds kilobytes, so this rounds to nothing (not checked on a bill).

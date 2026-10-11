@@ -23,7 +23,9 @@ metrics only (in and out); it has no health metrics like MediaLive's, so the das
 The author, running and writing about the pipeline, and a reviewer running the stack on their own account.
 
 ## Goals
-1. A **MediaPackage origin** dashboard in the *Live pipeline* folder, linked both ways with *MediaLive channel*.
+1. A **MediaPackage origin** dashboard in the *Live pipeline* folder, linked both ways with every other dashboard
+   there. (Designed as a link to *MediaLive channel* only; the CloudFront dashboard, merged first, made every dashboard
+   link to every other, and this one joined that when the branches met.)
 2. It refreshes every minute, on 60-second CloudWatch data: the publishing interval the user guide guarantees.
 3. It needs no editing after a redeploy, and no drop-down: the channel group, channel and endpoint names are fixed.
 4. A request that reaches the origin without CloudFront's authorization header shows red.
@@ -156,8 +158,8 @@ the query with metric math (`... * 8 / 60 / 1000000`), unit Mbps.
 ## The dashboard
 
 - `uid: mediapackage-origin`, title *MediaPackage origin*, tags `live-sports-aws`, `mediapackage`; last 1 hour, refresh
-  `1m`, timezone UTC, not editable, shared crosshair; links to `medialive-channel` (`keepTime`), and
-  `medialive-channel` links back.
+  `1m`, timezone UTC, not editable, shared crosshair; links (`keepTime`), in signal order, to `mediaconnect-source`,
+  `mediaconnect-detail`, `medialive-channel` and `cloudfront-distribution`, and each of them links back.
 - Every metric query: data source `cloudwatch`, region default, code mode, `statistic` set, period 60. Series are
   labelled by the dimension that varies (`StatusCode`, `RequestType`, `CDNAuthorizationStatusDetails`).
 - **Tiles**, neutral without data. A status-class series exists only once a request in that class has happened
@@ -182,7 +184,7 @@ the query with metric math (`... * 8 / 60 / 1000000`), unit Mbps.
 ## Testing
 
 **Offline, `test_grafana_files.py`:**
-- identity: uid, title, refresh `1m`, UTC, last 1 hour, link to `medialive-channel`; `medialive-channel` links back;
+- identity: uid, title, refresh `1m`, UTC, last 1 hour, links to the four other dashboards, and each links back;
 - every metric query is `REMOVE_EMPTY(SEARCH(...))` with period 60, data source `cloudwatch`, its statistic, a
   dimension set from the table and `ChannelGroup="live-sports-aws-demo"`;
 - together the queries read every metric, dimension set and statistic in the table;

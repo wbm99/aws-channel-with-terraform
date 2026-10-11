@@ -287,23 +287,27 @@ the new outputs exist), open `just ui` and check:
     real event.
 28. The *Channel* drop-down lists old channels too; picking the live one shows the same values as *All*.
 29. The next day, Cost Explorer's GetMetricData charge for the hours the MediaLive dashboard was open.
-30. **MediaPackage dashboard:** on air with the test source, the ingest tiles fill within about 2 minutes and
+30. **CloudFront dashboard:** with exactly one player open, *≈ Viewers* reads about 1 once the first minutes are in. If
+    not, note *Requests a minute* and make it the default of *Requests per viewer a minute*.
+31. Open a second player (another browser): the estimate roughly doubles.
+32. Note the delay between opening the player and the first *Requests* point.
+33. **MediaPackage dashboard:** on air with the test source, the ingest tiles fill within about 2 minutes and
     *Ingest bitrate* reads about 9.9 Mbps.
-31. Play through CloudFront: the *Origin to CloudFront* graphs fill and *Requests by authorization* shows
+34. Play through CloudFront: the *Origin to CloudFront* graphs fill and *Requests by authorization* shows
     `HeaderSecretMatched`.
-32. `curl` the origin endpoint URL directly: a 403, and *Direct origin requests* turns red within about 2 minutes.
+35. `curl` the origin endpoint URL directly: a 403, and *Direct origin requests* turns red within about 2 minutes.
     Note whether *Origin errors* counts it too: whether a refused request is a 4xx in that metric is not established.
-33. Stop the source: the pushes stop. Note what *Input active* shows (*inactive*, or —): `ActiveInput` is not
+36. Stop the source: the pushes stop. Note what *Input active* shows (*inactive*, or —): `ActiveInput` is not
     in the MediaPackage user guide.
-34. Within 3 hours of a session, query a MediaPackage metric at a 5-second period and note whether it returns data;
+37. Within 3 hours of a session, query a MediaPackage metric at a 5-second period and note whether it returns data;
     if it does, a finer dashboard is possible.
-35. The next day, Cost Explorer's GetMetricData charge for the hours the MediaPackage dashboard was open.
+38. The next day, Cost Explorer's GetMetricData charge for the hours the MediaPackage dashboard was open.
 
 ## Grafana
 
 A local Grafana shows the MediaConnect source and the MediaLive channel at a 5-second resolution, read straight from
 CloudWatch (both services publish their metrics every second; CloudWatch keeps that resolution for 3 hours), and the
-MediaPackage origin at one minute.
+MediaPackage origin and the CloudFront distribution at their 1-minute resolution.
 
 - **Starting it:** `docker compose up` starts it beside the console, and `just ui` starts it before the console and
   stops it when the console exits. Without Docker, `just ui` prints `Grafana skipped: …` and starts the console
@@ -311,9 +315,8 @@ MediaPackage origin at one minute.
 - **Opening it:** <http://127.0.0.1:3000> (`GRAFANA_PORT` in `.env` moves it; it is always bound to 127.0.0.1). Log in
   as `admin` / `admin`; Grafana then asks for a new password and keeps it in the `grafana-data` volume. To skip that,
   set `GRAFANA_ADMIN_PASSWORD` in `.env` before Grafana first starts (it is read only when the volume is created).
-- **Four dashboards,** in the *Live pipeline* folder, refreshing every 5 s, except *MediaPackage origin*, every
-  minute. The MediaConnect and MediaLive ones link to each other; *MediaPackage origin* links to *MediaLive channel*
-  and back.
+- **Five dashboards,** in the *Live pipeline* folder, linked to each other and refreshing every 5 s (MediaPackage's
+  and CloudFront's every minute).
 
   *MediaConnect source* is the overview, the one to keep open:
 
@@ -376,16 +379,33 @@ MediaPackage origin at one minute.
   *Input active*, ingest bitrate, push response time), *Origin to CloudFront* (requests by type and status, egress
   bitrate, response time) and *CDN authorization* (requests by result, `HeaderSecretMatched` green, every refusal
   red). The origin rows are empty without viewers: no request, no metric.
+
+  *CloudFront distribution* shows what the CDN delivers, from CloudFront's free default metrics:
+
+  | Tile | Metric | Read it as |
+  |---|---|---|
+  | ≈ Viewers | `Requests` | An **estimate**: requests a minute ÷ the *Requests per viewer a minute* field (default 60: one 1080p player made about 60 a minute on 2026-10-09). It drifts when players change rung or stall. |
+  | Requests a minute | `Requests` | Playlists and segments CloudFront answered in the last complete minute. |
+  | Delivered | `BytesDownloaded` | What CloudFront sent to viewers, as bits per second. |
+  | Error rate | `TotalErrorRate` | Share of requests answered 4xx or 5xx. Red from 1%. |
+
+  Graphs below: the viewer estimate, delivered bits per second, and 4xx and 5xx rates. Nothing in AWS counts HLS
+  viewers, and two better sources were turned down: CloudFront's additional metrics (cache hit rate, origin latency)
+  are charged per metric per month and every deploy creates a new distribution, and access logs arrive up to an hour
+  late, reliably only about four hours after logging is enabled.
 - **It finds the flow and the channel by itself:** each MediaConnect query is a CloudWatch search for this project's
   flows, wrapped in `REMOVE_EMPTY`, so nothing needs editing after a redeploy. A MediaLive channel ID is a number with
   no name in it, so the MediaLive dashboard has a *Channel* drop-down instead. Its default, *All*, searches every
   channel in the region and `REMOVE_EMPTY` keeps the one with data, the running one. The list also holds destroyed
   channels from the last two weeks; pick one to look back at an earlier run. Another MediaLive channel in the same
   region would show under *All* too. MediaPackage's channel group, channel and endpoint keep their names across
-  deploys, so its dashboard searches on the name and needs no drop-down.
+  deploys, so its dashboard searches on the name and needs no drop-down. The CloudFront dashboard has a *Distribution*
+  drop-down that works the same way as MediaLive's; CloudFront's metrics exist only in us-east-1, so its queries say
+  so whatever region the data source uses.
 - **Cost:** Grafana queries CloudWatch only while a dashboard is open: about 0.08 to 0.65 USD per hour for the
   overview, about as much again for the detail, about 0.16 to 1.38 for the MediaLive dashboard, the higher figure
-  only with *All* selected, and about 0.02 for the MediaPackage one (see [docs/cost-estimate.md](docs/cost-estimate.md)). Close the tabs when you are not
+  only with *All* selected, about 0.02 for the MediaPackage one and about 0.005 to 0.04 for the CloudFront one, both
+  refreshing once a minute (see [docs/cost-estimate.md](docs/cost-estimate.md)). Close the tabs when you are not
   watching them, and pick the channel when watching the MediaLive one for long.
 - **No event markers on the graphs:** Grafana's CloudWatch annotations read alarm history only, not log queries, so
   the events are a table instead. Disconnections, from the metrics, are the red bars on the *Bitrate* graph.
@@ -417,7 +437,7 @@ modules/
   guardrails/       AWS Budgets alerts
   observability/    EventBridge rule and log group for MediaLive and MediaConnect events
 envs/demo/          wires the modules together
-observability/      Grafana: the CloudWatch data source, the MediaConnect and MediaLive dashboards
+observability/      Grafana: the CloudWatch data source, the MediaConnect, MediaLive and CloudFront dashboards
 tools/livectl/      Python CLI and the browser console (site/), with tests in tools/tests
 source/             FFmpeg SRT source script
 scripts/            price lookup for the cost estimate
@@ -445,7 +465,7 @@ comes out private, make it public in the package's *Package settings*, or `docke
 While the demo runs, the priced items come to about **1.74 USD per hour** (about 0.43 for a 15-minute demo) for a single-pipeline
 channel. When nothing is running, cost is close to zero. Details, assumptions and what could not be priced are in
 [docs/cost-estimate.md](docs/cost-estimate.md). A $25 monthly budget with alerts lives in `bootstrap/`. An open Grafana
-dashboard adds CloudWatch queries, about 0.08 to 1.38 USD per hour per dashboard, only while it is open.
+dashboard adds CloudWatch queries, about 0.005 to 1.38 USD per hour per dashboard, only while it is open.
 
 ## Lessons learned
 

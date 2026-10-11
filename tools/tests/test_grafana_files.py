@@ -62,8 +62,9 @@ def test_the_two_dashboards_identity_refresh_and_links():
         d = dashboard(uid)
         assert (d["uid"], d["title"], d["refresh"], d["timezone"]) == (uid, title, "5s", "utc")
         assert d["time"] == {"from": "now-15m", "to": "now"}
-        assert [(link["url"], link["keepTime"]) for link in d["links"]] == [(f"/d/{other}", True),
-                                                                            ("/d/medialive-channel", True)]
+        assert [(link["url"], link["keepTime"]) for link in d["links"]] == [
+            (f"/d/{other}", True), ("/d/medialive-channel", True), ("/d/mediapackage-origin", True),
+            ("/d/cloudfront-distribution", True)]
 
 
 def test_every_metric_query_searches_this_projects_flows_every_5_seconds():
@@ -288,7 +289,8 @@ def test_the_medialive_dashboard_identity_and_links():
     assert d["time"] == {"from": "now-15m", "to": "now"}
     assert (d["editable"], d["graphTooltip"], d["tags"]) == (False, 1, ["live-sports-aws", "medialive"])
     assert [(link["url"], link["keepTime"]) for link in d["links"]] == [
-        (f"/d/{OVERVIEW}", True), (f"/d/{DETAIL}", True), ("/d/mediapackage-origin", True)]
+        (f"/d/{OVERVIEW}", True), (f"/d/{DETAIL}", True), ("/d/mediapackage-origin", True),
+        ("/d/cloudfront-distribution", True)]
 
 
 def test_the_channel_drop_down_defaults_to_all_which_searches_every_channel():
@@ -471,7 +473,8 @@ def test_the_mediapackage_dashboard_identity_and_links():
     assert (d["editable"], d["graphTooltip"], d["tags"]) == (False, 1, ["live-sports-aws", "mediapackage"])
     # No drop-down: the channel group, channel and endpoint keep their names across deploys.
     assert d.get("templating", {}).get("list", []) == []
-    assert [(link["url"], link["keepTime"]) for link in d["links"]] == [(f"/d/{ML}", True)]
+    assert [(link["url"], link["keepTime"]) for link in d["links"]] == [
+        (f"/d/{OVERVIEW}", True), (f"/d/{DETAIL}", True), (f"/d/{ML}", True), ("/d/cloudfront-distribution", True)]
 
 
 def test_every_mediapackage_query_searches_this_projects_origin_every_minute():
@@ -624,3 +627,94 @@ def test_no_mediapackage_query_reads_a_left_out_metric():
     for target in metric_targets(MP):
         for word in ("IngestEndpoint", "MQCS", "Multiview"):
             assert word not in target["expression"], (word, target["expression"])
+
+
+
+# --- CloudFront distribution ------------------------------------------------------------------------------------
+
+CF = "cloudfront-distribution"
+# The free default metrics only: the additional ones are billed per distribution, and every deploy creates one.
+CF_METRICS = {"Requests": "Sum", "BytesDownloaded": "Sum", "TotalErrorRate": "Average", "4xxErrorRate": "Average",
+              "5xxErrorRate": "Average"}
+CF_SEARCH = "REMOVE_EMPTY(SEARCH('{AWS/CloudFront,DistributionId,Region} MetricName=\"%s\" $distribution', '%s', 60))"
+
+
+def test_the_cloudfront_dashboard_identity_and_links():
+    d = dashboard(CF)
+    # CloudFront publishes once a minute: a faster refresh would buy the same points again.
+    assert (d["uid"], d["title"], d["refresh"], d["timezone"]) == (CF, "CloudFront distribution", "1m", "utc")
+    assert d["time"] == {"from": "now-1h", "to": "now"}
+    assert (d["editable"], d["graphTooltip"], d["tags"]) == (False, 1, ["live-sports-aws", "cloudfront"])
+    assert [(link["url"], link["keepTime"]) for link in d["links"]] == [
+        (f"/d/{OVERVIEW}", True), (f"/d/{DETAIL}", True), (f"/d/{ML}", True), ("/d/mediapackage-origin", True)]
+
+
+def test_the_cloudfront_variables():
+    distribution, per_viewer = dashboard(CF)["templating"]["list"]
+    assert (distribution["name"], distribution["type"], distribution["datasource"]["uid"]) == (
+        "distribution", "query", "cloudwatch")
+    query = distribution["query"]
+    assert (query["queryType"], query["namespace"], query["metricName"], query["dimensionKey"], query["region"]) == (
+        "dimensionValues", "AWS/CloudFront", "Requests", "DistributionId", "us-east-1")
+    assert (distribution["includeAll"], distribution["allValue"], distribution["multi"], distribution["refresh"]) == (
+        True, "DistributionId", False, 1)
+    assert distribution["current"]["value"] == "$__all"
+    # One player made about 60 requests a minute on 2026-10-09 (5.6 Mbps: one 1080p stream). Recalibrated live.
+    assert (per_viewer["name"], per_viewer["type"], per_viewer["query"]) == ("requests_per_viewer", "textbox", "60")
+
+
+def test_every_cloudfront_query_reads_us_east_1_every_minute():
+    # CloudFront's metrics exist only in us-east-1, whatever region the data source defaults to.
+    for target in metric_targets(CF):
+        metric = target["metricName"]
+        statistic = CF_METRICS[metric]
+        assert (target["region"], target["namespace"], target["period"]) == ("us-east-1", "AWS/CloudFront", "60")
+        assert target["statistic"] == statistic and target["datasource"]["uid"] == "cloudwatch"
+        assert target["expression"] in (CF_SEARCH % (metric, statistic),
+                                        CF_SEARCH % (metric, statistic) + " / $requests_per_viewer",
+                                        CF_SEARCH % (metric, statistic) + " * 8 / 60"), target["expression"]
+        assert target["label"] == "${PROP('Dim.DistributionId')}"
+
+
+def test_the_cloudfront_dashboard_reads_the_free_metrics_only():
+    read = [t["metricName"] for t in metric_targets(CF)]
+    assert set(read) == set(CF_METRICS) and "BytesUploaded" not in read
+    assert len(read) == 8
+
+
+def test_the_viewer_estimate_divides_requests_and_delivered_is_bits_per_second():
+    for title in ("≈ Viewers", "Viewers (estimate)"):
+        estimate = panel(title, CF)["targets"][0]
+        assert estimate["metricName"] == "Requests" and estimate["expression"].endswith(" / $requests_per_viewer")
+    for title, kind in (("Delivered", "stat"), ("Delivered", "timeseries")):
+        delivered = panel(title, CF, kind)
+        assert delivered["targets"][0]["expression"].endswith(" * 8 / 60")
+        assert delivered["fieldConfig"]["defaults"]["unit"] == "bps"
+
+
+def test_the_cloudfront_panels():
+    assert [(p["type"], p["title"]) for p in panels(CF)] == [
+        ("stat", "≈ Viewers"), ("stat", "Requests a minute"), ("stat", "Delivered"), ("stat", "Error rate"),
+        ("timeseries", "Viewers (estimate)"), ("timeseries", "Delivered"), ("timeseries", "Error rates")]
+
+
+def test_cloudfront_tiles_read_the_last_5_minutes():
+    # 5, not 2: CloudFront's points are a minute apart and arrive late.
+    for title in ("≈ Viewers", "Requests a minute", "Delivered", "Error rate"):
+        tile = panel(title, CF, "stat")
+        assert (tile["timeFrom"], tile["hideTimeOverride"]) == ("5m", True), title
+        assert tile["options"]["reduceOptions"]["calcs"] == ["lastNotNull"], title
+    for title in ("≈ Viewers", "Requests a minute", "Delivered"):
+        assert panel(title, CF, "stat")["options"]["colorMode"] == "none", title
+    error = panel("Error rate", CF, "stat")
+    steps = error["fieldConfig"]["defaults"]["thresholds"]["steps"]
+    assert [(s["value"], s["color"]) for s in steps] == [(None, "green"), (1, "red")]
+    assert error["fieldConfig"]["defaults"]["unit"] == "percent"
+    assert panel("≈ Viewers", CF)["fieldConfig"]["defaults"]["decimals"] == 0
+
+
+def test_cloudfront_graphs_name_their_series():
+    # The estimate alone: requests drawn beside it are the same line scaled, and hid it (rendered 2026-10-10).
+    assert [t["refId"] for t in panel("Viewers (estimate)", CF)["targets"]] == ["A"]
+    assert names(panel("Error rates", CF)) == {"A": "4xx", "B": "5xx"}
+    assert panel("Error rates", CF)["fieldConfig"]["defaults"]["unit"] == "percent"

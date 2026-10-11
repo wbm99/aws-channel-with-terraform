@@ -1,0 +1,617 @@
+{
+  "uid": "cloudfront-distribution",
+  "title": "CloudFront distribution",
+  "tags": [
+    "live-sports-aws",
+    "cloudfront"
+  ],
+  "timezone": "utc",
+  "refresh": "1m",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "description": "The live-sports-aws demo distribution, from CloudFront's free default metrics in us-east-1 at 1-minute granularity: requests, an estimate of viewers, what was delivered and what failed.",
+  "links": [
+    {
+      "type": "link",
+      "title": "MediaConnect source",
+      "url": "/d/mediaconnect-source",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Transport stream & SRT",
+      "url": "/d/mediaconnect-detail",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "MediaLive channel",
+      "url": "/d/medialive-channel",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "MediaPackage origin",
+      "url": "/d/mediapackage-origin",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "distribution",
+        "label": "Distribution",
+        "type": "query",
+        "datasource": {
+          "type": "cloudwatch",
+          "uid": "cloudwatch"
+        },
+        "description": "All shows whichever distribution has data in the range: the live one. The list also holds destroyed distributions from the last two weeks.",
+        "query": {
+          "queryType": "dimensionValues",
+          "region": "us-east-1",
+          "namespace": "AWS/CloudFront",
+          "metricName": "Requests",
+          "dimensionKey": "DistributionId",
+          "dimensionFilters": {},
+          "refId": "A"
+        },
+        "includeAll": true,
+        "allValue": "DistributionId",
+        "multi": false,
+        "refresh": 1,
+        "sort": 0,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "requests_per_viewer",
+        "label": "Requests per viewer a minute",
+        "type": "textbox",
+        "description": "Divides requests into the viewer estimate. Keep a number here: empty, the estimate panels fail.",
+        "query": "60",
+        "current": {
+          "text": "60",
+          "value": "60"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "60",
+            "value": "60"
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "≈ Viewers",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "An estimate, not a count: requests in the last minute divided by the Requests per viewer field at the top. One 1080p player made about 60 requests a minute on 2026-10-09. It drifts when players change rung or stall, and reads fractions with few viewers.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "us-east-1",
+          "namespace": "AWS/CloudFront",
+          "metricName": "Requests",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/CloudFront,DistributionId,Region} MetricName=\"Requests\" $distribution', 'Sum', 60)) / $requests_per_viewer",
+          "period": "60",
+          "id": "",
+          "label": "${PROP('Dim.DistributionId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "—",
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "text"
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "timeFrom": "5m",
+      "hideTimeOverride": true,
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Requests a minute",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Viewer requests CloudFront received in the last complete minute: playlists and segments.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "us-east-1",
+          "namespace": "AWS/CloudFront",
+          "metricName": "Requests",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/CloudFront,DistributionId,Region} MetricName=\"Requests\" $distribution', 'Sum', 60))",
+          "period": "60",
+          "id": "",
+          "label": "${PROP('Dim.DistributionId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "—",
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "text"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "timeFrom": "5m",
+      "hideTimeOverride": true,
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Delivered",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "What CloudFront sent to viewers in the last complete minute, as bits per second.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "us-east-1",
+          "namespace": "AWS/CloudFront",
+          "metricName": "BytesDownloaded",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/CloudFront,DistributionId,Region} MetricName=\"BytesDownloaded\" $distribution', 'Sum', 60)) * 8 / 60",
+          "period": "60",
+          "id": "",
+          "label": "${PROP('Dim.DistributionId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "—",
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "bps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "text"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "timeFrom": "5m",
+      "hideTimeOverride": true,
+      "id": 3
+    },
+    {
+      "type": "stat",
+      "title": "Error rate",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Share of requests answered 4xx or 5xx in the last complete minute. Red from 1%.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "us-east-1",
+          "namespace": "AWS/CloudFront",
+          "metricName": "TotalErrorRate",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/CloudFront,DistributionId,Region} MetricName=\"TotalErrorRate\" $distribution', 'Average', 60))",
+          "period": "60",
+          "id": "",
+          "label": "${PROP('Dim.DistributionId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "—",
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "timeFrom": "5m",
+      "hideTimeOverride": true,
+      "id": 4
+    },
+    {
+      "type": "timeseries",
+      "title": "Viewers (estimate)",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "An estimate, not a count: requests in the last minute divided by the Requests per viewer field at the top. One 1080p player made about 60 requests a minute on 2026-10-09. It drifts when players change rung or stall, and reads fractions with few viewers. Requests a minute, its other half, is the tile above.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "us-east-1",
+          "namespace": "AWS/CloudFront",
+          "metricName": "Requests",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/CloudFront,DistributionId,Region} MetricName=\"Requests\" $distribution', 'Sum', 60)) / $requests_per_viewer",
+          "period": "60",
+          "id": "",
+          "label": "${PROP('Dim.DistributionId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 5
+    },
+    {
+      "type": "timeseries",
+      "title": "Delivered",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "What CloudFront sent to viewers, as bits per second (bytes a minute × 8 ÷ 60).",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "us-east-1",
+          "namespace": "AWS/CloudFront",
+          "metricName": "BytesDownloaded",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/CloudFront,DistributionId,Region} MetricName=\"BytesDownloaded\" $distribution', 'Sum', 60)) * 8 / 60",
+          "period": "60",
+          "id": "",
+          "label": "${PROP('Dim.DistributionId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0
+          },
+          "unit": "bps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 6
+    },
+    {
+      "type": "timeseries",
+      "title": "Error rates",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Share of requests answered 4xx (refused or not found) and 5xx (CloudFront or MediaPackage failed).",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "us-east-1",
+          "namespace": "AWS/CloudFront",
+          "metricName": "4xxErrorRate",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/CloudFront,DistributionId,Region} MetricName=\"4xxErrorRate\" $distribution', 'Average', 60))",
+          "period": "60",
+          "id": "",
+          "label": "${PROP('Dim.DistributionId')}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "us-east-1",
+          "namespace": "AWS/CloudFront",
+          "metricName": "5xxErrorRate",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/CloudFront,DistributionId,Region} MetricName=\"5xxErrorRate\" $distribution', 'Average', 60))",
+          "period": "60",
+          "id": "",
+          "label": "${PROP('Dim.DistributionId')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0
+          },
+          "unit": "percent"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "4xx"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "5xx"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 7
+    }
+  ]
+}

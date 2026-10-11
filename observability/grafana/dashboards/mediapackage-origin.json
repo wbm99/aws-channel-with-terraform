@@ -19,8 +19,32 @@
   "links": [
     {
       "type": "link",
+      "title": "MediaConnect source",
+      "url": "/d/mediaconnect-source",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Transport stream & SRT",
+      "url": "/d/mediaconnect-detail",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
       "title": "MediaLive channel",
       "url": "/d/medialive-channel",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "CloudFront distribution",
+      "url": "/d/cloudfront-distribution",
       "keepTime": true,
       "icon": "dashboard",
       "targetBlank": false
