@@ -91,8 +91,9 @@ Not verified:
 GetMetricData costs 0.01 USD per 1,000 metrics requested, only while the dashboard is open, and at a 1-minute refresh
 the dashboard queries 60 times an hour.
 
-- 16 metric queries (10 for the graphs, 6 for the tiles), returning about 30 series a refresh when the egress rows are
-  full (manifest and segment, several status classes): about 1,800 metrics an hour, about **0.02 USD/h**.
+- 18 metric queries (10 for the graphs, 8 for the tiles: the two error tiles query 4xx and 5xx separately), returning
+  about 30 series a refresh when the egress rows are full (manifest and segment, several status classes): about 1,800
+  metrics an hour, about **0.02 USD/h**.
 - Old deploys share the names, so they add no series, unlike the MediaConnect and MediaLive dashboards' *All* case.
 - Without viewers the egress queries return nothing, and the figure is lower.
 
@@ -136,7 +137,9 @@ the query with metric math (`... * 8 / 60 / 1000000`), unit Mbps.
   `medialive-channel` links back.
 - Every metric query: data source `cloudwatch`, region default, code mode, `statistic` set, period 60. Series are
   labelled by the dimension that varies (`StatusCode`, `RequestType`, `CDNAuthorizationStatusDetails`).
-- **Tiles**, neutral without data:
+- **Tiles**, neutral without data. A status-class series exists only once a request in that class has happened
+  (finding 1: no ingress 4xx series at all), so *no data* is the normal healthy state of an error tile: the error
+  tiles, and *Direct origin requests*, read *none* without data, in a neutral colour.
   1. **Ingest bitrate** (now): last value over the last 5 minutes, Mbps.
   2. **Push errors, last 5 min**: ingress 4xx and 5xx, two boxes, red above 0.
   3. **Input active** (now): `ActiveInput` minimum over the last 5 minutes; 1 reads *active* (green), 0 *inactive*
