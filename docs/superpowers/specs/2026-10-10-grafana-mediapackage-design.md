@@ -77,13 +77,32 @@ Read-only `list-metrics` and `get-metric-statistics` on the author's account; no
    18:00 UTC on 2026-10-09, about 0.9 a second), every sample 1.
 3. **`ActiveInput`** read 1 in every sample (541 samples in the same hour, minimum and maximum 1). The user guide does
    not list it.
-4. **51 egress 4xx** on 2026-10-09 (20 from 18:00, 31 from 21:00), alongside `Unauthorized`/`MissingCdnAuthHeader`.
-   Nothing in the repository requests the origin directly, so these were requests outside CloudFront.
+4. **51 egress 4xx** on 2026-10-09 (20 from 18:00, 31 from 21:00). Corrected while rendering (finding 6): they are
+   not direct requests.
 5. **Resolution unknown.** The user guide says MediaPackage publishes "every minute, if not sooner". All stored data is
    older than 3 hours, so whether a 5-second period returns real data could not be checked.
 
+Found while driving the dashboard in a throwaway Grafana against 2026-10-09 18:00-19:00 UTC (60-second data is kept
+15 days):
+
+6. **The egress 4xx are manifest requests made before the first push.** In each of three sessions (2026-10-08 03:00,
+   2026-10-09 18:05, 21:20) they fell in the minutes before MediaLive's first push, all `manifest`, and all
+   `HeaderSecretMatched` (3,086 authorized = 2,041 manifest 2xx + 20 manifest 4xx + 1,025 segment 2xx): a player open
+   through CloudFront asking for a manifest that did not exist yet. *Origin errors* is red for those minutes when going
+   live with the player open; its description says so. The only `Unauthorized` requests in two weeks were 2, on
+   2026-09-27 04:00, and that hour had 1 egress 4xx: whether a refused request counts as a 4xx is not established.
+7. **Metric math on a search works:** `... * 8 / 60 / 1000000` returned about 10.1 Mbps of ingest (54 minutes, 3.0 to
+   10.4), and about 5.4 Mbps of segments to one viewer.
+8. **Ingest is about 60 pushes a minute**, all 2xx; push response time averages about 77 ms (maximum up to 481 ms);
+   manifest responses average about 20 ms, segments about 110 ms.
+9. **Grafana paints a missing value in the base threshold colour:** with a green base, every error tile read a green
+   *none* with the stack off. The base step is now transparent. An error search that returns an empty series reads 0,
+   one that returns nothing reads *none*; both neutral. `ActiveInput`'s minimum over an empty series is no value at
+   all, which left the tile blank until it got `noValue` "—".
+
 Not verified:
 - **What `ActiveInput` reads when input stops** (0, or no data).
+- **The 5-minute and 1-hour tile windows against live data:** the browser pass used a past range.
 - **How a search is billed**, as for the other dashboards.
 
 ## Cost
@@ -139,7 +158,7 @@ the query with metric math (`... * 8 / 60 / 1000000`), unit Mbps.
   labelled by the dimension that varies (`StatusCode`, `RequestType`, `CDNAuthorizationStatusDetails`).
 - **Tiles**, neutral without data. A status-class series exists only once a request in that class has happened
   (finding 1: no ingress 4xx series at all), so *no data* is the normal healthy state of an error tile: the error
-  tiles, and *Direct origin requests*, read *none* without data, in a neutral colour.
+  tiles, and *Direct origin requests*, read 0 or *none* without data, in a neutral colour (finding 9).
   1. **Ingest bitrate** (now): last value over the last 5 minutes, Mbps.
   2. **Push errors, last 5 min**: ingress 4xx and 5xx, two boxes, red above 0.
   3. **Input active** (now): `ActiveInput` minimum over the last 5 minutes; 1 reads *active* (green), 0 *inactive*
