@@ -29,15 +29,27 @@ window.Hls = class Hls {
   on(name, handler) { this.handlers[name] = handler; }
   emit(name, data) { this.handlers[name] && this.handlers[name](name, data); }
 };
-Hls.Events = { ERROR: 'hlsError', LEVEL_SWITCHED: 'hlsLevelSwitched' };
+Hls.Events = { ERROR: 'hlsError', LEVEL_SWITCHED: 'hlsLevelSwitched', LEVEL_UPDATED: 'hlsLevelUpdated' };
 Hls.ErrorTypes = { NETWORK_ERROR: 'networkError', MEDIA_ERROR: 'mediaError' };
 """
 
 
+CLIP = Path(__file__).resolve().parent / "fixtures" / "ad.mp4"
+CONFIG = {"manifestPath": "/out/v1/demo/index.m3u8"}  # what config.json says; ad tests set adClip
+
+
 class _Site(SimpleHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
+        if self.path.startswith("/ads/clip.mp4"):
+            body = CLIP.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path.startswith("/config.json"):
-            body = json.dumps({"manifestPath": "/out/v1/demo/index.m3u8"}).encode()
+            body = json.dumps(CONFIG).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -258,3 +270,159 @@ class _Parent(SimpleHTTPRequestHandler):
 
     def log_message(self, *args):
         return
+
+
+# --- ad breaks ------------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def ad_clip():
+    CONFIG["adClip"] = "/ads/clip.mp4"
+    yield
+    CONFIG.pop("adClip")
+
+
+def open_player(page, site_url):
+    page.goto(site_url + "?embed=1")
+    page.wait_for_function("window.hlsCalls.length === 1")
+
+
+def announce(page, seconds=2.0, offset_ms=0, ident="4", attr=None, duration="seconds"):
+    """hls.js reports a playlist holding one break that starts `offset_ms` from now, and plays at its start."""
+    attr = attr if attr is not None else {"SCTE35-OUT": "0xFC30"}
+    page.evaluate("""([seconds, offset, ident, attr, kind]) => {
+        const start = Date.now() + offset;
+        window.breakStart = start;
+        const range = { id: ident, startDate: new Date(start), attr,
+                        duration: kind === 'seconds' ? seconds : null,
+                        plannedDuration: kind === 'planned' ? seconds : null };
+        window.hls.emit(Hls.Events.LEVEL_UPDATED, { details: { dateRanges: { [ident]: range } } });
+    }""", [seconds, offset_ms, ident, attr, duration])
+
+
+def play_at(page, ms_after_start):
+    page.evaluate("ms => { window.hls.playingDate = new Date(window.breakStart + ms); }", ms_after_start)
+    page.wait_for_timeout(400)  # the player looks every 250 ms
+
+
+def live_muted(page):
+    return page.evaluate("document.getElementById('video').muted")
+
+
+def test_breaks_keeps_scte35_out_ranges_with_a_duration(page, site_url):
+    page.goto(site_url)
+    found = page.evaluate("""() => AdBreaks.breaks({
+        a: { id: 'a', startDate: new Date(1000), duration: 30, plannedDuration: null, attr: { 'SCTE35-OUT': '0xFC' } },
+        b: { id: 'b', startDate: new Date(1000), duration: 30, plannedDuration: null, attr: { CLASS: 'chapter' } },
+        c: { id: 'c', startDate: new Date(1000), duration: null, plannedDuration: null, attr: { 'SCTE35-OUT': '0xFC' } },
+        d: { id: 'd', startDate: new Date(5000), duration: null, plannedDuration: 10, attr: { 'SCTE35-OUT': '0xFC' } },
+    })""")
+    assert found == [{"id": "a", "startMs": 1000, "endMs": 31000}, {"id": "d", "startMs": 5000, "endMs": 15000}]
+
+
+def test_due_finds_the_break_under_the_playhead(page, site_url):
+    page.goto(site_url)
+    answers = page.evaluate("""() => {
+        const list = [{ id: 'a', startMs: 1000, endMs: 31000 }];
+        const at = (ms, played = []) => AdBreaks.due(list, ms, new Set(played));
+        return [at(999), at(1000), at(30999), at(31000), at(5000, ['a'])];
+    }""")
+    assert answers == [None, {"id": "a", "startMs": 1000, "endMs": 31000},
+                       {"id": "a", "startMs": 1000, "endMs": 31000}, None, None]
+
+
+def test_a_break_overlays_the_clip_and_mutes_live(page, site_url, ad_clip):
+    open_player(page, site_url)
+    page.evaluate("""() => {
+        const video = document.getElementById('video');
+        window.livePauses = 0;
+        video.pause = () => { window.livePauses += 1; };
+    }""")
+    announce(page)
+    play_at(page, 100)
+
+    expect(page.locator("#ad")).to_be_visible()
+    assert live_muted(page) is True
+    assert page.evaluate("window.livePauses") == 0  # live keeps playing under the ad, so it is at the edge after
+
+
+def test_the_break_ends_on_time_and_live_is_unmuted(page, site_url, ad_clip):
+    open_player(page, site_url)
+    page.evaluate("document.getElementById('video').muted = false")  # the viewer turned the sound on
+    announce(page)
+    play_at(page, 100)
+    assert live_muted(page) is True
+
+    play_at(page, 2000)
+
+    expect(page.locator("#ad")).to_be_hidden()
+    assert page.evaluate("document.getElementById('ad').paused") is True
+    assert live_muted(page) is False
+
+
+def test_a_short_clip_loops_through_a_long_break(page, site_url, ad_clip):
+    open_player(page, site_url)
+    announce(page, seconds=6)
+    play_at(page, 100)
+    expect(page.locator("#ad")).to_be_visible()
+    assert page.evaluate("document.getElementById('ad').loop") is True
+    play_at(page, 4000)  # past the 2 s clip, still inside the break
+    expect(page.locator("#ad")).to_be_visible()
+
+
+def test_a_break_plays_once(page, site_url, ad_clip):
+    open_player(page, site_url)
+    announce(page)
+    play_at(page, 100)
+    play_at(page, 2100)
+    expect(page.locator("#ad")).to_be_hidden()
+
+    page.evaluate("""() => {
+        const range = { id: '4', startDate: new Date(window.breakStart), duration: 2, plannedDuration: null,
+                        attr: { 'SCTE35-OUT': '0xFC30' } };
+        window.hls.emit(Hls.Events.LEVEL_UPDATED, { details: { dateRanges: { '4': range } } });
+    }""")
+    play_at(page, 500)  # a seek back into the same break
+
+    expect(page.locator("#ad")).to_be_hidden()
+    assert live_muted(page) is True  # back to the page's own muted autoplay, not stuck by the break
+
+
+def test_joining_mid_break_shows_the_rest(page, site_url, ad_clip):
+    open_player(page, site_url)
+    announce(page)
+    play_at(page, 1000)
+    expect(page.locator("#ad")).to_be_visible()
+    play_at(page, 2000)
+    expect(page.locator("#ad")).to_be_hidden()
+
+
+def test_a_planned_duration_is_used_when_there_is_no_duration(page, site_url, ad_clip):
+    open_player(page, site_url)
+    announce(page, duration="planned")
+    play_at(page, 100)
+    expect(page.locator("#ad")).to_be_visible()
+
+
+def test_without_a_clip_live_stays_on_screen(page, site_url):
+    open_player(page, site_url)
+    page.evaluate("document.getElementById('video').muted = false")
+    announce(page)
+    play_at(page, 100)
+
+    assert page.locator("#ad").count() == 0
+    assert live_muted(page) is False
+
+
+def test_a_clip_that_fails_to_load_skips_the_break(page, site_url):
+    CONFIG["adClip"] = "/ads/missing.mp4"
+    try:
+        open_player(page, site_url)
+        page.evaluate("document.getElementById('video').muted = false")
+        page.wait_for_timeout(500)  # the 404 arrives
+        announce(page)
+        play_at(page, 100)
+        expect(page.locator("#ad")).to_be_hidden()
+        assert live_muted(page) is False
+    finally:
+        CONFIG.pop("adClip")
