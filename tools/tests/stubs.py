@@ -79,6 +79,7 @@ def stub_aws(
             list_alerts=maybe("list_alerts", {"Alerts": [
                 {"AlertType": kind, "Message": message, "State": "SET"} for kind, message in alerts
             ]}),
+            batch_update_schedule=maybe("batch_update_schedule", {"Creates": {"ScheduleActions": []}}),
         ),
         "mediapackagev2": StubClient(
             get_channel=maybe("get_channel", {"Arn": "arn:aws:mediapackagev2:::channel", "ChannelName": "live-sports-aws-demo"}),

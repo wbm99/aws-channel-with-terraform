@@ -657,7 +657,7 @@ def test_without_credentials_the_chain_is_not_polled(aws):
     assert payload["identity"]["kind"] == "no-credentials"
     assert payload["verdict"] == {"text": "No AWS credentials", "health": "bad"}
     assert payload["deployed"] is False and payload["nodes"] == []
-    assert all(message for name, message in payload["actions"].items() if name != "source-stop")
+    assert all(message for name, message in payload["actions"].items() if name not in ("source-stop", "config"))
     assert runner.calls == []  # terraform output reads the S3 state, which needs credentials too
 
 
@@ -809,3 +809,208 @@ def test_livectl_ui_takes_a_grafana_url():
 
     assert args.grafana_url == "http://127.0.0.1:3999/d/mediaconnect-source"
     assert build_parser().parse_args(["ui"]).grafana_url is None
+
+
+# --- ad breaks and the configuration page ---------------------------------------------------
+
+from livectl.config import CLIP_PATH, CONFIG_FILE  # noqa: E402
+from livectl.pipeline import Pipeline  # noqa: E402
+from stubs import CHANNEL_ID, FLOW_ARN, stub_aws  # noqa: E402
+
+CLIP = b"\0\0\0\x18ftypisom" + b"\0" * 64
+CLIP_ADS = {"clip_md5": "0" * 32, "clip_seconds": 24.5, "duration_mode": "clip"}
+PER_TRIGGER_ADS = {"clip_md5": None, "clip_seconds": None, "duration_mode": "per_trigger"}
+
+
+def ads_console(tmp_path, *, on_air=True, ads=PER_TRIGGER_ADS, fail=()):
+    """A deployed stack on stub clients, with its settings file in tmp_path. `ads=None` is a stack deployed before
+    ad breaks existed."""
+    clients = stub_aws(flow="ACTIVE" if on_air else "STANDBY", channel="RUNNING" if on_air else "IDLE", fail=fail)
+    outputs = {"flow_arn": FLOW_ARN, "medialive_channel_id": CHANNEL_ID,
+               "cdn_manifest_url": "https://d1.example.net/out/v1/live/index.m3u8"}
+    if ads is not None:
+        outputs["ads"] = ads
+    pipeline = Pipeline(**clients, fetch=lambda url: "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:1\n")
+    console = Console(**clients, jobs=JobRunner(), tf_dir=str(tmp_path), pipeline=pipeline,
+                      runner=lambda args: json.dumps({k: {"value": v} for k, v in outputs.items()}))
+    return console, clients["medialive"]
+
+
+def put_clip(console, raw=CLIP, content_type="video/mp4", seconds="24.5"):
+    query = {"seconds": [seconds]} if seconds is not None else {}
+    status, _, payload = route("PUT", "/api/config/ads/clip", query, {}, console, raw=raw, content_type=content_type)
+    return status, json.loads(payload)
+
+
+def schedule_calls(medialive):
+    return [request for name, request in medialive.calls if name == "batch_update_schedule"]
+
+
+def splice_duration(request):
+    return request["Creates"]["ScheduleActions"][0]["ScheduleActionSettings"]["Scte35SpliceInsertSettings"]["Duration"]
+
+
+def test_the_payload_reports_saved_and_deployed_ads(tmp_path):
+    console, _ = ads_console(tmp_path)
+    assert put_clip(console)[0] == 200
+    assert call(console, "POST", "/api/config/ads", body={"duration_mode": "clip"})[0] == 200
+
+    ads = call(console, "GET", "/api/pipeline")[1]["ads"]
+
+    assert ads["saved"] == {"clip": True, "clip_seconds": 24.5, "duration_mode": "clip"}
+    assert ads["clip_bytes"] == len(CLIP)
+    assert ads["deployed"] == PER_TRIGGER_ADS
+    assert ads["pending"] is True
+    assert ads["trigger"] == {"mode": "per_trigger", "seconds": None, "marker_only": True}
+    assert call(console, "GET", "/api/config")[1] == {k: v for k, v in ads.items() if k != "cue"} | {"cue": None}
+
+
+def test_a_malformed_config_is_reported_not_overwritten(tmp_path):
+    (tmp_path / CONFIG_FILE).write_text("{")
+    console, _ = ads_console(tmp_path)
+
+    ads = call(console, "GET", "/api/pipeline")[1]["ads"]
+    status, body = call(console, "POST", "/api/config/ads", body={"duration_mode": "per_trigger"})
+
+    assert ads["saved"] is None and "not valid JSON" in ads["error"]
+    assert status == 409 and "not valid JSON" in body["error"]
+    assert (tmp_path / CONFIG_FILE).read_text() == "{"
+
+
+def test_uploading_a_clip_saves_it_with_its_length(tmp_path):
+    console, _ = ads_console(tmp_path)
+
+    status, body = put_clip(console)
+
+    assert status == 200 and body["saved"]["clip_seconds"] == 24.5
+    assert (tmp_path / CLIP_PATH).read_bytes() == CLIP
+    assert json.loads((tmp_path / CONFIG_FILE).read_text())["ads"] == {
+        "clip": "ads/clip.mp4", "clip_seconds": 24.5, "duration_mode": "per_trigger"}
+
+
+@pytest.mark.parametrize("kwargs, field", [
+    (dict(content_type="text/plain"), "clip"),
+    (dict(raw=b"not a video at all"), "clip"),
+    (dict(seconds=None), "clip_seconds"),
+    (dict(seconds="soon"), "clip_seconds"),
+    (dict(seconds="0"), "clip_seconds"),
+])
+def test_an_upload_that_is_not_a_usable_mp4_is_refused(tmp_path, kwargs, field):
+    console, _ = ads_console(tmp_path)
+
+    status, body = put_clip(console, **kwargs)
+
+    assert status == 400 and body["field"] == field
+    assert not (tmp_path / CLIP_PATH).exists()
+
+
+def test_an_unknown_duration_mode_names_its_field(tmp_path):
+    console, _ = ads_console(tmp_path)
+    status, body = call(console, "POST", "/api/config/ads", body={"duration_mode": "sometimes"})
+    assert status == 400 and body["field"] == "duration_mode"
+
+
+def test_config_changes_are_refused_while_a_job_runs(tmp_path):
+    console, _ = ads_console(tmp_path, on_air=False)
+    release = threading.Event()
+    console.jobs.submit("deploy", lambda log: release.wait(5))
+    try:
+        assert put_clip(console)[0] == 409
+        assert call(console, "POST", "/api/config/ads", body={"duration_mode": "per_trigger"})[0] == 409
+        assert call(console, "DELETE", "/api/config/ads/clip")[0] == 409
+    finally:
+        release.set()
+
+
+class UnreadableRFile:
+    def read(self, *args):
+        raise AssertionError("an oversized upload must be refused before its body is read")
+
+
+def test_an_oversized_upload_is_refused_unread(tmp_path):
+    console, _ = ads_console(tmp_path)
+    out = io.BytesIO()
+    handler = make_handler(console, out)
+    handler.path = "/api/config/ads/clip?seconds=24.5"
+    handler.headers = {"Content-Length": str(50 * 1024 * 1024 + 1), "Content-Type": "video/mp4"}
+    handler.rfile = UnreadableRFile()
+
+    handler._dispatch("PUT")
+
+    assert out.getvalue().split(b"\r\n")[0].endswith(b" 413 Request Entity Too Large")
+    assert b"larger than 50 MB" in out.getvalue()
+    assert handler.close_connection is True
+
+
+def test_removing_the_clip(tmp_path):
+    console, _ = ads_console(tmp_path)
+    put_clip(console)
+
+    status, body = call(console, "DELETE", "/api/config/ads/clip")
+
+    assert status == 200 and body["saved"] == {"clip": False, "clip_seconds": None, "duration_mode": "per_trigger"}
+    assert not (tmp_path / CLIP_PATH).exists()
+
+
+def test_a_cue_in_clip_mode_uses_the_deployed_length(tmp_path):
+    console, medialive = ads_console(tmp_path, ads=CLIP_ADS)
+
+    status, body = call(console, "POST", "/api/ad-break", body={"seconds": 90})  # ignored in clip mode
+
+    assert status == 200 and body["seconds"] == 24.5
+    [request] = schedule_calls(medialive)
+    assert splice_duration(request) == 2_205_000
+
+
+@pytest.mark.parametrize("body", [{}, {"seconds": 4}, {"seconds": 181}, {"seconds": "thirty"}])
+def test_a_per_trigger_cue_needs_seconds_in_range(tmp_path, body):
+    console, medialive = ads_console(tmp_path)
+
+    status, answer = call(console, "POST", "/api/ad-break", body=body)
+
+    assert status == 400 and answer["field"] == "seconds" and "5" in answer["error"] and "180" in answer["error"]
+    assert schedule_calls(medialive) == []
+
+
+def test_a_per_trigger_cue_in_range_is_sent(tmp_path):
+    console, medialive = ads_console(tmp_path)
+    assert call(console, "POST", "/api/ad-break", body={"seconds": 30})[0] == 200
+    assert splice_duration(schedule_calls(medialive)[0]) == 2_700_000
+    assert call(console, "GET", "/api/pipeline")[1]["ads"]["cue"]["state"] == "waiting"
+
+
+def test_a_second_cue_while_a_break_runs_is_refused(tmp_path):
+    console, medialive = ads_console(tmp_path)
+    call(console, "POST", "/api/ad-break", body={"seconds": 30})
+
+    status, body = call(console, "POST", "/api/ad-break", body={"seconds": 30})
+
+    assert status == 409 and "s left" in body["error"]
+    assert len(schedule_calls(medialive)) == 1
+
+
+def test_off_air_a_cue_is_refused(tmp_path):
+    console, medialive = ads_console(tmp_path, on_air=False)
+    status, body = call(console, "POST", "/api/ad-break", body={"seconds": 30})
+    assert status == 409 and body["error"] == "Go live first: breaks are cued on a running channel."
+    assert schedule_calls(medialive) == []
+
+
+def test_a_stack_without_the_ads_output_asks_for_a_redeploy(tmp_path):
+    console, medialive = ads_console(tmp_path, ads=None)
+
+    status, body = call(console, "POST", "/api/ad-break", body={"seconds": 30})
+
+    assert status == 409 and body["error"] == "Deploy once more to enable ad breaks."
+    assert call(console, "GET", "/api/pipeline")[1]["ads"]["trigger"] is None
+    assert call(console, "GET", "/api/config")[0] == 200
+    assert schedule_calls(medialive) == []
+
+
+def test_a_medialive_error_is_shown_by_type_only(tmp_path):
+    console, _ = ads_console(tmp_path, fail=("batch_update_schedule",))
+
+    status, body = call(console, "POST", "/api/ad-break", body={"seconds": 30})
+
+    assert status == 502 and "RuntimeError" in body["error"] and "stubbed failure" not in body["error"]
+    assert call(console, "POST", "/api/ad-break", body={"seconds": 30})[0] == 502  # a failed cue blocks nothing

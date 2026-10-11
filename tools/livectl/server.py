@@ -13,6 +13,7 @@ compose.yaml, which publishes the port on the host's 127.0.0.1 only.
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
 import threading
@@ -25,8 +26,11 @@ from typing import Any, Callable, Optional, Sequence
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from livectl.actions import Situation, next_action, refusals
+from livectl.ads import AdBreaks
 from livectl.cache import TtlCache
 from livectl.clean import find_informational, find_leftovers
+from livectl.config import MAX_BREAK_S, MAX_CLIP_BYTES, MIN_BREAK_S, AdsSettings, ConfigError, ConfigStore, pending
+from livectl.control import NotRunning, cue_ad_break
 from livectl.control import start as start_workflow
 from livectl.control import stop as stop_workflow
 from livectl.identity import IDENTITY_TTL, Identity, whoami
@@ -51,6 +55,7 @@ CONTENT_TYPES = {
     ".txt": "text/plain; charset=utf-8",
 }
 SITE_FILE = re.compile(r"/[a-z][a-z-]*\.(js|css)")
+TOO_LARGE = "The clip is larger than 50 MB."
 
 Response = tuple[int, str, bytes]
 
@@ -91,10 +96,17 @@ class Console:
     sts: Any = None  # None: identity is not checked (tests that do not care)
     profile: Optional[str] = None
     clock: Callable[[], float] = time.monotonic
+    config: Optional[ConfigStore] = None  # the settings file in tf_dir; built from it when not given
+    ad_breaks: Optional[AdBreaks] = None
+    cue_lock: threading.Lock = field(default_factory=threading.Lock)  # one cue at a time, even from two tabs
     _targets: Optional[Targets] = None
 
     def __post_init__(self) -> None:
         self._identity_cache = TtlCache(self.clock)
+        if self.config is None:
+            self.config = ConfigStore(self.tf_dir)
+        if self.ad_breaks is None:
+            self.ad_breaks = AdBreaks(self.clock, self.clock_ms)
         if self.pipeline is None:
             self.pipeline = Pipeline(
                 mediaconnect=self.mediaconnect, medialive=self.medialive, mediapackagev2=self.mediapackagev2,
@@ -224,7 +236,8 @@ def _snapshot(console: Console, offset: int = 0, job_key: Optional[str] = None) 
 
 
 # Actions the server has routes for; the page is only offered these.
-ROUTED_ACTIONS = ("deploy", "teardown", "scan", "go-live", "go-off-air", "source-start", "source-stop")
+ROUTED_ACTIONS = ("deploy", "teardown", "scan", "go-live", "go-off-air", "source-start", "source-stop", "ad-break",
+                  "config")
 
 
 def _pipeline_payload(console: Console, offset: int = 0, job_key: Optional[str] = None) -> dict:
@@ -237,7 +250,118 @@ def _pipeline_payload(console: Console, offset: int = 0, job_key: Optional[str] 
     source = next((n for n in payload["nodes"] if n["id"] == "srt_source"), None)
     connected = bool(source) and source["state"] == "CONNECTED"
     payload["next"] = next_action(situation, source_connected=connected)
+    payload["ads"] = _ads_payload(console, console.targets() if payload["deployed"] else None)
     return payload
+
+
+# --- ad breaks and their settings ---------------------------------------------------------------
+
+def _saved(ads: AdsSettings) -> dict:
+    return {"clip": ads.clip is not None, "clip_seconds": ads.clip_seconds, "duration_mode": ads.duration_mode}
+
+
+def _trigger(deployed: Optional[dict]) -> Optional[dict]:
+    """How the Live page's button cues a break, from what is deployed (not from what is saved)."""
+    if deployed is None:
+        return None
+    mode = deployed.get("duration_mode", "per_trigger")
+    return {"mode": mode, "seconds": deployed.get("clip_seconds") if mode == "clip" else None,
+            "marker_only": deployed.get("clip_md5") is None}
+
+
+def _deployed_targets(console: Console) -> Optional[Targets]:
+    try:
+        return console.targets()
+    except TargetError:
+        return None
+
+
+def _ads_payload(console: Console, targets: Optional[Targets]) -> dict:
+    """Saved and deployed ad settings, whether they differ, and the last cue's trace. A stack deployed before ad
+    breaks existed has no `ads` output: `trigger` is then None."""
+    deployed = targets.ads if targets else None
+    console.ad_breaks.observe(console.pipeline.last_check)
+    payload = {"saved": None, "clip_bytes": None, "deployed": deployed, "pending": False, "error": None,
+               "trigger": _trigger(deployed), "cue": console.ad_breaks.status()}
+    try:
+        saved = console.config.ads()
+    except ConfigError as error:
+        payload["error"] = error.message
+        return payload
+    payload.update(saved=_saved(saved), clip_bytes=console.config.clip_size(),
+                   pending=pending(saved, console.config.clip_md5(), deployed))
+    return payload
+
+
+def _config_error(error: ConfigError) -> Response:
+    # No field: the file itself is unreadable, which only a person can fix. A field: the value was refused.
+    return _json(409 if error.field is None else 400, {"error": error.message, "field": error.field})
+
+
+def _save_mode(console: Console, body: Any) -> Response:
+    try:
+        ads = console.config.ads().with_mode(body.get("duration_mode") if isinstance(body, dict) else None)
+        console.config.save_ads(ads)
+    except ConfigError as error:
+        return _config_error(error)
+    return _json(200, {"saved": _saved(ads)})
+
+
+def _seconds(text: Optional[str]) -> Optional[float]:
+    try:
+        value = float(text) if text is not None else None
+    except ValueError:
+        return None
+    return value if value is not None and math.isfinite(value) and value > 0 else None
+
+
+def _save_clip(console: Console, query: dict, raw: bytes, content_type: str) -> Response:
+    if len(raw) > MAX_CLIP_BYTES:
+        return _json(413, {"error": TOO_LARGE, "field": "clip"})
+    if content_type.split(";")[0].strip().lower() != "video/mp4" or raw[4:8] != b"ftyp":
+        return _json(400, {"error": "Upload an MP4 file (H.264 video plays in every browser).", "field": "clip"})
+    seconds = _seconds(query.get("seconds", [None])[0])
+    if seconds is None:
+        return _json(400, {"error": "The clip's length is missing. Pick the file again.", "field": "clip_seconds"})
+    try:
+        ads = console.config.save_clip(raw, seconds)
+    except ConfigError as error:
+        return _config_error(error)
+    return _json(200, {"saved": _saved(ads)})
+
+
+def _remove_clip(console: Console) -> Response:
+    try:
+        ads = console.config.remove_clip()
+    except ConfigError as error:
+        return _config_error(error)
+    return _json(200, {"saved": _saved(ads)})
+
+
+def _cue(console: Console, body: Any) -> Response:
+    targets = console.targets()
+    if targets.ads is None:  # deployed before ad breaks: encode and package lack the SCTE-35 settings too
+        return _json(409, {"error": "Deploy once more to enable ad breaks."})
+    with console.cue_lock:
+        left = console.ad_breaks.seconds_left()
+        if left is not None:
+            return _json(409, {"error": f"A break is still running ({math.ceil(left)} s left)."})
+        if targets.ads.get("duration_mode") == "clip":
+            seconds = float(targets.ads["clip_seconds"])
+        else:
+            seconds = body.get("seconds") if isinstance(body, dict) else None
+            if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) \
+                    or not MIN_BREAK_S <= seconds <= MAX_BREAK_S:
+                return _json(400, {"error": f"Choose a break of {MIN_BREAK_S} to {MAX_BREAK_S} seconds.",
+                                   "field": "seconds"})
+        try:
+            event_id = cue_ad_break(console.medialive, targets.channel_id, seconds, clock_ms=console.clock_ms)
+        except NotRunning as error:
+            return _json(409, {"error": f"Go live first: {error}."})
+        except Exception as error:  # the type only: an AWS error body is not for the page
+            return _json(502, {"error": f"MediaLive did not take the cue ({type(error).__name__})."})
+        console.ad_breaks.cued(event_id, seconds, console.pipeline.last_check)
+    return _json(200, {"cued": event_id, "seconds": seconds})
 
 
 def _logs_payload(console: Console, tab: str, after: int) -> dict:
@@ -378,8 +502,10 @@ def _submit(console: Console, name: str, work: Work) -> Response:
     return _json(202, {"started": name})
 
 
-def route(method: str, path: str, query: dict, body: dict, console: Console, host: str = "127.0.0.1") -> Response:
-    """Handle one request; `host` is its Host header. Returns (status, content type, body)."""
+def route(method: str, path: str, query: dict, body: dict, console: Console, host: str = "127.0.0.1",
+          raw: bytes = b"", content_type: str = "") -> Response:
+    """Handle one request; `host` is its Host header. `raw` and `content_type` carry a PUT's body, which is a file
+    rather than JSON. Returns (status, content type, body)."""
     if method == "GET":
         if path in ("/", "/index.html"):
             return _static("index.html")
@@ -398,7 +524,15 @@ def route(method: str, path: str, query: dict, body: dict, console: Console, hos
         if path == "/api/pipeline":
             offset = int(query.get("offset", ["0"])[0] or 0)
             return _json(200, _pipeline_payload(console, offset, query.get("job", [None])[0]))
+        if path == "/api/config":
+            return _json(200, _ads_payload(console, _deployed_targets(console)))
         return _json(404, {"error": f"not found: {path}"})
+
+    if path == "/api/config/ads/clip" and method in ("PUT", "DELETE"):
+        refused = _refused(console, "config")
+        if refused:
+            return refused
+        return _save_clip(console, query, raw, content_type) if method == "PUT" else _remove_clip(console)
 
     if method != "POST":
         return _json(405, {"error": f"method not allowed: {method}"})
@@ -443,6 +577,12 @@ def route(method: str, path: str, query: dict, body: dict, console: Console, hos
     if path == "/api/source/connection":
         return _connection(console, host)
 
+    if path == "/api/config/ads":
+        return _refused(console, "config") or _save_mode(console, body)
+
+    if path == "/api/ad-break":
+        return _refused(console, "ad-break") or _cue(console, body)
+
     if path == "/api/source/stop":
         console.source.stop()
         console.pipeline.forget()
@@ -461,20 +601,32 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         self._dispatch("POST")
 
+    def do_PUT(self) -> None:  # noqa: N802
+        self._dispatch("PUT")
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        self._dispatch("DELETE")
+
     def log_message(self, fmt: str, *args) -> None:
         return  # the job log is the interesting output; an access log would bury it
 
     def _dispatch(self, method: str) -> None:
         parsed = urlparse(self.path)
         length = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(length) if length else b""
-        try:
-            body = json.loads(raw) if raw else {}
-        except json.JSONDecodeError:
-            body = {}
-
-        status, content_type, payload = route(method, parsed.path, parse_qs(parsed.query), body, self.console,
-                                              host=self.headers.get("Host") or "")
+        if length > MAX_CLIP_BYTES:
+            # Refused from the header alone, never read into memory. The unread body leaves the connection unusable.
+            self.close_connection = True
+            status, content_type, payload = _json(413, {"error": TOO_LARGE, "field": "clip"})
+        else:
+            raw = self.rfile.read(length) if length else b""
+            file = raw if method == "PUT" else b""
+            try:
+                body = json.loads(raw) if raw and method != "PUT" else {}
+            except json.JSONDecodeError:
+                body = {}
+            status, content_type, payload = route(method, parsed.path, parse_qs(parsed.query), body, self.console,
+                                                  host=self.headers.get("Host") or "", raw=file,
+                                                  content_type=self.headers.get("Content-Type") or "")
         try:
             self.send_response(status)
             self.send_header("Content-Type", content_type)

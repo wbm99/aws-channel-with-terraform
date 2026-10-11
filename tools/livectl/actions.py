@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-ACTIONS = ("deploy", "teardown", "scan", "go-live", "go-off-air", "source-start", "source-stop")
+ACTIONS = ("deploy", "teardown", "scan", "go-live", "go-off-air", "source-start", "source-stop", "ad-break", "config")
 
 
 @dataclass(frozen=True)
@@ -57,6 +57,10 @@ def refusals(s: Situation) -> dict[str, Optional[Refusal]]:
             None if s.flow_state == "ACTIVE" else Refusal(409, "The flow is not active: go live first."),
         ),
         "source-stop": None,
+        "ad-break": _first(busy, missing, None if s.channel_state == "RUNNING" else Refusal(
+            409, "Go live first: breaks are cued on a running channel.")),
+        # Settings are a local file, so neither a stack nor credentials are needed; a deploy may be reading it, though.
+        "config": Refusal(409, f"{s.job_running} is still running") if s.job_running else None,
     }
 
 

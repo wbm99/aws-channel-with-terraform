@@ -78,6 +78,7 @@ class ConfigStore:
         self._dir = Path(tf_dir)
         self._file = self._dir / CONFIG_FILE
         self._clip = self._dir / CLIP_PATH
+        self._md5: Optional[tuple[tuple[int, int], str]] = None  # (mtime, size) -> digest: the page polls every second
 
     def read(self) -> dict:
         """The whole file as a dict; {} when there is none."""
@@ -110,9 +111,13 @@ class ConfigStore:
     def clip_md5(self) -> Optional[str]:
         """The clip's MD5, as Terraform's filemd5 gives it, or None without a clip."""
         try:
-            return hashlib.md5(self._clip.read_bytes()).hexdigest()
+            stat = self._clip.stat()
+            key = (stat.st_mtime_ns, stat.st_size)
+            if self._md5 is None or self._md5[0] != key:
+                self._md5 = (key, hashlib.md5(self._clip.read_bytes()).hexdigest())
         except FileNotFoundError:
             return None
+        return self._md5[1]
 
     def clip_size(self) -> Optional[int]:
         try:
