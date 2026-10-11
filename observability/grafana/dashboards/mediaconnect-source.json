@@ -1030,6 +1030,14 @@
       "keepTime": true,
       "icon": "dashboard",
       "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "CloudFront distribution",
+      "url": "/d/cloudfront-distribution",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
     }
   ]
 }
