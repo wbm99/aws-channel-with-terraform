@@ -536,7 +536,10 @@ def test_mediapackage_error_tiles_read_none_without_data():
         defaults = tile["fieldConfig"]["defaults"]
         assert defaults["noValue"] == "none", title
         assert tile["options"]["colorMode"] == "background", title
-        assert [(s["value"], s["color"]) for s in defaults["thresholds"]["steps"]] == [(None, "green"), (1, "red")]
+        # Transparent, not green: Grafana paints a missing value in the base step's colour, so a green base made a
+        # stopped stack look healthy (seen in the browser, 2026-10-10). A count, when there is one, is at least 1.
+        assert [(s["value"], s["color"]) for s in defaults["thresholds"]["steps"]] == [
+            (None, "transparent"), (1, "red")], title
     for title in ("Ingest bitrate", "Manifest response time, last 5 min"):
         assert mp_tile(title)["options"]["colorMode"] == "none", title
 
@@ -547,7 +550,9 @@ def test_input_active_says_active_or_inactive():
     assert mapping["type"] == "value"
     assert {k: (v["text"], v["color"]) for k, v in mapping["options"].items()} == {
         "0": ("inactive", "red"), "1": ("active", "green")}
-    assert "noValue" not in defaults
+    # Without it the tile is blank when the stack is off: the minimum of an empty series is no value at all.
+    assert defaults["noValue"] == "\u2014"
+    assert defaults["thresholds"]["steps"] == [{"value": None, "color": "transparent"}]
 
 
 def test_mediapackage_series_labels():

@@ -113,7 +113,7 @@
         "type": "cloudwatch",
         "uid": "cloudwatch"
       },
-      "description": "Pushes from MediaLive that MediaPackage refused (4xx) or failed (5xx) in the last 5 minutes. None: no such request, which is the healthy case; a status class exists only once a request in it has happened.",
+      "description": "Pushes from MediaLive that MediaPackage refused (4xx) or failed (5xx) in the last 5 minutes. 0 or none, in a neutral colour: no such request, the healthy case. A status class exists only once a request in it has happened.",
       "targets": [
         {
           "refId": "A",
@@ -163,7 +163,7 @@
             "steps": [
               {
                 "value": null,
-                "color": "green"
+                "color": "transparent"
               },
               {
                 "value": 1,
@@ -262,10 +262,11 @@
             "steps": [
               {
                 "value": null,
-                "color": "text"
+                "color": "transparent"
               }
             ]
           },
+          "noValue": "\u2014",
           "mappings": [
             {
               "type": "value",
@@ -316,7 +317,7 @@
         "type": "cloudwatch",
         "uid": "cloudwatch"
       },
-      "description": "Requests from viewers (through CloudFront) that the origin answered with 4xx or 5xx in the last 5 minutes. A request without CloudFront's header counts here too. None: no such request.",
+      "description": "Requests from viewers (through CloudFront) that the origin answered with 4xx or 5xx in the last 5 minutes. Expect a few manifest 4xx when going live with a player already open: in every recorded session they came in the minutes before MediaLive's first push, when the manifest did not exist yet. 0 or none: no such request.",
       "targets": [
         {
           "refId": "A",
@@ -366,7 +367,7 @@
             "steps": [
               {
                 "value": null,
-                "color": "green"
+                "color": "transparent"
               },
               {
                 "value": 1,
@@ -465,7 +466,7 @@
             "steps": [
               {
                 "value": null,
-                "color": "green"
+                "color": "transparent"
               },
               {
                 "value": 1,

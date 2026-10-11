@@ -364,12 +364,13 @@ MediaPackage origin at one minute.
   | Ingest bitrate | `IngressBytes` | What MediaLive pushed in the last minute; about 9.9 Mbps for the whole ladder. |
   | Push errors, last 5 min | `IngressRequestCount` by status | Pushes the origin refused (4xx) or failed (5xx). |
   | Input active | `ActiveInput` | Whether the channel has an active input. Not in the user guide; it has read 1 in every session so far. |
-  | Origin errors, last 5 min | `EgressRequestCount` by status | Requests through CloudFront answered with 4xx or 5xx. |
+  | Origin errors, last 5 min | `EgressRequestCount` by status | Requests through CloudFront answered with 4xx or 5xx. A few manifest 4xx when going live with the player already open are expected: in every recorded session they came before MediaLive's first push, when the manifest did not exist yet. |
   | Direct origin requests, last hour | `EgressRequestCount` by CDN authorization | Requests refused for lacking CloudFront's secret header: someone has the origin URL, or the CDN-auth setup is broken. Red above 0. |
   | Manifest response time, last 5 min | `EgressResponseTime` | The slowest manifest answer; a slow manifest stalls players. |
 
-  The error tiles read *none* when there is no data: MediaPackage creates a 4xx or 5xx series only once such a request
-  has happened, so no data is the healthy case. Below the tiles: *Ingest from MediaLive* (pushes by status with
+  The error tiles read 0 (or *none*) on a neutral background when there is no error: MediaPackage creates a 4xx or 5xx
+  series only once such a request has happened, so the healthy case and a stopped stack look the same there; the
+  ingest tiles tell them apart. Below the tiles: *Ingest from MediaLive* (pushes by status with
   *Input active*, ingest bitrate, push response time), *Origin to CloudFront* (requests by type and status, egress
   bitrate, response time) and *CDN authorization* (requests by result, `HeaderSecretMatched` green, every refusal
   red). The origin rows are empty without viewers: no request, no metric.
