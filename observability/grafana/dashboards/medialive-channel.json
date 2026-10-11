@@ -32,6 +32,14 @@
       "keepTime": true,
       "icon": "dashboard",
       "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "MediaPackage origin",
+      "url": "/d/mediapackage-origin",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
     }
   ],
   "templating": {
