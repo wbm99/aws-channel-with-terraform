@@ -137,8 +137,10 @@ The player module owns the clip and `config.json`, so the `ads` variable and its
   4. `duration_mode = "clip"` requires `clip`.
 - `aws_s3_object.ad_clip`, `count = var.ads.clip == null ? 0 : 1`, key `ads/clip.mp4`, `content_type = "video/mp4"`,
   `etag = filemd5(var.ads.clip)` so a new clip re-uploads.
-- `config.json` gains `"ad_clip": "/ads/clip.mp4"` or `null`.
-- New output `ads`: the deployed `{ clip_present, clip_seconds, duration_mode }`.
+- `config.json` gains `"adClip": "/ads/clip.mp4"` or `null` (camelCase, like `manifestPath`).
+- `aws_s3_object.ads_js` uploads `site/ads.js` (the player's break scheduling, see *Player*) next to `index.html`.
+- New output `ads`: the deployed `{ clip_md5, clip_seconds, duration_mode }`. `clip_md5` (or `null`) lets the console
+  notice a swapped clip of the same length.
 
 ### `envs/demo`
 - New variable `ads` (same type, no validation, `default = {}`), passed to the player module with `clip` resolved
@@ -151,7 +153,10 @@ The player module owns the clip and `config.json`, so the `ads` variable and its
 
 ### `modules/package`
 - On the origin endpoint: `segment = { scte = { scte_filter = ["SPLICE_INSERT"] } }`.
-- On the `index` HLS manifest: `scte_hls = { ad_marker_hls = "DATERANGE" }`.
+- On the `index` HLS manifest: `scte_hls = { ad_marker_hls = "DATERANGE" }` and
+  `program_date_time_interval_seconds = 6`. MediaPackage writes `EXT-X-PROGRAM-DATE-TIME` only when this is set; the
+  HLS spec requires it in a playlist carrying `EXT-X-DATERANGE`, and the player needs it to place a break's
+  `START-DATE` on its timeline (`hls.playingDate`).
 
 ### `.gitignore`
 Add `envs/demo/*.auto.tfvars.json` and `envs/demo/ads/`. The existing `*.tfvars` does not match
@@ -166,8 +171,8 @@ Reads and writes `console.auto.tfvars.json` in the Terraform directory.
 - A malformed file raises `ConfigError`; the console then refuses to save rather than overwrite it.
 - `AdsSettings`: a frozen dataclass with `clip`, `clip_seconds`, `duration_mode`, and validation mirroring Terraform's,
   so the console rejects bad input before a deploy does.
-- `pending(saved, deployed)`: whether the saved settings differ from the `ads` output, which drives "Saved — deploy to
-  apply".
+- `pending(saved, saved_md5, deployed)`: whether the saved settings (and the clip file's MD5) differ from the `ads`
+  output, which drives "Saved — deploy to apply". Nothing deployed means nothing pending.
 
 ### `control.cue_ad_break(medialive, channel_id, seconds, *, clock)`
 - Refuses unless the channel is `RUNNING`.
@@ -185,14 +190,17 @@ Detects `EXT-X-DATERANGE` tags with `SCTE35-OUT` in a variant manifest and retur
 |---|---|
 | `GET /api/config` | Saved and deployed `ads`, `pending`, and a config error if the file is malformed. |
 | `POST /api/config/ads` | Save `duration_mode` (and `clip_seconds` from the browser). 400 with `field` on invalid input. |
-| `PUT /api/config/ads/clip` | Raw MP4 body (no multipart; the stdlib `cgi` module is gone in Python 3.13). `Content-Type: video/mp4` required, at most 50 MB, saved atomically to `envs/demo/ads/clip.mp4`. |
+| `PUT /api/config/ads/clip?seconds=24.5` | Raw MP4 body (no multipart; the stdlib `cgi` module is gone in Python 3.13), with the length the browser read. `Content-Type: video/mp4` and an `ftyp` box required, at most 50 MB (refused from `Content-Length` before reading), saved atomically to `envs/demo/ads/clip.mp4` together with `clip_seconds`. |
 | `DELETE /api/config/ads/clip` | Remove the clip and clear `clip` and `clip_seconds`; a `clip` mode falls back to `per_trigger`. |
 | `POST /api/ad-break` | Cue a break with `seconds`, which comes from the deployed `clip_seconds` in `clip` mode or from the body (5–180) otherwise. |
 
 - Config changes are refused while a job runs, through `actions.refusals`, like other actions.
 - A cue is refused while the previous break is still running (`cued_at + seconds > clock()`), so a double-click
   cannot stack two breaks.
-- The last cue is kept in memory. The polled payload reports it with the time its marker was first seen in the
+- A stack deployed before this feature has no `ads` output: the cue is refused with "Deploy once more to enable ad
+  breaks", since its encode and package lack the SCTE settings too.
+- The last cue is kept in memory, with the `DATERANGE` IDs already in the playlist at cue time; the first new ID
+  is this cue's marker, so no assumption is made about how MediaPackage forms the ID. The polled payload reports it with the time its marker was first seen in the
   manifest, or `not_seen` after 60 s ("not seen in manifest after 60 s — check SCTE settings in package/encode").
 
 ## Console UI
@@ -200,7 +208,7 @@ Detects `EXT-X-DATERANGE` tags with `SCTE35-OUT` in a variant manifest and retur
 - **Ads tab:**
   - The clip picker loads the file into a hidden `<video>` first: an unplayable file is rejected before upload, and
     `duration` comes from the browser.
-  - A preview with the clip's name, length and size, and **Remove clip**.
+  - A preview with the clip's length and size, and **Remove clip**. The original file name is not kept.
   - The duration mode radio; `clip` is disabled when no clip is saved.
   - "Saved — deploy to apply" while `pending`; the config error, if any, in place of the form.
 - **Live page**, under the player:
@@ -209,7 +217,7 @@ Detects `EXT-X-DATERANGE` tags with `SCTE35-OUT` in a variant manifest and retur
   - A status line: "cued 12:03:10 · in manifest 12:03:16 · 30 s", with "· marker only" when no clip is deployed.
 
 ## Player (`modules/player/site/index.html`)
-- Reads `ad_clip` from `config.json`. When set, creates an overlay `<video>` with `preload="auto"`, so the cut into the
+- Reads `adClip` from `config.json`. When set, creates an overlay `<video>` with `preload="auto"`, so the cut into the
   ad is instant.
 - On `LEVEL_UPDATED`, collects new `dateRanges` that carry `SCTE35-OUT`.
 - When playback reaches a break's start: show the overlay, play the clip with `loop`, and mute live, which keeps
@@ -218,8 +226,8 @@ Detects `EXT-X-DATERANGE` tags with `SCTE35-OUT` in a variant manifest and retur
 - Each event ID plays once, so a manifest refresh or a reload never replays a break.
 - If the clip fails to load, the break is skipped and live continues. With no `DURATION` and no `PLANNED-DURATION`,
   the break is ignored.
-- The scheduling (which break, when to start, when to end) is a pure function, separate from the DOM, so it can be
-  tested with fake `dateRanges`.
+- The scheduling (which break, when to start, when to end) is a pure function in `site/ads.js`, separate from the
+  DOM, so it can be tested with fake `dateRanges`. A viewer who joins mid-break sees the rest of it.
 
 ## Testing
 All offline, under `just test`.
