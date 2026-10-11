@@ -83,7 +83,7 @@ GetMetricData costs 0.01 USD per 1,000 metrics requested. Panels that repeat ano
 | MediaLive channel, one channel picked | 22 | 15,840 | about 0.16 | about 0.16 |
 | MediaPackage origin (about 30 series a refresh) | 18 | about 1,800 | about 0.02 | about 0.02 |
 
-Each dashboard also runs a CloudWatch Logs Insights query for its *Source events* table, billed at 0.005 USD per GB
+Each MediaConnect and MediaLive dashboard also runs a CloudWatch Logs Insights query for its *Source events* table, billed at 0.005 USD per GB
 scanned; the events log group holds kilobytes, so this rounds to nothing (not checked on a bill).
 
 On the MediaLive dashboard, six tiles repeat a graph's metric, because they read the last 2 or 5 minutes and a
@@ -93,7 +93,8 @@ every search to it.
 
 On the MediaPackage dashboard, the figure counts series, not queries: a search returns one series per status class
 and request type it finds, about 30 a refresh with viewers, fewer without. Its names do not change between deploys,
-so old deploys add no series. Eight tiles repeat a graph's metric for the same reason as on MediaLive.
+so old deploys add no series. Six tiles (eight queries) repeat a graph's metric for the same reason as on
+MediaLive. It has no events table.
 
 How a search is billed, per live flow or per matched flow, is not documented where I looked; Cost Explorer settles it
 the day after the dashboards are used (README live check 23). Nothing is charged while they are closed.

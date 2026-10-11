@@ -43,7 +43,7 @@
         "type": "cloudwatch",
         "uid": "cloudwatch"
       },
-      "description": "What MediaLive pushed in the last complete minute, in megabits per second; about 9.9 for the whole ladder. \"Number of bytes of content that MediaPackage receives for each input request.\"",
+      "description": "What MediaLive pushed, averaged over the last 5 minutes, in megabits per second; about 9.9 for the whole ladder. \"Number of bytes of content that MediaPackage receives for each input request.\"",
       "targets": [
         {
           "refId": "A",
@@ -86,7 +86,7 @@
       "options": {
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "mean"
           ],
           "fields": "",
           "values": false
@@ -317,7 +317,7 @@
         "type": "cloudwatch",
         "uid": "cloudwatch"
       },
-      "description": "Requests from viewers (through CloudFront) that the origin answered with 4xx or 5xx in the last 5 minutes. Expect a few manifest 4xx when going live with a player already open: in every recorded session they came in the minutes before MediaLive's first push, when the manifest did not exist yet. 0 or none: no such request.",
+      "description": "Requests (normally from CloudFront) that the origin answered with 4xx or 5xx in the last 5 minutes, all request types together. Whether a request refused for CDN authorization also counts here is not established. Expect a few manifest 4xx when going live with a player already open: in every recorded session they came in the minutes before MediaLive's first push, when the manifest did not exist yet. 0 or none: no such request.",
       "targets": [
         {
           "refId": "A",
@@ -332,7 +332,7 @@
           "namespace": "AWS/MediaPackage",
           "metricName": "EgressRequestCount",
           "statistic": "Sum",
-          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,OriginEndpoint,StatusCode,RequestType} MetricName=\"EgressRequestCount\" ChannelGroup=\"live-sports-aws-demo\" StatusCode=\"4xx\"', 'Sum', 60))",
+          "expression": "SUM(REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,OriginEndpoint,StatusCode,RequestType} MetricName=\"EgressRequestCount\" ChannelGroup=\"live-sports-aws-demo\" StatusCode=\"4xx\"', 'Sum', 60)))",
           "period": "60",
           "id": "",
           "label": "4xx"
@@ -350,7 +350,7 @@
           "namespace": "AWS/MediaPackage",
           "metricName": "EgressRequestCount",
           "statistic": "Sum",
-          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,OriginEndpoint,StatusCode,RequestType} MetricName=\"EgressRequestCount\" ChannelGroup=\"live-sports-aws-demo\" StatusCode=\"5xx\"', 'Sum', 60))",
+          "expression": "SUM(REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,OriginEndpoint,StatusCode,RequestType} MetricName=\"EgressRequestCount\" ChannelGroup=\"live-sports-aws-demo\" StatusCode=\"5xx\"', 'Sum', 60)))",
           "period": "60",
           "id": "",
           "label": "5xx"
@@ -449,7 +449,7 @@
           "namespace": "AWS/MediaPackage",
           "metricName": "EgressRequestCount",
           "statistic": "Sum",
-          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,OriginEndpoint,CDNAuthorizationStatus,CDNAuthorizationStatusDetails} MetricName=\"EgressRequestCount\" ChannelGroup=\"live-sports-aws-demo\" CDNAuthorizationStatus=\"Unauthorized\"', 'Sum', 60))",
+          "expression": "SUM(REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,OriginEndpoint,CDNAuthorizationStatus,CDNAuthorizationStatusDetails} MetricName=\"EgressRequestCount\" ChannelGroup=\"live-sports-aws-demo\" CDNAuthorizationStatus=\"Unauthorized\"', 'Sum', 60)))",
           "period": "60",
           "id": "",
           "label": "Unauthorized"

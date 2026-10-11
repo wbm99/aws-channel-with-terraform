@@ -100,6 +100,10 @@ Found while driving the dashboard in a throwaway Grafana against 2026-10-09 18:0
    one that returns nothing reads *none*; both neutral. `ActiveInput`'s minimum over an empty series is no value at
    all, which left the tile blank until it got `noValue` "—".
 
+10. **`SUM()` over a search works** (added after review, when the egress error tiles were found to split into one box
+    per request type or refusal reason): it gave 20 for 18:00-19:00 on 2026-10-09, 2 *Direct origin requests* for
+    2026-09-27 04:00-05:00, and one empty series for an empty hour, which reads 0.
+
 Not verified:
 - **What `ActiveInput` reads when input stops** (0, or no data).
 - **The 5-minute and 1-hour tile windows against live data:** the browser pass used a past range.
@@ -159,13 +163,13 @@ the query with metric math (`... * 8 / 60 / 1000000`), unit Mbps.
 - **Tiles**, neutral without data. A status-class series exists only once a request in that class has happened
   (finding 1: no ingress 4xx series at all), so *no data* is the normal healthy state of an error tile: the error
   tiles, and *Direct origin requests*, read 0 or *none* without data, in a neutral colour (finding 9).
-  1. **Ingest bitrate** (now): last value over the last 5 minutes, Mbps.
+  1. **Ingest bitrate**: mean over the last 5 minutes, Mbps (the newest bucket can still be filling).
   2. **Push errors, last 5 min**: ingress 4xx and 5xx, two boxes, red above 0.
   3. **Input active** (now): `ActiveInput` minimum over the last 5 minutes; 1 reads *active* (green), 0 *inactive*
      (red).
-  4. **Origin errors, last 5 min**: egress 4xx and 5xx, two boxes, red above 0.
-  5. **Direct origin requests, last hour**: `Unauthorized` requests, its own query over a fixed 1-hour range, red above
-     0.
+  4. **Origin errors, last 5 min**: egress 4xx and 5xx, two boxes, each `SUM()` across request types, red above 0.
+  5. **Direct origin requests, last hour**: `Unauthorized` requests, `SUM()` across reasons, its own query over a fixed
+     1-hour range, red above 0.
   6. **Manifest response time, last 5 min**: maximum, ms; no threshold until there is a baseline.
 - **Rows**, in signal order:
   - **Ingest from MediaLive:** pushes per minute by status class (with `ActiveInput` on the right axis); ingest Mbps;

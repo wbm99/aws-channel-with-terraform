@@ -438,8 +438,8 @@ MP_METRICS = {
 # Bytes per 60-second bucket to megabits per second.
 MBPS = " * 8 / 60 / 1000000"
 MP_EXPRESSION = re.compile(
-    r"REMOVE_EMPTY\(SEARCH\('\{AWS/MediaPackage,(?P<dims>[A-Za-z,]+)\} MetricName=\"(?P<metric>\w+)\" "
-    r"ChannelGroup=\"live-sports-aws-demo\"(?P<filter>(?: \w+=\"[\w-]+\")?)', '(?P<statistic>\w+)', 60\)\)"
+    r"(?P<sum>SUM\()?REMOVE_EMPTY\(SEARCH\('\{AWS/MediaPackage,(?P<dims>[A-Za-z,]+)\} MetricName=\"(?P<metric>\w+)\" "
+    r"ChannelGroup=\"live-sports-aws-demo\"(?P<filter>(?: \w+=\"[\w-]+\")?)', '(?P<statistic>\w+)', 60\)\)(?(sum)\))"
     r"(?P<math>.*)")
 ERROR_TILES = ("Push errors, last 5 min", "Origin errors, last 5 min", "Direct origin requests, last hour")
 EGRESS_GRAPHS = ("Requests", "Egress bitrate", "Response time", "Requests by authorization")
@@ -450,6 +450,10 @@ def mp_parse(target: dict) -> tuple:
     match = MP_EXPRESSION.fullmatch(target["expression"])
     assert match, target["expression"]
     return match["metric"], match["dims"], match["filter"].strip(), match["statistic"], match["math"]
+
+
+def mp_summed(target: dict) -> bool:
+    return MP_EXPRESSION.fullmatch(target["expression"])["sum"] is not None
 
 
 def mp_graph_targets() -> list:
@@ -476,6 +480,8 @@ def test_every_mediapackage_query_searches_this_projects_origin_every_minute():
         metric, dims, _, statistic, math = mp_parse(target)
         assert target["datasource"]["uid"] == "cloudwatch" and target["namespace"] == "AWS/MediaPackage"
         assert (target["metricName"], target["statistic"], target["period"]) == (metric, statistic, "60")
+        # Code mode, or Grafana builds its own query from the fields and ignores the expression.
+        assert (target["metricEditorMode"], target["region"], target["queryMode"]) == (1, "default", "Metrics")
         assert statistic in MP_METRICS[(metric, dims)], (metric, dims, statistic)
         assert math == (MBPS if metric.endswith("Bytes") else ""), metric
 
@@ -484,6 +490,7 @@ def test_the_mediapackage_dashboard_reads_every_metric_and_statistic():
     graphs = [mp_parse(t) for t in mp_graph_targets()]
     assert {(m, d, s) for m, d, _, s, _ in graphs} == {(m, d, s) for (m, d), ss in MP_METRICS.items() for s in ss}
     assert [f for _, _, f, _, _ in graphs if f] == []
+    assert not any(mp_summed(t) for t in mp_graph_targets())
     assert (len(graphs), len(metric_targets(MP))) == (10, 18)
 
 
@@ -510,7 +517,8 @@ def test_mediapackage_tiles():
 
     status, egress_status = CG + ",StatusCode", CGE + ",StatusCode,RequestType"
     auth = CGE + ",CDNAuthorizationStatus,CDNAuthorizationStatusDetails"
-    assert shape("Ingest bitrate") == (("5m", True), ["lastNotNull"], [("IngressBytes", CG, "", "Sum")])
+    # The mean of 5 minutes: the newest bucket can still be filling at a 1-minute refresh.
+    assert shape("Ingest bitrate") == (("5m", True), ["mean"], [("IngressBytes", CG, "", "Sum")])
     assert shape("Push errors, last 5 min") == (("5m", True), ["sum"], [
         ("IngressRequestCount", status, 'StatusCode="4xx"', "Sum"),
         ("IngressRequestCount", status, 'StatusCode="5xx"', "Sum")])
@@ -525,6 +533,13 @@ def test_mediapackage_tiles():
     for title in ("Push errors, last 5 min", "Origin errors, last 5 min"):
         assert names(mp_tile(title)) == {"A": "4xx", "B": "5xx"}, title
         assert mp_tile(title)["options"]["textMode"] == "value_and_name", title
+    assert mp_tile("Direct origin requests, last hour")["options"]["textMode"] == "value"
+    # One total per box: these searches return a series per request type or per refusal reason, and without SUM each
+    # became its own box, all labelled 4xx (found in review). Ingress has one series per status class already.
+    summed = {p["title"] for p in panels(MP) if p["type"] == "stat" and any(mp_summed(t) for t in p["targets"])}
+    assert summed == {"Origin errors, last 5 min", "Direct origin requests, last hour"}
+    for title in summed:
+        assert all(mp_summed(t) for t in mp_tile(title)["targets"]), title
     assert mp_tile("Manifest response time, last 5 min")["fieldConfig"]["defaults"]["unit"] == "ms"
 
 

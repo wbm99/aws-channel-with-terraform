@@ -292,7 +292,8 @@ the new outputs exist), open `just ui` and check:
 31. Play through CloudFront: the *Origin to CloudFront* graphs fill and *Requests by authorization* shows
     `HeaderSecretMatched`.
 32. `curl` the origin endpoint URL directly: a 403, and *Direct origin requests* turns red within about 2 minutes.
-33. Stop the source: the pushes stop. Note what *Input active* shows (*inactive*, or *No data*): `ActiveInput` is not
+    Note whether *Origin errors* counts it too: whether a refused request is a 4xx in that metric is not established.
+33. Stop the source: the pushes stop. Note what *Input active* shows (*inactive*, or —): `ActiveInput` is not
     in the MediaPackage user guide.
 34. Within 3 hours of a session, query a MediaPackage metric at a 5-second period and note whether it returns data;
     if it does, a finer dashboard is possible.
@@ -310,8 +311,9 @@ MediaPackage origin at one minute.
 - **Opening it:** <http://127.0.0.1:3000> (`GRAFANA_PORT` in `.env` moves it; it is always bound to 127.0.0.1). Log in
   as `admin` / `admin`; Grafana then asks for a new password and keeps it in the `grafana-data` volume. To skip that,
   set `GRAFANA_ADMIN_PASSWORD` in `.env` before Grafana first starts (it is read only when the volume is created).
-- **Four dashboards,** in the *Live pipeline* folder, linked to each other and refreshing every 5 s, except
-  *MediaPackage origin*, every minute.
+- **Four dashboards,** in the *Live pipeline* folder, refreshing every 5 s, except *MediaPackage origin*, every
+  minute. The MediaConnect and MediaLive ones link to each other; *MediaPackage origin* links to *MediaLive channel*
+  and back.
 
   *MediaConnect source* is the overview, the one to keep open:
 
@@ -361,10 +363,10 @@ MediaPackage origin at one minute.
 
   | Tile | Metric | Read it as |
   |---|---|---|
-  | Ingest bitrate | `IngressBytes` | What MediaLive pushed in the last minute; about 9.9 Mbps for the whole ladder. |
+  | Ingest bitrate | `IngressBytes` | What MediaLive pushed, averaged over the last 5 minutes; about 9.9 Mbps for the whole ladder. |
   | Push errors, last 5 min | `IngressRequestCount` by status | Pushes the origin refused (4xx) or failed (5xx). |
   | Input active | `ActiveInput` | Whether the channel has an active input. Not in the user guide; it has read 1 in every session so far. |
-  | Origin errors, last 5 min | `EgressRequestCount` by status | Requests through CloudFront answered with 4xx or 5xx. A few manifest 4xx when going live with the player already open are expected: in every recorded session they came before MediaLive's first push, when the manifest did not exist yet. |
+  | Origin errors, last 5 min | `EgressRequestCount` by status | Requests (normally from CloudFront) answered with 4xx or 5xx, all request types together. A few manifest 4xx when going live with the player already open are expected: in every recorded session they came before MediaLive's first push, when the manifest did not exist yet. |
   | Direct origin requests, last hour | `EgressRequestCount` by CDN authorization | Requests refused for lacking CloudFront's secret header: someone has the origin URL, or the CDN-auth setup is broken. Red above 0. |
   | Manifest response time, last 5 min | `EgressResponseTime` | The slowest manifest answer; a slow manifest stalls players. |
 
