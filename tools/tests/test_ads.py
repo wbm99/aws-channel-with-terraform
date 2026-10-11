@@ -15,8 +15,10 @@ class Clocks:
         return int(1_760_184_000_000 + self.now * 1000)
 
 
-def check(*ids):
-    return ManifestCheck(500, True, 1.0, None, tuple(DateRange(i, "2026-10-11T12:00:00Z", 30.0) for i in ids))
+def check(*ids, events=None):
+    events = events or {}
+    return ManifestCheck(500, True, 1.0, None,
+                         tuple(DateRange(i, "2026-10-11T12:00:00Z", 30.0, events.get(i)) for i in ids))
 
 
 def test_nothing_cued_has_no_status():
@@ -74,3 +76,24 @@ def test_seconds_left_counts_down_then_clears():
     assert breaks.status()["seconds_left"] == 20.0
     clocks.now += 25
     assert breaks.seconds_left() is None
+
+
+def test_an_earlier_breaks_late_marker_is_not_taken_for_this_cue():
+    """Back-to-back short breaks: A's marker reaches the playlist only after B was cued."""
+    clocks = Clocks()
+    breaks = AdBreaks(clocks.mono, clocks.ms)
+    breaks.cued(42, 5, check())
+    breaks.observe(check("a", events={"a": 41}))
+    assert breaks.status()["state"] == "waiting"
+    breaks.observe(check("a", "b", events={"a": 41, "b": 42}))
+    assert breaks.status()["state"] == "seen"
+
+
+def test_without_event_ids_a_failed_read_does_not_empty_the_baseline():
+    clocks = Clocks()
+    breaks = AdBreaks(clocks.mono, clocks.ms)
+    breaks.observe(check("old"))
+    failed = ManifestCheck(None, False, None, "OSError: timed out")
+    breaks.cued(42, 30, failed)
+    breaks.observe(check("old"))
+    assert breaks.status()["state"] == "waiting"

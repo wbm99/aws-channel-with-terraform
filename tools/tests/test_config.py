@@ -77,6 +77,8 @@ def test_a_clip_deleted_by_hand_reads_as_no_clip(tmp_path):
     ({"clip": "ads/clip.mp4"}, "clip_seconds"),
     ({"clip": "ads/clip.mp4", "clip_seconds": 0}, "clip_seconds"),
     ({"duration_mode": "clip"}, "duration_mode"),
+    ({"clip": "ads/clip.mp4", "clip_seconds": 4.9, "duration_mode": "clip"}, "duration_mode"),
+    ({"clip": "ads/clip.mp4", "clip_seconds": 180.1, "duration_mode": "clip"}, "duration_mode"),
 ])
 def test_validation_matches_terraform(data, field):
     with pytest.raises(ConfigError) as caught:
@@ -91,3 +93,11 @@ def test_pending():
     assert pending(saved, "abc", deployed) is False
     assert pending(saved.with_mode("per_trigger"), "abc", deployed) is True
     assert pending(saved, "def", deployed) is True
+
+
+def test_a_clip_outside_the_break_range_still_works_per_trigger():
+    assert AdsSettings.from_dict({"clip": "ads/clip.mp4", "clip_seconds": 2.0}).duration_mode == "per_trigger"
+
+
+def test_a_null_mode_means_per_trigger_as_for_terraform():
+    assert AdsSettings.from_dict({"duration_mode": None}) == AdsSettings()

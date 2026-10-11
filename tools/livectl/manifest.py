@@ -51,6 +51,19 @@ class DateRange:
     id: str
     start: str
     seconds: Optional[float]
+    event_id: Optional[int] = None  # the splice_event_id inside SCTE35-OUT, when it is a readable splice_insert
+
+
+def splice_event_id(scte35: str) -> Optional[int]:
+    """The splice_event_id of a splice_info_section given in hex, as SCTE35-OUT carries it; None if it is not an
+    unencrypted splice_insert. The command type is byte 13 and the event ID bytes 14-17 (SCTE 35, section 9)."""
+    try:
+        data = bytes.fromhex(scte35[2:] if scte35[:2].lower() == "0x" else scte35)
+    except ValueError:
+        return None
+    if len(data) < 18 or data[0] != 0xFC or data[13] != 0x05:
+        return None
+    return int.from_bytes(data[14:18], "big")
 
 
 def date_ranges(playlist: str) -> tuple[DateRange, ...]:
@@ -64,7 +77,7 @@ def date_ranges(playlist: str) -> tuple[DateRange, ...]:
             continue
         length = attributes.get("DURATION") or attributes.get("PLANNED-DURATION")
         breaks.append(DateRange(attributes["ID"], attributes.get("START-DATE", ""),
-                                float(length) if length else None))
+                                float(length) if length else None, splice_event_id(attributes["SCTE35-OUT"])))
     return tuple(breaks)
 
 

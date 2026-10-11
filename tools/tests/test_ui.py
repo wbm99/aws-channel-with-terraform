@@ -922,7 +922,9 @@ def test_picking_a_clip_uploads_it_with_its_length(open_scenario):
     expect(page.locator("#ads-clip-summary")).to_contain_text("KB")
     assert (Path(scenario.settings) / "ads" / "clip.mp4").read_bytes() == FIXTURE_CLIP.read_bytes()
     assert abs(saved_settings(scenario)["clip_seconds"] - 2.0) < 0.1
-    expect(page.get_by_label("Length of the clip")).to_be_enabled()
+    # Too short to be a break by itself: it is used per trigger, and the page says why.
+    expect(page.get_by_label("Length of the clip")).to_be_disabled()
+    expect(page.locator("#ads-mode-hint")).to_contain_text("5 to 180 s")
 
 
 def test_a_file_the_browser_cannot_play_is_refused_before_upload(open_scenario, tmp_path):

@@ -1,9 +1,9 @@
 """Follow a cued ad break from the console's button to the HLS playlist.
 
 A cue is sent to MediaLive; whether it worked shows only when MediaPackage writes the break into the playlist as an
-EXT-X-DATERANGE, some seconds later. The IDs already in the playlist when the cue was sent are kept as a baseline,
-and the first ID that is not among them is taken as this cue's marker. That makes no assumption about how
-MediaPackage forms the ID from the SCTE-35 event.
+EXT-X-DATERANGE, some seconds later. The tag's SCTE35-OUT carries the splice_event_id that was sent, so the marker is
+matched on it: an earlier break's marker arriving late is never taken for this one. A tag whose SCTE-35 cannot be
+read falls back to a baseline: the IDs seen in the playlist before the cue, of which it must not be one.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ class AdBreaks:
         self._lock = threading.Lock()
         self._cue: Optional[Cue] = None
         self._seen_at_ms: Optional[int] = None
+        self._known: frozenset[str] = frozenset()  # every DATERANGE ID read so far; a failed read adds nothing
 
     def seconds_left(self) -> Optional[float]:
         """Seconds until the last break ends, counted from the cue; None when no break runs."""
@@ -49,14 +50,22 @@ class AdBreaks:
 
     def cued(self, event_id: int, seconds: float, check: Optional[ManifestCheck]) -> None:
         with self._lock:
-            self._cue = Cue(event_id, seconds, self._clock_ms(), self._clock(), _ids(check))
+            self._remember(check)
+            self._cue = Cue(event_id, seconds, self._clock_ms(), self._clock(), self._known)
             self._seen_at_ms = None
+
+    def _remember(self, check: Optional[ManifestCheck]) -> None:
+        if check is not None and check.error is None:
+            self._known = self._known | _ids(check)
 
     def observe(self, check: Optional[ManifestCheck]) -> None:
         with self._lock:
-            if self._cue is None or self._seen_at_ms is not None:
+            self._remember(check)
+            if self._cue is None or self._seen_at_ms is not None or check is None:
                 return
-            if _ids(check) - self._cue.baseline:
+            cue = self._cue
+            if any(b.event_id == cue.event_id or (b.event_id is None and b.id not in cue.baseline)
+                   for b in check.breaks):
                 self._seen_at_ms = self._clock_ms()
 
     def status(self) -> Optional[dict]:

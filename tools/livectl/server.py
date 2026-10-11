@@ -348,6 +348,9 @@ def _cue(console: Console, body: Any) -> Response:
             return _json(409, {"error": f"A break is still running ({math.ceil(left)} s left)."})
         if targets.ads.get("duration_mode") == "clip":
             seconds = float(targets.ads["clip_seconds"])
+            if not MIN_BREAK_S <= seconds <= MAX_BREAK_S:
+                return _json(409, {"error": f"The deployed clip lasts {seconds:g} s; a break must last {MIN_BREAK_S} "
+                                            f"to {MAX_BREAK_S} s. Choose the duration per trigger and deploy."})
         else:
             seconds = body.get("seconds") if isinstance(body, dict) else None
             if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) \
@@ -612,8 +615,15 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self, method: str) -> None:
         parsed = urlparse(self.path)
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > MAX_CLIP_BYTES:
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length < 0:
+            # read(-1) would read until the client stops: never, for a body we cannot size.
+            self.close_connection = True
+            status, content_type, payload = _json(400, {"error": "The request has no usable Content-Length."})
+        elif length > MAX_CLIP_BYTES:
             # Refused from the header alone, never read into memory. The unread body leaves the connection unusable.
             self.close_connection = True
             status, content_type, payload = _json(413, {"error": TOO_LARGE, "field": "clip"})

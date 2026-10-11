@@ -1014,3 +1014,25 @@ def test_a_medialive_error_is_shown_by_type_only(tmp_path):
 
     assert status == 502 and "RuntimeError" in body["error"] and "stubbed failure" not in body["error"]
     assert call(console, "POST", "/api/ad-break", body={"seconds": 30})[0] == 502  # a failed cue blocks nothing
+
+
+@pytest.mark.parametrize("length", ["-1", "lots"])
+def test_a_content_length_that_is_not_a_size_is_refused_unread(tmp_path, length):
+    console, _ = ads_console(tmp_path)
+    out = io.BytesIO()
+    handler = make_handler(console, out)
+    handler.path = "/api/config/ads/clip?seconds=24.5"
+    handler.headers = {"Content-Length": length, "Content-Type": "video/mp4"}
+    handler.rfile = UnreadableRFile()
+
+    handler._dispatch("PUT")
+
+    assert out.getvalue().split(b"\r\n")[0].endswith(b" 400 Bad Request")
+    assert handler.close_connection is True
+
+
+def test_clip_mode_with_a_clip_outside_the_range_is_refused(tmp_path):
+    console, medialive = ads_console(tmp_path, ads={**CLIP_ADS, "clip_seconds": 0.8})
+    status, body = call(console, "POST", "/api/ad-break", body={})
+    assert status == 409 and "5 to 180" in body["error"]
+    assert schedule_calls(medialive) == []

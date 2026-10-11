@@ -134,3 +134,26 @@ run "rejects_clip_mode_without_a_clip" {
 
   expect_failures = [var.ads]
 }
+
+run "rejects_clip_mode_with_a_clip_too_short_for_a_break" {
+  command = plan
+
+  variables {
+    ads = { clip = "tests/fixtures/clip.mp4", clip_seconds = 2, duration_mode = "clip" }
+  }
+
+  expect_failures = [var.ads]
+}
+
+run "accepts_a_short_clip_per_trigger" {
+  command = plan
+
+  variables {
+    ads = { clip = "tests/fixtures/clip.mp4", clip_seconds = 2, duration_mode = "per_trigger" }
+  }
+
+  assert {
+    condition     = length(aws_s3_object.ad_clip) == 1
+    error_message = "A clip of any length can be used when breaks are chosen per trigger; the player loops or cuts it."
+  }
+}

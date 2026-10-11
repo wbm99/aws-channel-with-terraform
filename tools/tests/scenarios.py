@@ -53,8 +53,9 @@ ON = dict(flow="ACTIVE", channel="RUNNING")
 FIXTURE_CLIP = Path(__file__).parent / "fixtures" / "ad.mp4"
 FIXTURE_MD5 = hashlib.md5(FIXTURE_CLIP.read_bytes()).hexdigest()
 DEFAULT_ADS = {"clip_md5": None, "clip_seconds": None, "duration_mode": "per_trigger"}
-CLIP_SAVED = {"clip": "ads/clip.mp4", "clip_seconds": 2.0, "duration_mode": "clip"}
-CLIP_DEPLOYED = {"clip_md5": FIXTURE_MD5, "clip_seconds": 2.0, "duration_mode": "clip"}
+# The fixture lasts 2 s, too short to be a break; the settings claim 24.5 s, which the Ads tab never checks.
+CLIP_SAVED = {"clip": "ads/clip.mp4", "clip_seconds": 24.5, "duration_mode": "clip"}
+CLIP_DEPLOYED = {"clip_md5": FIXTURE_MD5, "clip_seconds": 24.5, "duration_mode": "clip"}
 LONG_CLIP_DEPLOYED = {"clip_md5": FIXTURE_MD5, "clip_seconds": 24.5, "duration_mode": "clip"}
 PER_TRIGGER_DEPLOYED = {"clip_md5": FIXTURE_MD5, "clip_seconds": 2.0, "duration_mode": "per_trigger"}
 

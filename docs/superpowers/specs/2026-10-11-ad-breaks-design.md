@@ -134,7 +134,8 @@ The player module owns the clip and `config.json`, so the `ads` variable and its
   1. `duration_mode` is `clip` or `per_trigger`.
   2. `clip`, when set, ends in `.mp4` and `fileexists(clip)`.
   3. `clip_seconds > 0` when `clip` is set.
-  4. `duration_mode = "clip"` requires `clip`.
+  4. `duration_mode = "clip"` requires `clip`, and a `clip_seconds` of 5 to 180 (the break range). A clip outside
+     that range is still accepted with `per_trigger`, which loops or cuts it.
 - `aws_s3_object.ad_clip`, `count = var.ads.clip == null ? 0 : 1`, key `ads/clip.mp4`, `content_type = "video/mp4"`,
   `etag = filemd5(var.ads.clip)` so a new clip re-uploads.
 - `config.json` gains `"adClip": "/ads/clip.mp4"` or `null` (camelCase, like `manifestPath`).
@@ -199,8 +200,9 @@ Detects `EXT-X-DATERANGE` tags with `SCTE35-OUT` in a variant manifest and retur
   cannot stack two breaks.
 - A stack deployed before this feature has no `ads` output: the cue is refused with "Deploy once more to enable ad
   breaks", since its encode and package lack the SCTE settings too.
-- The last cue is kept in memory, with the `DATERANGE` IDs already in the playlist at cue time; the first new ID
-  is this cue's marker, so no assumption is made about how MediaPackage forms the ID. The polled payload reports it with the time its marker was first seen in the
+- The last cue is kept in memory. Its marker is the `DATERANGE` whose `SCTE35-OUT` holds the cue's
+  `splice_event_id` (bytes 14-17 of a splice_insert section), so a late marker from an earlier break is never taken
+  for it. A tag whose SCTE-35 cannot be read falls back to a baseline: an ID not seen in any earlier successful read. The polled payload reports it with the time its marker was first seen in the
   manifest, or `not_seen` after 60 s ("not seen in manifest after 60 s — check SCTE settings in package/encode").
 
 ## Console UI

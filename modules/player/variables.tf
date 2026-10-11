@@ -37,4 +37,9 @@ variable "ads" {
     condition     = var.ads.duration_mode != "clip" || var.ads.clip != null
     error_message = "ads.duration_mode = \"clip\" needs a clip; without one, breaks are chosen per trigger."
   }
+
+  validation {
+    condition     = var.ads.duration_mode != "clip" || (var.ads.clip_seconds == null ? false : (var.ads.clip_seconds >= 5 && var.ads.clip_seconds <= 180))
+    error_message = "ads.duration_mode = \"clip\" needs a clip of 5 to 180 seconds; other clips are used with \"per_trigger\"."
+  }
 }

@@ -64,7 +64,13 @@ export class ConfigPage {
     const locked = Boolean(refusal) || this.busy;
     this.input.disabled = locked;
     $('ads-clip-remove').disabled = locked;
-    $('ads-mode-clip').disabled = locked || !saved.clip;
+    // A break lasts 5 to 180 s; a clip outside that range is used per trigger, looped or cut.
+    const fits = saved.clip && saved.clip_seconds >= 5 && saved.clip_seconds <= 180;
+    $('ads-mode-clip').disabled = locked || !fits;
+    $('ads-mode-hint').textContent = saved.clip && !fits
+      ? 'This clip lasts ' + saved.clip_seconds.toFixed(1) + ' s and a break lasts 5 to 180 s, so it is used per '
+        + 'trigger: looped through a longer break, cut by a shorter one.'
+      : 'A break longer than the clip loops it; a shorter one cuts it off.';
     $('ads-mode-per-trigger').disabled = locked;
     $('ads-mode-clip').checked = saved.duration_mode === 'clip';
     $('ads-mode-per-trigger').checked = saved.duration_mode === 'per_trigger';

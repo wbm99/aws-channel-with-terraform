@@ -50,11 +50,14 @@ class AdsSettings:
             raise ConfigError("The clip's length must be a number of seconds greater than 0.", "clip_seconds")
         if self.duration_mode == "clip" and self.clip is None:
             raise ConfigError("Using the clip's length needs a clip.", "duration_mode")
+        if self.duration_mode == "clip" and not MIN_BREAK_S <= self.clip_seconds <= MAX_BREAK_S:
+            raise ConfigError(f"A break must last {MIN_BREAK_S} to {MAX_BREAK_S} s, and this clip does not; choose the "
+                              "duration per trigger, which loops or cuts the clip.", "duration_mode")
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "AdsSettings":
         return cls(clip=data.get("clip"), clip_seconds=data.get("clip_seconds"),
-                   duration_mode=data.get("duration_mode", "per_trigger"))
+                   duration_mode=data.get("duration_mode") or "per_trigger")  # null too, as Terraform's optional()
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -132,8 +135,11 @@ class ConfigStore:
 
     def save_clip(self, data: bytes, seconds: float) -> AdsSettings:
         """Store the clip and its length together; the duration mode is kept."""
-        current = self.ads()
-        ads = AdsSettings(clip=CLIP_PATH, clip_seconds=seconds, duration_mode=current.duration_mode)
+        mode = self.ads().duration_mode
+        try:
+            ads = AdsSettings(clip=CLIP_PATH, clip_seconds=seconds, duration_mode=mode)
+        except ConfigError:  # a clip too short or too long to be the break: keep it, chosen per trigger
+            ads = AdsSettings(clip=CLIP_PATH, clip_seconds=seconds)
         self.read()  # refuse before touching the clip if the settings file cannot be saved
         _write_atomically(self._clip, data)
         self.save_ads(ads)
