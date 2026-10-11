@@ -243,6 +243,7 @@ class Pipeline:
         self._logs = logs
         self._cache = TtlCache(clock)
         self._watcher = ManifestWatcher(fetch, clock)
+        self.last_check: Optional[ManifestCheck] = None  # the latest manifest read, for the ad break trace
 
     def forget(self) -> None:
         """Drop cached state, for example after a job changed it."""
@@ -331,5 +332,6 @@ class Pipeline:
         check = None
         if channel_running and targets.manifest_url:
             check, _ = self._read("manifest", MANIFEST_TTL, lambda: self._watcher.check(targets.manifest_url))
+            self.last_check = check or self.last_check
         nodes.append(player_node(check, channel_running, targets.manifest_url, at, source_lost))
         return nodes

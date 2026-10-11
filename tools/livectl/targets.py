@@ -34,6 +34,7 @@ class Targets:
     manifest_url: Optional[str] = None
     passphrase_secret_arn: Optional[str] = None
     events_log_group: Optional[str] = None
+    ads: Optional[dict] = None  # deployed ad settings; None on a stack deployed before ad breaks existed
 
 
 def run_command(args: Sequence[str]) -> str:
@@ -96,4 +97,5 @@ def resolve_targets(
         manifest_url=text("cdn_manifest_url"),
         passphrase_secret_arn=text("passphrase_secret_arn"),
         events_log_group=text("events_log_group"),
+        ads=outputs.get("ads"),
     )

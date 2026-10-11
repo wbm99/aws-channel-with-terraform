@@ -105,3 +105,9 @@ def test_an_empty_stack_is_reported_as_not_deployed():
 
 def test_not_deployed_is_still_a_target_error_for_the_cli():
     assert issubclass(NotDeployed, TargetError)
+
+
+def test_the_ads_output_is_read():
+    ads = {"clip_md5": None, "clip_seconds": None, "duration_mode": "per_trigger"}
+    assert resolve_targets(None, None, "envs/demo", fake_runner({**OUTPUTS, "ads": {"value": ads}})).ads == ads
+    assert resolve_targets(None, None, "envs/demo", fake_runner(OUTPUTS)).ads is None
