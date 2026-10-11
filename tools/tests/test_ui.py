@@ -5,6 +5,7 @@ They check what a person sees and can click, in every state.
 """
 
 import re
+from pathlib import Path
 import threading
 import time
 
@@ -14,7 +15,7 @@ playwright_api = pytest.importorskip("playwright.sync_api")
 expect = playwright_api.expect
 
 from livectl.server import make_server  # noqa: E402
-from scenarios import OUTPUTS, SCENARIOS, build  # noqa: E402
+from scenarios import FIXTURE_CLIP, OUTPUTS, SCENARIOS, build  # noqa: E402
 
 EXPECTED = {
     "not-deployed": ("Not deployed", ["deploy", "teardown", "scan"]),
@@ -32,6 +33,10 @@ EXPECTED = {
     "no-credentials": ("No AWS credentials", []),
     "root-identity": ("Off air", ["deploy", "teardown", "scan", "go-live"]),
     "source-received-mismatch": ("On air · playing", ["scan", "go-off-air", "source-stop"]),
+    "config-no-clip": ("Off air", ["deploy", "teardown", "scan", "go-live"]),
+    "config-clip-pending": ("Off air", ["deploy", "teardown", "scan", "go-live"]),
+    "config-clip-deployed": ("Off air", ["deploy", "teardown", "scan", "go-live"]),
+    "config-malformed": ("Off air", ["deploy", "teardown", "scan", "go-live"]),
 }
 
 
@@ -617,7 +622,7 @@ def test_the_form_is_built_from_the_choices(open_scenario):
     expect(bitrate).to_have_value("6")
     assert [bitrate.get_attribute(a) for a in ("min", "max", "step")] == ["0.5", "10", "0.1"]
     expect(form.locator('[name="service_name"]')).to_have_attribute("maxlength", "60")
-    expect(page.locator('.menu a[data-page]')).to_have_text(["Control", "Source", "Live", "Logs"])
+    expect(page.locator('.menu a[data-page]')).to_have_text(["Control", "Source", "Configuration", "Live", "Logs"])
 
 
 def test_two_edits_make_one_apply_with_only_those_fields(open_scenario):
@@ -883,3 +888,92 @@ def test_the_endpoints_card_has_no_grafana_row_without_it(open_scenario):
 
     expect(page.locator("#endpoints dt", has_text="SRT ingest")).to_have_count(1)
     expect(page.locator("#endpoints dt", has_text="Grafana")).to_have_count(0)
+
+
+# --- Configuration → Ads ------------------------------------------------------------------------------------------
+
+def saved_settings(scenario):
+    return scenario.console.config.read().get("ads", {})
+
+
+def test_the_ads_tab_offers_a_clip_when_there_is_none(open_scenario):
+    page, _ = open_scenario("config-no-clip", "config")
+
+    expect(page.locator("#view-config")).to_be_visible()
+    expect(page.get_by_role("tab", name="Ads")).to_have_attribute("aria-selected", "true")
+    expect(page.locator("#ads-clip-input")).to_have_attribute("accept", "video/mp4")
+    expect(page.get_by_label("Length of the clip")).to_be_disabled()
+    expect(page.get_by_label("Chosen per trigger")).to_be_checked()
+    expect(page.locator("#ads-status")).not_to_contain_text("deploy to apply")
+
+
+def test_picking_a_clip_uploads_it_with_its_length(open_scenario):
+    page, scenario = open_scenario("config-no-clip", "config")
+
+    page.locator("#ads-clip-input").set_input_files(str(FIXTURE_CLIP))
+
+    expect(page.locator("#ads-clip-summary")).to_contain_text("2.0 s", timeout=10000)
+    expect(page.locator("#ads-clip-summary")).to_contain_text("KB")
+    assert (Path(scenario.settings) / "ads" / "clip.mp4").read_bytes() == FIXTURE_CLIP.read_bytes()
+    assert abs(saved_settings(scenario)["clip_seconds"] - 2.0) < 0.1
+    expect(page.get_by_label("Length of the clip")).to_be_enabled()
+
+
+def test_a_file_the_browser_cannot_play_is_refused_before_upload(open_scenario, tmp_path):
+    page, scenario = open_scenario("config-no-clip", "config")
+    fake = tmp_path / "not-a-video.mp4"
+    fake.write_text("these are not video frames")
+
+    page.locator("#ads-clip-input").set_input_files(str(fake))
+
+    expect(page.locator("#ads-error")).to_contain_text("does not play in the browser")
+    assert not (Path(scenario.settings) / "ads" / "clip.mp4").exists()
+
+
+def test_choosing_the_clip_length_is_saved(open_scenario):
+    page, scenario = open_scenario("config-clip-deployed", "config")
+    page.get_by_label("Chosen per trigger").check()
+    expect(page.locator("#ads-status")).to_contain_text("Saved — deploy to apply")
+    assert saved_settings(scenario)["duration_mode"] == "per_trigger"
+
+
+def test_a_saved_change_says_to_deploy(open_scenario):
+    page, _ = open_scenario("config-clip-pending", "config")
+    expect(page.locator("#ads-status")).to_contain_text("Saved — deploy to apply")
+
+
+def test_deployed_settings_say_so(open_scenario):
+    page, _ = open_scenario("config-clip-deployed", "config")
+    expect(page.locator("#ads-status")).to_contain_text("Matches what is deployed")
+    expect(page.get_by_label("Length of the clip")).to_be_checked()
+
+
+def test_removing_the_clip_returns_to_per_trigger(open_scenario):
+    page, scenario = open_scenario("config-clip-deployed", "config")
+
+    page.get_by_role("button", name="Remove clip").click()
+
+    expect(page.locator("#ads-clip-input")).to_be_visible()
+    expect(page.get_by_label("Chosen per trigger")).to_be_checked()
+    assert not (Path(scenario.settings) / "ads" / "clip.mp4").exists()
+
+
+def test_a_malformed_config_is_shown_instead_of_the_form(open_scenario):
+    page, _ = open_scenario("config-malformed", "config")
+    expect(page.locator("#ads-error")).to_contain_text("not valid JSON")
+    expect(page.locator("#ads-form")).to_be_hidden()
+
+
+def test_config_changes_are_disabled_while_a_job_runs(open_scenario):
+    page, _ = open_scenario("deploying", "config")
+    expect(page.locator("#ads-status")).to_contain_text("deploy is still running")
+    expect(page.locator("#ads-clip-input")).to_be_disabled()
+    expect(page.get_by_label("Chosen per trigger")).to_be_disabled()
+
+
+def test_the_ads_card_fits_a_phone(open_scenario):
+    # The console's header and chain are wider than a phone on every page; this checks only what the card adds.
+    page, _ = open_scenario("config-clip-deployed", "config")
+    page.set_viewport_size({"width": 375, "height": 800})
+    expect(page.locator("#ads-clip-summary")).to_be_visible()
+    assert page.locator("#view-config .card").evaluate("card => card.scrollWidth <= card.clientWidth")

@@ -1,8 +1,9 @@
 // Startup, polling, the two pages and the wiring between them.
 // Each region re-renders only when its data changed, so a poll never steals focus or wipes a half-typed word.
-import { getConnection, getPipeline, getReceived, post } from './api.js';
+import { getConnection, getPipeline, getReceived, post, removeClip, uploadClip } from './api.js';
 import { renderChain } from './chain.js';
 import { startClocks } from './clocks.js';
+import { ConfigPage } from './config-page.js';
 import { EncoderCard } from './encoder-card.js';
 import { renderEndpoints } from './endpoints.js';
 import { ago } from './format.js';
@@ -14,7 +15,7 @@ import { SourcePage } from './source-page.js';
 import { renderLiveActions, renderMaintenance, renderSteps } from './steps.js';
 
 const POLL_MS = 2000;
-const PAGES = ['control', 'source', 'live', 'logs'];
+const PAGES = ['control', 'source', 'config', 'live', 'logs'];
 const $ = (id) => document.getElementById(id);
 const logs = new LogsPanel($('tabs'), $('log'));
 const jobs = new JobsCard({
@@ -23,6 +24,7 @@ const jobs = new JobsCard({
 });
 const sourcePage = new SourcePage({ post, getReceived, act });
 const encoder = new EncoderCard({ getConnection });
+const configPage = new ConfigPage({ post, uploadClip, removeClip, refresh: () => poll() });
 const seen = {};
 let data = null;
 let selected = null;           // the node whose details are open in the drawer
@@ -189,6 +191,7 @@ function render() {
   }
   if (changed('endpoints', data.endpoints)) renderEndpoints($('endpoints'), data.endpoints);
   sourcePage.render(data);
+  configPage.render(data);
   encoder.render(data);
   renderPlayer();
 

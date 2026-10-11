@@ -1,6 +1,7 @@
 // The only module that talks to the livectl server.
 
-const PATHS = { 'source-start': 'source/start', 'source-stop': 'source/stop', 'source-settings': 'source/settings' };
+const PATHS = { 'source-start': 'source/start', 'source-stop': 'source/stop', 'source-settings': 'source/settings',
+  'config-ads': 'config/ads' };
 
 export async function getPipeline(offset, jobKey) {
   // The offset only means something for the job it was counted on, so the job's key travels with it.
@@ -40,4 +41,19 @@ export async function getConnection() {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || 'the console answered ' + response.status);
   return data;
+}
+
+// The ad clip goes up as the raw file, with the length the browser read from it; the server keeps the two together.
+export async function uploadClip(file, seconds) {
+  const response = await fetch('api/config/ads/clip?seconds=' + encodeURIComponent(seconds), {
+    method: 'PUT', headers: { 'Content-Type': 'video/mp4' }, body: file,
+  });
+  const data = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, data };
+}
+
+export async function removeClip() {
+  const response = await fetch('api/config/ads/clip', { method: 'DELETE' });
+  const data = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, data };
 }
