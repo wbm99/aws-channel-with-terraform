@@ -69,7 +69,8 @@ demo does not use.
 
 ## While a Grafana dashboard is open
 
-Grafana queries CloudWatch only while a dashboard is open in a browser, every 5 seconds (720 times an hour).
+Grafana queries CloudWatch only while a dashboard is open in a browser, every 5 seconds (720 times an hour), or every
+minute (60 times an hour) on *MediaPackage origin*.
 GetMetricData costs 0.01 USD per 1,000 metrics requested. Panels that repeat another panel's data (the
 *Disconnections* tile, the Priority 1 graph) reuse it through Grafana's *Dashboard* data source and add no query.
 
@@ -80,6 +81,7 @@ GetMetricData costs 0.01 USD per 1,000 metrics requested. Panels that repeat ano
 | Transport stream & SRT, Priority 2 row open | 16 | 11,520 | about 0.12 | about 0.92 |
 | MediaLive channel, *All* selected | 22 | 15,840 | about 0.16 | about 1.38 |
 | MediaLive channel, one channel picked | 22 | 15,840 | about 0.16 | about 0.16 |
+| MediaPackage origin (about 30 series a refresh) | 18 | about 1,800 | about 0.02 | about 0.02 |
 
 Each dashboard also runs a CloudWatch Logs Insights query for its *Source events* table, billed at 0.005 USD per GB
 scanned; the events log group holds kilobytes, so this rounds to nothing (not checked on a bill).
@@ -88,6 +90,10 @@ On the MediaLive dashboard, six tiles repeat a graph's metric, because they read
 *Dashboard* reuse would get the graph's whole range. With *All*, its 22 searches match 192 series (21 metrics × 8
 channels, and three renditions × 8 channels for the output frame rate); picking one channel in the drop-down limits
 every search to it.
+
+On the MediaPackage dashboard, the figure counts series, not queries: a search returns one series per status class
+and request type it finds, about 30 a refresh with viewers, fewer without. Its names do not change between deploys,
+so old deploys add no series. Eight tiles repeat a graph's metric for the same reason as on MediaLive.
 
 How a search is billed, per live flow or per matched flow, is not documented where I looked; Cost Explorer settles it
 the day after the dashboards are used (README live check 23). Nothing is charged while they are closed.

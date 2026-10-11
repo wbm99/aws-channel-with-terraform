@@ -287,11 +287,22 @@ the new outputs exist), open `just ui` and check:
     real event.
 28. The *Channel* drop-down lists old channels too; picking the live one shows the same values as *All*.
 29. The next day, Cost Explorer's GetMetricData charge for the hours the MediaLive dashboard was open.
+30. **MediaPackage dashboard:** on air with the test source, the ingest tiles fill within about 2 minutes and
+    *Ingest bitrate* reads about 9.9 Mbps.
+31. Play through CloudFront: the *Origin to CloudFront* graphs fill and *Requests by authorization* shows
+    `HeaderSecretMatched`.
+32. `curl` the origin endpoint URL directly: a 403, and *Direct origin requests* turns red within about 2 minutes.
+33. Stop the source: the pushes stop. Note what *Input active* shows (*inactive*, or *No data*): `ActiveInput` is not
+    in the MediaPackage user guide.
+34. Within 3 hours of a session, query a MediaPackage metric at a 5-second period and note whether it returns data;
+    if it does, a finer dashboard is possible.
+35. The next day, Cost Explorer's GetMetricData charge for the hours the MediaPackage dashboard was open.
 
 ## Grafana
 
 A local Grafana shows the MediaConnect source and the MediaLive channel at a 5-second resolution, read straight from
-CloudWatch (both services publish their metrics every second; CloudWatch keeps that resolution for 3 hours).
+CloudWatch (both services publish their metrics every second; CloudWatch keeps that resolution for 3 hours), and the
+MediaPackage origin at one minute.
 
 - **Starting it:** `docker compose up` starts it beside the console, and `just ui` starts it before the console and
   stops it when the console exits. Without Docker, `just ui` prints `Grafana skipped: …` and starts the console
@@ -299,7 +310,8 @@ CloudWatch (both services publish their metrics every second; CloudWatch keeps t
 - **Opening it:** <http://127.0.0.1:3000> (`GRAFANA_PORT` in `.env` moves it; it is always bound to 127.0.0.1). Log in
   as `admin` / `admin`; Grafana then asks for a new password and keeps it in the `grafana-data` volume. To skip that,
   set `GRAFANA_ADMIN_PASSWORD` in `.env` before Grafana first starts (it is read only when the volume is created).
-- **Three dashboards,** in the *Live pipeline* folder, linked to each other and refreshing every 5 s.
+- **Four dashboards,** in the *Live pipeline* folder, linked to each other and refreshing every 5 s, except
+  *MediaPackage origin*, every minute.
 
   *MediaConnect source* is the overview, the one to keep open:
 
@@ -342,15 +354,35 @@ CloudWatch (both services publish their metrics every second; CloudWatch keeps t
   the fill inserted for missing input over the last minute, 60,000 ms at most),
   *Output frame rate* per rendition, *Push to MediaPackage*, *Network* in and out, *Audio* loudness and level of
   `audio_main` (silence shows at once), and *Channel events* from the same log group.
+
+  *MediaPackage origin* shows the origin's requests: pushes in from MediaLive, requests out to CloudFront. MediaPackage
+  publishes request metrics only, at least once a minute (its user guide promises no finer), so this dashboard reads
+  60-second data and refreshes every minute.
+
+  | Tile | Metric | Read it as |
+  |---|---|---|
+  | Ingest bitrate | `IngressBytes` | What MediaLive pushed in the last minute; about 9.9 Mbps for the whole ladder. |
+  | Push errors, last 5 min | `IngressRequestCount` by status | Pushes the origin refused (4xx) or failed (5xx). |
+  | Input active | `ActiveInput` | Whether the channel has an active input. Not in the user guide; it has read 1 in every session so far. |
+  | Origin errors, last 5 min | `EgressRequestCount` by status | Requests through CloudFront answered with 4xx or 5xx. |
+  | Direct origin requests, last hour | `EgressRequestCount` by CDN authorization | Requests refused for lacking CloudFront's secret header: someone has the origin URL, or the CDN-auth setup is broken. Red above 0. |
+  | Manifest response time, last 5 min | `EgressResponseTime` | The slowest manifest answer; a slow manifest stalls players. |
+
+  The error tiles read *none* when there is no data: MediaPackage creates a 4xx or 5xx series only once such a request
+  has happened, so no data is the healthy case. Below the tiles: *Ingest from MediaLive* (pushes by status with
+  *Input active*, ingest bitrate, push response time), *Origin to CloudFront* (requests by type and status, egress
+  bitrate, response time) and *CDN authorization* (requests by result, `HeaderSecretMatched` green, every refusal
+  red). The origin rows are empty without viewers: no request, no metric.
 - **It finds the flow and the channel by itself:** each MediaConnect query is a CloudWatch search for this project's
   flows, wrapped in `REMOVE_EMPTY`, so nothing needs editing after a redeploy. A MediaLive channel ID is a number with
   no name in it, so the MediaLive dashboard has a *Channel* drop-down instead. Its default, *All*, searches every
   channel in the region and `REMOVE_EMPTY` keeps the one with data, the running one. The list also holds destroyed
   channels from the last two weeks; pick one to look back at an earlier run. Another MediaLive channel in the same
-  region would show under *All* too.
+  region would show under *All* too. MediaPackage's channel group, channel and endpoint keep their names across
+  deploys, so its dashboard searches on the name and needs no drop-down.
 - **Cost:** Grafana queries CloudWatch only while a dashboard is open: about 0.08 to 0.65 USD per hour for the
-  overview, about as much again for the detail, and about 0.16 to 1.38 for the MediaLive dashboard, the higher figure
-  only with *All* selected (see [docs/cost-estimate.md](docs/cost-estimate.md)). Close the tabs when you are not
+  overview, about as much again for the detail, about 0.16 to 1.38 for the MediaLive dashboard, the higher figure
+  only with *All* selected, and about 0.02 for the MediaPackage one (see [docs/cost-estimate.md](docs/cost-estimate.md)). Close the tabs when you are not
   watching them, and pick the channel when watching the MediaLive one for long.
 - **No event markers on the graphs:** Grafana's CloudWatch annotations read alarm history only, not log queries, so
   the events are a table instead. Disconnections, from the metrics, are the red bars on the *Bitrate* graph.
