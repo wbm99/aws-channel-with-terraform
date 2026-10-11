@@ -34,6 +34,9 @@ item could not be retrieved or an interpretation is mine, it is marked. Nothing 
   data transfer is tiered by geography, and I did not verify its free tier.
 - MediaConnect data transfer to MediaLive inside the region. The list shows a regional transfer line of 0.01 per GB; at
   about 2.9 GB per hour that would add up to about 0.03 per hour if it applies, which would bring the total to about 1.76.
+- Ad breaks: a cue is one API call on a channel that is already billing; I did not look up whether MediaLive prices
+  schedule actions. The ad clip adds its size to CloudFront data transfer once per viewer per break (a few MB), under
+  the same unpriced line as the stream above, and a few MB of S3 storage while deployed.
 - MediaPackage v2 live packaging: the price list shows the live ingest and origination/packaging lines above (named `EMP`) and a
   separate line only for v2 multiview, so I assumed v2 live uses the same rates. Unverified.
 

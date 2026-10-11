@@ -303,6 +303,27 @@ the new outputs exist), open `just ui` and check:
     if it does, a finer dashboard is possible.
 38. The next day, Cost Explorer's GetMetricData charge for the hours the MediaPackage dashboard was open.
 
+## Ad breaks (SCTE-35)
+
+The console can cue an ad break while on air. **Configuration → Ads** holds the settings: an optional MP4 clip and
+whether a break lasts the clip's length or is chosen on each cue (5–180 s). They are saved to
+`envs/demo/console.auto.tfvars.json` and `envs/demo/ads/clip.mp4` (both gitignored), which Terraform reads on its own,
+so the next deploy, from the console or `just up`, uploads the clip next to the player page.
+
+On the **Live** page, **Cue ad break** inserts a SCTE-35 splice insert into the running MediaLive channel
+(`BatchUpdateSchedule`, immediate). MediaLive carries it in the TS segments, MediaPackage writes it into the HLS
+playlist as an `EXT-X-DATERANGE`, and the console traces it: when it was cued, when the marker reached the playlist.
+The player sees the same tag and plays the clip over the live video for the break's length (looping a shorter clip,
+cutting a longer one), with live playing muted underneath so it resumes at the edge. Without a clip, the break is a
+marker in the playlist only.
+
+This is **client-side** ad insertion: the clip is a separate file, visible in the browser's developer tools and
+blockable by an ad blocker. Broadcasters avoid that with server-side insertion (MediaTailor between MediaPackage and
+CloudFront), where ad segments are spliced into the same stream; the signalling chain shown here is what SSAI builds
+on. **Unverified until the first live run:** whether MediaPackage v2 needs MediaLive's `ad_markers` in addition to the
+SCTE-35 carried in the TS. Both are set; the console says "not seen in manifest after 60 s" if the marker never
+arrives.
+
 ## Grafana
 
 A local Grafana shows the MediaConnect source and the MediaLive channel at a 5-second resolution, read straight from
