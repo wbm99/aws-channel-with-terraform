@@ -2,6 +2,7 @@
 cost. Whether Grafana accepts the files is test_grafana_container.py's job."""
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -62,7 +63,8 @@ def test_the_two_dashboards_identity_refresh_and_links():
         assert (d["uid"], d["title"], d["refresh"], d["timezone"]) == (uid, title, "5s", "utc")
         assert d["time"] == {"from": "now-15m", "to": "now"}
         assert [(link["url"], link["keepTime"]) for link in d["links"]] == [
-            (f"/d/{other}", True), ("/d/medialive-channel", True), ("/d/cloudfront-distribution", True)]
+            (f"/d/{other}", True), ("/d/medialive-channel", True), ("/d/mediapackage-origin", True),
+            ("/d/cloudfront-distribution", True)]
 
 
 def test_every_metric_query_searches_this_projects_flows_every_5_seconds():
@@ -287,7 +289,8 @@ def test_the_medialive_dashboard_identity_and_links():
     assert d["time"] == {"from": "now-15m", "to": "now"}
     assert (d["editable"], d["graphTooltip"], d["tags"]) == (False, 1, ["live-sports-aws", "medialive"])
     assert [(link["url"], link["keepTime"]) for link in d["links"]] == [
-        (f"/d/{OVERVIEW}", True), (f"/d/{DETAIL}", True), ("/d/cloudfront-distribution", True)]
+        (f"/d/{OVERVIEW}", True), (f"/d/{DETAIL}", True), ("/d/mediapackage-origin", True),
+        ("/d/cloudfront-distribution", True)]
 
 
 def test_the_channel_drop_down_defaults_to_all_which_searches_every_channel():
@@ -418,6 +421,214 @@ def test_input_loss_says_lost_or_none():
     assert (lost["type"], lost["options"]["from"], lost["options"]["result"]["text"]) == ("range", 0.01, "lost")
 
 
+# --- MediaPackage origin ----------------------------------------------------------------------------------------
+
+MP = "mediapackage-origin"
+CG, CGE = "ChannelGroup,Channel", "ChannelGroup,Channel,OriginEndpoint"
+# (metric, dims) -> statistics. EgressRequestCount is read twice, by status and by CDN authorization, so a check keyed
+# on the metric name alone would let one replace the other unnoticed.
+MP_METRICS = {
+    ("IngressRequestCount", CG + ",StatusCode"): {"Sum"},
+    ("IngressBytes", CG): {"Sum"},
+    ("IngressResponseTime", CG): {"Average", "Maximum"},
+    ("ActiveInput", CG + ",InputIndex"): {"Minimum"},
+    ("EgressRequestCount", CGE + ",StatusCode,RequestType"): {"Sum"},
+    ("EgressBytes", CGE + ",RequestType"): {"Sum"},
+    ("EgressResponseTime", CGE + ",RequestType"): {"Average", "Maximum"},
+    ("EgressRequestCount", CGE + ",CDNAuthorizationStatus,CDNAuthorizationStatusDetails"): {"Sum"},
+}
+# Bytes per 60-second bucket to megabits per second.
+MBPS = " * 8 / 60 / 1000000"
+MP_EXPRESSION = re.compile(
+    r"(?P<sum>SUM\()?REMOVE_EMPTY\(SEARCH\('\{AWS/MediaPackage,(?P<dims>[A-Za-z,]+)\} MetricName=\"(?P<metric>\w+)\" "
+    r"ChannelGroup=\"live-sports-aws-demo\"(?P<filter>(?: \w+=\"[\w-]+\")?)', '(?P<statistic>\w+)', 60\)\)(?(sum)\))"
+    r"(?P<math>.*)")
+ERROR_TILES = ("Push errors, last 5 min", "Origin errors, last 5 min", "Direct origin requests, last hour")
+EGRESS_GRAPHS = ("Requests", "Egress bitrate", "Response time", "Requests by authorization")
+
+
+def mp_parse(target: dict) -> tuple:
+    """(metric, dims, filter, statistic, math) of a MediaPackage query; fails on any other shape."""
+    match = MP_EXPRESSION.fullmatch(target["expression"])
+    assert match, target["expression"]
+    return match["metric"], match["dims"], match["filter"].strip(), match["statistic"], match["math"]
+
+
+def mp_summed(target: dict) -> bool:
+    return MP_EXPRESSION.fullmatch(target["expression"])["sum"] is not None
+
+
+def mp_graph_targets() -> list:
+    return [t for p in panels(MP) if p["type"] == "timeseries" for t in p["targets"]]
+
+
+def mp_tile(title: str) -> dict:
+    return panel(title, MP, "stat")
+
+
+def test_the_mediapackage_dashboard_identity_and_links():
+    d = dashboard(MP)
+    assert (d["uid"], d["title"], d["refresh"], d["timezone"]) == (MP, "MediaPackage origin", "1m", "utc")
+    assert d["time"] == {"from": "now-1h", "to": "now"}
+    assert (d["editable"], d["graphTooltip"], d["tags"]) == (False, 1, ["live-sports-aws", "mediapackage"])
+    # No drop-down: the channel group, channel and endpoint keep their names across deploys.
+    assert d.get("templating", {}).get("list", []) == []
+    assert [(link["url"], link["keepTime"]) for link in d["links"]] == [
+        (f"/d/{OVERVIEW}", True), (f"/d/{DETAIL}", True), (f"/d/{ML}", True), ("/d/cloudfront-distribution", True)]
+
+
+def test_every_mediapackage_query_searches_this_projects_origin_every_minute():
+    # The user guide promises a sample "every minute, if not sooner"; finer data is a live check.
+    for target in metric_targets(MP):
+        metric, dims, _, statistic, math = mp_parse(target)
+        assert target["datasource"]["uid"] == "cloudwatch" and target["namespace"] == "AWS/MediaPackage"
+        assert (target["metricName"], target["statistic"], target["period"]) == (metric, statistic, "60")
+        # Code mode, or Grafana builds its own query from the fields and ignores the expression.
+        assert (target["metricEditorMode"], target["region"], target["queryMode"]) == (1, "default", "Metrics")
+        assert statistic in MP_METRICS[(metric, dims)], (metric, dims, statistic)
+        assert math == (MBPS if metric.endswith("Bytes") else ""), metric
+
+
+def test_the_mediapackage_dashboard_reads_every_metric_and_statistic():
+    graphs = [mp_parse(t) for t in mp_graph_targets()]
+    assert {(m, d, s) for m, d, _, s, _ in graphs} == {(m, d, s) for (m, d), ss in MP_METRICS.items() for s in ss}
+    assert [f for _, _, f, _, _ in graphs if f] == []
+    assert not any(mp_summed(t) for t in mp_graph_targets())
+    assert (len(graphs), len(metric_targets(MP))) == (10, 18)
+
+
+def test_the_mediapackage_panels_follow_the_signal():
+    assert [(p["type"], p["title"]) for p in panels(MP)] == [
+        ("stat", "Ingest bitrate"), ("stat", "Push errors, last 5 min"), ("stat", "Input active"),
+        ("stat", "Origin errors, last 5 min"), ("stat", "Direct origin requests, last hour"),
+        ("stat", "Manifest response time, last 5 min"),
+        ("row", "Ingest from MediaLive"),
+        ("timeseries", "Pushes"), ("timeseries", "Ingest bitrate"), ("timeseries", "Push response time"),
+        ("row", "Origin to CloudFront"),
+        ("timeseries", "Requests"), ("timeseries", "Egress bitrate"), ("timeseries", "Response time"),
+        ("row", "CDN authorization"),
+        ("timeseries", "Requests by authorization")]
+    assert [p.get("collapsed", False) for p in panels(MP) if p["type"] == "row"] == [False] * 3
+
+
+def test_mediapackage_tiles():
+    def shape(title):
+        tile = mp_tile(title)
+        queries = [mp_parse(t) for t in tile["targets"]]
+        return ((tile["timeFrom"], tile["hideTimeOverride"]), tile["options"]["reduceOptions"]["calcs"],
+                [(m, d, f, s) for m, d, f, s, _ in queries])
+
+    status, egress_status = CG + ",StatusCode", CGE + ",StatusCode,RequestType"
+    auth = CGE + ",CDNAuthorizationStatus,CDNAuthorizationStatusDetails"
+    # The mean of 5 minutes: the newest bucket can still be filling at a 1-minute refresh.
+    assert shape("Ingest bitrate") == (("5m", True), ["mean"], [("IngressBytes", CG, "", "Sum")])
+    assert shape("Push errors, last 5 min") == (("5m", True), ["sum"], [
+        ("IngressRequestCount", status, 'StatusCode="4xx"', "Sum"),
+        ("IngressRequestCount", status, 'StatusCode="5xx"', "Sum")])
+    assert shape("Input active") == (("5m", True), ["min"], [("ActiveInput", CG + ",InputIndex", "", "Minimum")])
+    assert shape("Origin errors, last 5 min") == (("5m", True), ["sum"], [
+        ("EgressRequestCount", egress_status, 'StatusCode="4xx"', "Sum"),
+        ("EgressRequestCount", egress_status, 'StatusCode="5xx"', "Sum")])
+    assert shape("Direct origin requests, last hour") == (("1h", True), ["sum"], [
+        ("EgressRequestCount", auth, 'CDNAuthorizationStatus="Unauthorized"', "Sum")])
+    assert shape("Manifest response time, last 5 min") == (("5m", True), ["max"], [
+        ("EgressResponseTime", CGE + ",RequestType", 'RequestType="manifest"', "Maximum")])
+    for title in ("Push errors, last 5 min", "Origin errors, last 5 min"):
+        assert names(mp_tile(title)) == {"A": "4xx", "B": "5xx"}, title
+        assert mp_tile(title)["options"]["textMode"] == "value_and_name", title
+    assert mp_tile("Direct origin requests, last hour")["options"]["textMode"] == "value"
+    # One total per box: these searches return a series per request type or per refusal reason, and without SUM each
+    # became its own box, all labelled 4xx (found in review). Ingress has one series per status class already.
+    summed = {p["title"] for p in panels(MP) if p["type"] == "stat" and any(mp_summed(t) for t in p["targets"])}
+    assert summed == {"Origin errors, last 5 min", "Direct origin requests, last hour"}
+    for title in summed:
+        assert all(mp_summed(t) for t in mp_tile(title)["targets"]), title
+    assert mp_tile("Manifest response time, last 5 min")["fieldConfig"]["defaults"]["unit"] == "ms"
+
+
+def test_mediapackage_error_tiles_read_none_without_data():
+    # A status class has a series only once a request in it has happened: a healthy stack has no 4xx series at all
+    # (none on ingress in two weeks), so no data is the good case and must not look like a fault.
+    for title in ERROR_TILES:
+        tile = mp_tile(title)
+        defaults = tile["fieldConfig"]["defaults"]
+        assert defaults["noValue"] == "none", title
+        assert tile["options"]["colorMode"] == "background", title
+        # Transparent, not green: Grafana paints a missing value in the base step's colour, so a green base made a
+        # stopped stack look healthy (seen in the browser, 2026-10-10). A count, when there is one, is at least 1.
+        assert [(s["value"], s["color"]) for s in defaults["thresholds"]["steps"]] == [
+            (None, "transparent"), (1, "red")], title
+    for title in ("Ingest bitrate", "Manifest response time, last 5 min"):
+        assert mp_tile(title)["options"]["colorMode"] == "none", title
+
+
+def test_input_active_says_active_or_inactive():
+    defaults = mp_tile("Input active")["fieldConfig"]["defaults"]
+    [mapping] = defaults["mappings"]
+    assert mapping["type"] == "value"
+    assert {k: (v["text"], v["color"]) for k, v in mapping["options"].items()} == {
+        "0": ("inactive", "red"), "1": ("active", "green")}
+    # Without it the tile is blank when the stack is off: the minimum of an empty series is no value at all.
+    assert defaults["noValue"] == "\u2014"
+    assert defaults["thresholds"]["steps"] == [{"value": None, "color": "transparent"}]
+
+
+def test_mediapackage_series_labels():
+    expected = {
+        ("IngressRequestCount", "Sum"): ["${PROP('Dim.StatusCode')}"],
+        ("IngressBytes", "Sum"): ["Ingest"],
+        ("IngressResponseTime", "Average"): ["Average"], ("IngressResponseTime", "Maximum"): ["Maximum"],
+        ("ActiveInput", "Minimum"): ["Input active"],
+        ("EgressBytes", "Sum"): ["${PROP('Dim.RequestType')}"],
+        ("EgressResponseTime", "Average"): ["${PROP('Dim.RequestType')} average"],
+        ("EgressResponseTime", "Maximum"): ["${PROP('Dim.RequestType')} max"],
+        ("EgressRequestCount", "Sum"): ["${PROP('Dim.RequestType')} ${PROP('Dim.StatusCode')}",
+                                        "${PROP('Dim.CDNAuthorizationStatusDetails')}"],
+    }
+    seen = {}
+    for target in mp_graph_targets():
+        metric, _, _, statistic, _ = mp_parse(target)
+        seen.setdefault((metric, statistic), []).append(target["label"])
+    assert seen == expected
+
+
+def test_cdn_authorization_is_red_except_a_matched_secret():
+    graph = panel("Requests by authorization", MP)
+    defaults = graph["fieldConfig"]["defaults"]
+    assert (defaults["custom"]["drawStyle"], defaults["custom"]["stacking"]["mode"]) == ("bars", "normal")
+    assert defaults["color"] == {"mode": "fixed", "fixedColor": "red"}
+    [override] = graph["fieldConfig"]["overrides"]
+    assert override["matcher"] == {"id": "byName", "options": "HeaderSecretMatched"}
+    assert override["properties"] == [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]
+
+
+def test_mediapackage_units_and_axes():
+    unit = lambda title, kind=None: panel(title, MP, kind)["fieldConfig"]["defaults"].get("unit")
+    assert unit("Ingest bitrate", "stat") == unit("Ingest bitrate", "timeseries") == unit("Egress bitrate") == "Mbits"
+    assert unit("Push response time") == unit("Response time") == "ms"
+    [right] = [o for o in panel("Pushes", MP)["fieldConfig"]["overrides"] if o["matcher"]["options"] == "B"]
+    assert {"id": "custom.axisPlacement", "value": "right"} in right["properties"]
+    for p in panels(MP):
+        if p["type"] == "timeseries":
+            assert p["fieldConfig"]["defaults"]["custom"]["axisSoftMin"] == 0, p["title"]
+
+
+def test_mediapackage_egress_panels_say_no_data_means_no_viewers():
+    for title in EGRESS_GRAPHS:
+        assert "no viewers" in panel(title, MP)["description"], title
+
+
+def test_input_active_is_described_as_undocumented():
+    assert "not in the MediaPackage user guide" in mp_tile("Input active")["description"]
+
+
+def test_no_mediapackage_query_reads_a_left_out_metric():
+    # IngestEndpoint is a GUID that changes with every deploy; no MQCS data exists; multiview is not used.
+    for target in metric_targets(MP):
+        for word in ("IngestEndpoint", "MQCS", "Multiview"):
+            assert word not in target["expression"], (word, target["expression"])
+
+
 
 # --- CloudFront distribution ------------------------------------------------------------------------------------
 
@@ -435,7 +646,7 @@ def test_the_cloudfront_dashboard_identity_and_links():
     assert d["time"] == {"from": "now-1h", "to": "now"}
     assert (d["editable"], d["graphTooltip"], d["tags"]) == (False, 1, ["live-sports-aws", "cloudfront"])
     assert [(link["url"], link["keepTime"]) for link in d["links"]] == [
-        (f"/d/{OVERVIEW}", True), (f"/d/{DETAIL}", True), (f"/d/{ML}", True)]
+        (f"/d/{OVERVIEW}", True), (f"/d/{DETAIL}", True), (f"/d/{ML}", True), ("/d/mediapackage-origin", True)]
 
 
 def test_the_cloudfront_variables():

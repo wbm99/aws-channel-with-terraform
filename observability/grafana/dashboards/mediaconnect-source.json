@@ -1033,6 +1033,14 @@
     },
     {
       "type": "link",
+      "title": "MediaPackage origin",
+      "url": "/d/mediapackage-origin",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
       "title": "CloudFront distribution",
       "url": "/d/cloudfront-distribution",
       "keepTime": true,

@@ -1,0 +1,1166 @@
+{
+  "uid": "mediapackage-origin",
+  "title": "MediaPackage origin",
+  "tags": [
+    "live-sports-aws",
+    "mediapackage"
+  ],
+  "timezone": "utc",
+  "refresh": "1m",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "description": "The live-sports-aws demo origin, from CloudWatch at a 60-second period: pushes from MediaLive, requests from CloudFront and CDN authorization, in signal order.",
+  "links": [
+    {
+      "type": "link",
+      "title": "MediaConnect source",
+      "url": "/d/mediaconnect-source",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Transport stream & SRT",
+      "url": "/d/mediaconnect-detail",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "MediaLive channel",
+      "url": "/d/medialive-channel",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "CloudFront distribution",
+      "url": "/d/cloudfront-distribution",
+      "keepTime": true,
+      "icon": "dashboard",
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Ingest bitrate",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "What MediaLive pushed, averaged over the last 5 minutes, in megabits per second; about 9.9 for the whole ladder. \"Number of bytes of content that MediaPackage receives for each input request.\"",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "IngressBytes",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel} MetricName=\"IngressBytes\" ChannelGroup=\"live-sports-aws-demo\"', 'Sum', 60)) * 8 / 60 / 1000000",
+          "period": "60",
+          "id": "",
+          "label": "Ingest"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "Mbits",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "text"
+              }
+            ]
+          },
+          "noValue": "\u2014"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "timeFrom": "5m",
+      "hideTimeOverride": true,
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Push errors, last 5 min",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Pushes from MediaLive that MediaPackage refused (4xx) or failed (5xx) in the last 5 minutes. 0 or none, in a neutral colour: no such request, the healthy case. A status class exists only once a request in it has happened.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "IngressRequestCount",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,StatusCode} MetricName=\"IngressRequestCount\" ChannelGroup=\"live-sports-aws-demo\" StatusCode=\"4xx\"', 'Sum', 60))",
+          "period": "60",
+          "id": "",
+          "label": "4xx"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "IngressRequestCount",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,StatusCode} MetricName=\"IngressRequestCount\" ChannelGroup=\"live-sports-aws-demo\" StatusCode=\"5xx\"', 'Sum', 60))",
+          "period": "60",
+          "id": "",
+          "label": "5xx"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "transparent"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          },
+          "noValue": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "4xx"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "5xx"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center"
+      },
+      "timeFrom": "5m",
+      "hideTimeOverride": true,
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Input active",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Whether the channel has an active input, from the ActiveInput metric. This metric is not in the MediaPackage user guide: it read 1 throughout every session so far, and what it reads when input stops (0, or no data) is a live check.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "ActiveInput",
+          "statistic": "Minimum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,InputIndex} MetricName=\"ActiveInput\" ChannelGroup=\"live-sports-aws-demo\"', 'Minimum', 60))",
+          "period": "60",
+          "id": "",
+          "label": "Input active"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "transparent"
+              }
+            ]
+          },
+          "noValue": "\u2014",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "inactive",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "active",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "min"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "timeFrom": "5m",
+      "hideTimeOverride": true,
+      "id": 3
+    },
+    {
+      "type": "stat",
+      "title": "Origin errors, last 5 min",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Requests (normally from CloudFront) that the origin answered with 4xx or 5xx in the last 5 minutes, all request types together. Whether a request refused for CDN authorization also counts here is not established. Expect a few manifest 4xx when going live with a player already open: in every recorded session they came in the minutes before MediaLive's first push, when the manifest did not exist yet. 0 or none: no such request.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "EgressRequestCount",
+          "statistic": "Sum",
+          "expression": "SUM(REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,OriginEndpoint,StatusCode,RequestType} MetricName=\"EgressRequestCount\" ChannelGroup=\"live-sports-aws-demo\" StatusCode=\"4xx\"', 'Sum', 60)))",
+          "period": "60",
+          "id": "",
+          "label": "4xx"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "EgressRequestCount",
+          "statistic": "Sum",
+          "expression": "SUM(REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,OriginEndpoint,StatusCode,RequestType} MetricName=\"EgressRequestCount\" ChannelGroup=\"live-sports-aws-demo\" StatusCode=\"5xx\"', 'Sum', 60)))",
+          "period": "60",
+          "id": "",
+          "label": "5xx"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "transparent"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          },
+          "noValue": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "4xx"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "5xx"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center"
+      },
+      "timeFrom": "5m",
+      "hideTimeOverride": true,
+      "id": 4
+    },
+    {
+      "type": "stat",
+      "title": "Direct origin requests, last hour",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Requests the origin refused for CDN authorization in the last hour: they did not come through CloudFront (anyone with the origin URL), or the CDN-auth setup is broken. The CDN authorization graph shows the reason.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "EgressRequestCount",
+          "statistic": "Sum",
+          "expression": "SUM(REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,OriginEndpoint,CDNAuthorizationStatus,CDNAuthorizationStatusDetails} MetricName=\"EgressRequestCount\" ChannelGroup=\"live-sports-aws-demo\" CDNAuthorizationStatus=\"Unauthorized\"', 'Sum', 60)))",
+          "period": "60",
+          "id": "",
+          "label": "Unauthorized"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "transparent"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          },
+          "noValue": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "timeFrom": "1h",
+      "hideTimeOverride": true,
+      "id": 5
+    },
+    {
+      "type": "stat",
+      "title": "Manifest response time, last 5 min",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "The slowest manifest response in the last 5 minutes, in milliseconds. A slow manifest stalls players. \"The time that it takes MediaPackage to process each output request.\"",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "EgressResponseTime",
+          "statistic": "Maximum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,OriginEndpoint,RequestType} MetricName=\"EgressResponseTime\" ChannelGroup=\"live-sports-aws-demo\" RequestType=\"manifest\"', 'Maximum', 60))",
+          "period": "60",
+          "id": "",
+          "label": "${PROP('Dim.RequestType')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "text"
+              }
+            ]
+          },
+          "noValue": "\u2014"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "max"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "timeFrom": "5m",
+      "hideTimeOverride": true,
+      "id": 6
+    },
+    {
+      "type": "row",
+      "title": "Ingest from MediaLive",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "panels": [],
+      "id": 7
+    },
+    {
+      "type": "timeseries",
+      "title": "Pushes",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "MediaLive's HLS pushes per minute, by status class, and whether the channel has an active input (right axis). \"Number of input requests that MediaPackage receives.\"",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "IngressRequestCount",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,StatusCode} MetricName=\"IngressRequestCount\" ChannelGroup=\"live-sports-aws-demo\"', 'Sum', 60))",
+          "period": "60",
+          "id": "",
+          "label": "${PROP('Dim.StatusCode')}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "ActiveInput",
+          "statistic": "Minimum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,InputIndex} MetricName=\"ActiveInput\" ChannelGroup=\"live-sports-aws-demo\"', 'Minimum', 60))",
+          "period": "60",
+          "id": "",
+          "label": "Input active"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 8
+    },
+    {
+      "type": "timeseries",
+      "title": "Ingest bitrate",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 6
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Megabits per second pushed by MediaLive, all renditions together. \"Number of bytes of content that MediaPackage receives for each input request.\"",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "IngressBytes",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel} MetricName=\"IngressBytes\" ChannelGroup=\"live-sports-aws-demo\"', 'Sum', 60)) * 8 / 60 / 1000000",
+          "period": "60",
+          "id": "",
+          "label": "Ingest"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0
+          },
+          "unit": "Mbits"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 9
+    },
+    {
+      "type": "timeseries",
+      "title": "Push response time",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 6
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "How long the origin takes to accept a push, average and slowest per minute. \"The time that it takes MediaPackage to process each input request.\"",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "IngressResponseTime",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel} MetricName=\"IngressResponseTime\" ChannelGroup=\"live-sports-aws-demo\"', 'Average', 60))",
+          "period": "60",
+          "id": "",
+          "label": "Average"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "IngressResponseTime",
+          "statistic": "Maximum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel} MetricName=\"IngressResponseTime\" ChannelGroup=\"live-sports-aws-demo\"', 'Maximum', 60))",
+          "period": "60",
+          "id": "",
+          "label": "Maximum"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 10
+    },
+    {
+      "type": "row",
+      "title": "Origin to CloudFront",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "panels": [],
+      "id": 11
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 15
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Requests from CloudFront per minute, by type and status class. \"Number of content requests that MediaPackage receives.\" No data here means no viewers, not zero: MediaPackage publishes a request metric only when a request arrives.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "EgressRequestCount",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,OriginEndpoint,StatusCode,RequestType} MetricName=\"EgressRequestCount\" ChannelGroup=\"live-sports-aws-demo\"', 'Sum', 60))",
+          "period": "60",
+          "id": "",
+          "label": "${PROP('Dim.RequestType')} ${PROP('Dim.StatusCode')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 12
+    },
+    {
+      "type": "timeseries",
+      "title": "Egress bitrate",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 15
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Megabits per second served to CloudFront, by type. \"Number of bytes that MediaPackage successfully sends for each request.\" No data here means no viewers, not zero: MediaPackage publishes a request metric only when a request arrives.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "EgressBytes",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,OriginEndpoint,RequestType} MetricName=\"EgressBytes\" ChannelGroup=\"live-sports-aws-demo\"', 'Sum', 60)) * 8 / 60 / 1000000",
+          "period": "60",
+          "id": "",
+          "label": "${PROP('Dim.RequestType')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0
+          },
+          "unit": "Mbits"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 13
+    },
+    {
+      "type": "timeseries",
+      "title": "Response time",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 15
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "How long the origin takes to answer, by type, average and slowest per minute. \"The time that it takes MediaPackage to process each output request.\" No data here means no viewers, not zero: MediaPackage publishes a request metric only when a request arrives.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "EgressResponseTime",
+          "statistic": "Average",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,OriginEndpoint,RequestType} MetricName=\"EgressResponseTime\" ChannelGroup=\"live-sports-aws-demo\"', 'Average', 60))",
+          "period": "60",
+          "id": "",
+          "label": "${PROP('Dim.RequestType')} average"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "EgressResponseTime",
+          "statistic": "Maximum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,OriginEndpoint,RequestType} MetricName=\"EgressResponseTime\" ChannelGroup=\"live-sports-aws-demo\"', 'Maximum', 60))",
+          "period": "60",
+          "id": "",
+          "label": "${PROP('Dim.RequestType')} max"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 14
+    },
+    {
+      "type": "row",
+      "title": "CDN authorization",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "panels": [],
+      "id": 15
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests by authorization",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "description": "Requests per minute by CDN authorization result. HeaderSecretMatched (green): came through CloudFront with the secret header. Every other reason (red) was refused: MissingCdnAuthHeader is a request that did not come through CloudFront; the others point at the CDN-auth setup (secret, role, Secrets Manager). No data here means no viewers, not zero: MediaPackage publishes a request metric only when a request arrives.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "region": "default",
+          "namespace": "AWS/MediaPackage",
+          "metricName": "EgressRequestCount",
+          "statistic": "Sum",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaPackage,ChannelGroup,Channel,OriginEndpoint,CDNAuthorizationStatus,CDNAuthorizationStatusDetails} MetricName=\"EgressRequestCount\" ChannelGroup=\"live-sports-aws-demo\"', 'Sum', 60))",
+          "period": "60",
+          "id": "",
+          "label": "${PROP('Dim.CDNAuthorizationStatusDetails')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 2,
+            "fillOpacity": 80,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "HeaderSecretMatched"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 16
+    }
+  ]
+}

@@ -291,12 +291,23 @@ the new outputs exist), open `just ui` and check:
     not, note *Requests a minute* and make it the default of *Requests per viewer a minute*.
 31. Open a second player (another browser): the estimate roughly doubles.
 32. Note the delay between opening the player and the first *Requests* point.
+33. **MediaPackage dashboard:** on air with the test source, the ingest tiles fill within about 2 minutes and
+    *Ingest bitrate* reads about 9.9 Mbps.
+34. Play through CloudFront: the *Origin to CloudFront* graphs fill and *Requests by authorization* shows
+    `HeaderSecretMatched`.
+35. `curl` the origin endpoint URL directly: a 403, and *Direct origin requests* turns red within about 2 minutes.
+    Note whether *Origin errors* counts it too: whether a refused request is a 4xx in that metric is not established.
+36. Stop the source: the pushes stop. Note what *Input active* shows (*inactive*, or —): `ActiveInput` is not
+    in the MediaPackage user guide.
+37. Within 3 hours of a session, query a MediaPackage metric at a 5-second period and note whether it returns data;
+    if it does, a finer dashboard is possible.
+38. The next day, Cost Explorer's GetMetricData charge for the hours the MediaPackage dashboard was open.
 
 ## Grafana
 
 A local Grafana shows the MediaConnect source and the MediaLive channel at a 5-second resolution, read straight from
 CloudWatch (both services publish their metrics every second; CloudWatch keeps that resolution for 3 hours), and the
-CloudFront distribution at CloudFront's 1-minute resolution.
+MediaPackage origin and the CloudFront distribution at their 1-minute resolution.
 
 - **Starting it:** `docker compose up` starts it beside the console, and `just ui` starts it before the console and
   stops it when the console exits. Without Docker, `just ui` prints `Grafana skipped: …` and starts the console
@@ -304,8 +315,8 @@ CloudFront distribution at CloudFront's 1-minute resolution.
 - **Opening it:** <http://127.0.0.1:3000> (`GRAFANA_PORT` in `.env` moves it; it is always bound to 127.0.0.1). Log in
   as `admin` / `admin`; Grafana then asks for a new password and keeps it in the `grafana-data` volume. To skip that,
   set `GRAFANA_ADMIN_PASSWORD` in `.env` before Grafana first starts (it is read only when the volume is created).
-- **Four dashboards,** in the *Live pipeline* folder, linked to each other and refreshing every 5 s (CloudFront's
-  every minute).
+- **Five dashboards,** in the *Live pipeline* folder, linked to each other and refreshing every 5 s (MediaPackage's
+  and CloudFront's every minute).
 
   *MediaConnect source* is the overview, the one to keep open:
 
@@ -349,6 +360,26 @@ CloudFront distribution at CloudFront's 1-minute resolution.
   *Output frame rate* per rendition, *Push to MediaPackage*, *Network* in and out, *Audio* loudness and level of
   `audio_main` (silence shows at once), and *Channel events* from the same log group.
 
+  *MediaPackage origin* shows the origin's requests: pushes in from MediaLive, requests out to CloudFront. MediaPackage
+  publishes request metrics only, at least once a minute (its user guide promises no finer), so this dashboard reads
+  60-second data and refreshes every minute.
+
+  | Tile | Metric | Read it as |
+  |---|---|---|
+  | Ingest bitrate | `IngressBytes` | What MediaLive pushed, averaged over the last 5 minutes; about 9.9 Mbps for the whole ladder. |
+  | Push errors, last 5 min | `IngressRequestCount` by status | Pushes the origin refused (4xx) or failed (5xx). |
+  | Input active | `ActiveInput` | Whether the channel has an active input. Not in the user guide; it has read 1 in every session so far. |
+  | Origin errors, last 5 min | `EgressRequestCount` by status | Requests (normally from CloudFront) answered with 4xx or 5xx, all request types together. A few manifest 4xx when going live with the player already open are expected: in every recorded session they came before MediaLive's first push, when the manifest did not exist yet. |
+  | Direct origin requests, last hour | `EgressRequestCount` by CDN authorization | Requests refused for lacking CloudFront's secret header: someone has the origin URL, or the CDN-auth setup is broken. Red above 0. |
+  | Manifest response time, last 5 min | `EgressResponseTime` | The slowest manifest answer; a slow manifest stalls players. |
+
+  The error tiles read 0 (or *none*) on a neutral background when there is no error: MediaPackage creates a 4xx or 5xx
+  series only once such a request has happened, so the healthy case and a stopped stack look the same there; the
+  ingest tiles tell them apart. Below the tiles: *Ingest from MediaLive* (pushes by status with
+  *Input active*, ingest bitrate, push response time), *Origin to CloudFront* (requests by type and status, egress
+  bitrate, response time) and *CDN authorization* (requests by result, `HeaderSecretMatched` green, every refusal
+  red). The origin rows are empty without viewers: no request, no metric.
+
   *CloudFront distribution* shows what the CDN delivers, from CloudFront's free default metrics:
 
   | Tile | Metric | Read it as |
@@ -367,11 +398,14 @@ CloudFront distribution at CloudFront's 1-minute resolution.
   no name in it, so the MediaLive dashboard has a *Channel* drop-down instead. Its default, *All*, searches every
   channel in the region and `REMOVE_EMPTY` keeps the one with data, the running one. The list also holds destroyed
   channels from the last two weeks; pick one to look back at an earlier run. Another MediaLive channel in the same
-  region would show under *All* too. The CloudFront dashboard has a *Distribution* drop-down that works the same way;
-  CloudFront's metrics exist only in us-east-1, so its queries say so whatever region the data source uses.
+  region would show under *All* too. MediaPackage's channel group, channel and endpoint keep their names across
+  deploys, so its dashboard searches on the name and needs no drop-down. The CloudFront dashboard has a *Distribution*
+  drop-down that works the same way as MediaLive's; CloudFront's metrics exist only in us-east-1, so its queries say
+  so whatever region the data source uses.
 - **Cost:** Grafana queries CloudWatch only while a dashboard is open: about 0.08 to 0.65 USD per hour for the
   overview, about as much again for the detail, about 0.16 to 1.38 for the MediaLive dashboard, the higher figure
-  only with *All* selected, and about 0.005 to 0.04 for the CloudFront one, which refreshes once a minute (see [docs/cost-estimate.md](docs/cost-estimate.md)). Close the tabs when you are not
+  only with *All* selected, about 0.02 for the MediaPackage one and about 0.005 to 0.04 for the CloudFront one, both
+  refreshing once a minute (see [docs/cost-estimate.md](docs/cost-estimate.md)). Close the tabs when you are not
   watching them, and pick the channel when watching the MediaLive one for long.
 - **No event markers on the graphs:** Grafana's CloudWatch annotations read alarm history only, not log queries, so
   the events are a table instead. Disconnections, from the metrics, are the red bars on the *Bitrate* graph.

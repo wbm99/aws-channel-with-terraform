@@ -53,6 +53,9 @@ def test_grafana_starts_and_provisions(tmp_path):
         channel = get(url + "/api/dashboards/uid/medialive-channel")
         assert channel["meta"]["folderTitle"] == "Live pipeline"
         assert channel["dashboard"]["title"] == "MediaLive channel"
+        origin = get(url + "/api/dashboards/uid/mediapackage-origin")
+        assert origin["meta"]["folderTitle"] == "Live pipeline"
+        assert origin["dashboard"]["title"] == "MediaPackage origin"
         cdn = get(url + "/api/dashboards/uid/cloudfront-distribution")
         assert cdn["meta"]["folderTitle"] == "Live pipeline"
         assert cdn["dashboard"]["title"] == "CloudFront distribution"
