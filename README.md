@@ -320,9 +320,14 @@ marker in the playlist only.
 This is **client-side** ad insertion: the clip is a separate file, visible in the browser's developer tools and
 blockable by an ad blocker. Broadcasters avoid that with server-side insertion (MediaTailor between MediaPackage and
 CloudFront), where ad segments are spliced into the same stream; the signalling chain shown here is what SSAI builds
-on. **Unverified until the first live run:** whether MediaPackage v2 needs MediaLive's `ad_markers` in addition to the
-SCTE-35 carried in the TS. Both are set; the console says "not seen in manifest after 60 s" if the marker never
-arrives.
+on.
+
+Checked live on 2026-10-11: a cue reaches the playlist in about 5 seconds, in every variant. MediaPackage writes two
+tags per break with one ID, an OUT tag (`PLANNED-DURATION`, `SCTE35-OUT`) and later a closing one (`DURATION`,
+`SCTE35-IN`), and `SCTE35-OUT` keeps the splice section, so the console matches its marker by `splice_event_id`. The
+player showed a 15 s clip for a 15 s break, looped it through a 25 s break and cut it at 8 s, and live latency was
+unchanged after each. Not tested: whether MediaPackage v2 would also work with only one of MediaLive's two SCTE-35
+settings; both are set.
 
 ## Grafana
 
