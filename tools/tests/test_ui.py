@@ -37,6 +37,12 @@ EXPECTED = {
     "config-clip-pending": ("Off air", ["deploy", "teardown", "scan", "go-live"]),
     "config-clip-deployed": ("Off air", ["deploy", "teardown", "scan", "go-live"]),
     "config-malformed": ("Off air", ["deploy", "teardown", "scan", "go-live"]),
+    "on-air-ads-clip": ("On air · playing", ["scan", "go-off-air", "source-start"]),
+    "on-air-ads-per-trigger": ("On air · playing", ["scan", "go-off-air", "source-start"]),
+    "on-air-ads-marker-only": ("On air · playing", ["scan", "go-off-air", "source-start"]),
+    "ad-break-running": ("On air · playing", ["scan", "go-off-air", "source-start"]),
+    "ad-break-not-seen": ("On air · playing", ["scan", "go-off-air", "source-start"]),
+    "on-air-old-stack": ("On air · playing", ["scan", "go-off-air", "source-start"]),
 }
 
 
@@ -977,3 +983,78 @@ def test_the_ads_card_fits_a_phone(open_scenario):
     page.set_viewport_size({"width": 375, "height": 800})
     expect(page.locator("#ads-clip-summary")).to_be_visible()
     assert page.locator("#view-config .card").evaluate("card => card.scrollWidth <= card.clientWidth")
+
+
+# --- Live → ad breaks -------------------------------------------------------------------------------------------
+
+def splice_durations(scenario):
+    return [request["Creates"]["ScheduleActions"][0]["ScheduleActionSettings"]["Scte35SpliceInsertSettings"]["Duration"]
+            for name, request in scenario.console.medialive.calls if name == "batch_update_schedule"]
+
+
+def test_off_air_the_cue_says_why_not(open_scenario):
+    page, _ = open_scenario("off-air", "live")
+    expect(page.locator("#ad-break-cue")).to_be_disabled()
+    expect(page.locator("#ad-break-status")).to_have_text("Go live first: breaks are cued on a running channel.")
+
+
+def test_clip_mode_cues_the_clip_length(open_scenario):
+    page, scenario = open_scenario("on-air-ads-clip", "live")
+
+    expect(page.locator("#ad-break-seconds")).to_be_hidden()
+    expect(page.locator("#ad-break-cue")).to_have_text("Cue ad break · 24.5 s")
+    page.locator("#ad-break-cue").click()
+
+    expect(page.locator("#ad-break-status")).to_contain_text("cued ")
+    assert splice_durations(scenario) == [2_205_000]
+
+
+def test_per_trigger_asks_for_seconds_and_checks_the_range(open_scenario):
+    page, scenario = open_scenario("on-air-ads-per-trigger", "live")
+    seconds = page.locator("#ad-break-seconds")
+    expect(seconds).to_be_visible()
+
+    seconds.fill("4")
+    page.locator("#ad-break-cue").click()
+    expect(page.locator("#ad-break-error")).to_contain_text("5 to 180")
+    assert splice_durations(scenario) == []
+
+    seconds.fill("30")
+    page.locator("#ad-break-cue").click()
+    expect(page.locator("#ad-break-status")).to_contain_text("· 30 s")
+    assert splice_durations(scenario) == [2_700_000]
+
+
+def test_a_poll_keeps_a_half_typed_duration(open_scenario):
+    page, _ = open_scenario("on-air-ads-per-trigger", "live")
+    page.locator("#ad-break-seconds").fill("4")
+    page.wait_for_timeout(4500)  # two polls
+    expect(page.locator("#ad-break-seconds")).to_have_value("4")
+
+
+def test_marker_only_is_labelled(open_scenario):
+    page, _ = open_scenario("on-air-ads-marker-only", "live")
+    expect(page.locator("#ad-break-mode")).to_contain_text("marker only")
+    page.locator("#ad-break-seconds").fill("30")
+    page.locator("#ad-break-cue").click()
+    expect(page.locator("#ad-break-status")).to_contain_text("marker only")
+
+
+def test_a_running_break_shows_its_trace_and_blocks_another(open_scenario):
+    page, _ = open_scenario("ad-break-running", "live")
+    status = page.locator("#ad-break-status")
+    expect(status).to_contain_text(re.compile(r"cued \d\d:\d\d:\d\d · in manifest \d\d:\d\d:\d\d · 30 s"))
+    expect(page.locator("#ad-break-cue")).to_be_disabled()
+    expect(page.locator("#ad-break-cue")).to_contain_text(re.compile(r"\d+ s left"))
+
+
+def test_an_unseen_marker_points_at_the_scte_settings(open_scenario):
+    page, _ = open_scenario("ad-break-not-seen", "live")
+    expect(page.locator("#ad-break-status")).to_contain_text(
+        "not seen in manifest after 60 s — check SCTE settings in package/encode")
+
+
+def test_an_old_stack_asks_for_a_redeploy(open_scenario):
+    page, _ = open_scenario("on-air-old-stack", "live")
+    expect(page.locator("#ad-break-cue")).to_be_disabled()
+    expect(page.locator("#ad-break-status")).to_have_text("Deploy once more to enable ad breaks.")

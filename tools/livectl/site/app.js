@@ -1,5 +1,6 @@
 // Startup, polling, the two pages and the wiring between them.
 // Each region re-renders only when its data changed, so a poll never steals focus or wipes a half-typed word.
+import { AdBreakControl } from './ad-break.js';
 import { getConnection, getPipeline, getReceived, post, removeClip, uploadClip } from './api.js';
 import { renderChain } from './chain.js';
 import { startClocks } from './clocks.js';
@@ -24,6 +25,7 @@ const jobs = new JobsCard({
 });
 const sourcePage = new SourcePage({ post, getReceived, act });
 const encoder = new EncoderCard({ getConnection });
+const adBreak = new AdBreakControl({ post, refresh: () => poll() });
 const configPage = new ConfigPage({ post, uploadClip, removeClip, refresh: () => poll() });
 const seen = {};
 let data = null;
@@ -192,6 +194,7 @@ function render() {
   if (changed('endpoints', data.endpoints)) renderEndpoints($('endpoints'), data.endpoints);
   sourcePage.render(data);
   configPage.render(data);
+  adBreak.render(data);
   encoder.render(data);
   renderPlayer();
 

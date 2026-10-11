@@ -169,6 +169,14 @@
           <section class="card live-bar" aria-label="Live figures">
             <dl class="stats" id="stats"></dl>
             <div class="live-actions" id="live-actions"></div>
+            <div class="ad-break" id="ad-break">
+              <span class="ad-break-mode" id="ad-break-mode"></span>
+              <label class="ad-break-seconds" id="ad-break-seconds-label" for="ad-break-seconds" hidden>Break
+                <input id="ad-break-seconds" type="number" min="5" max="180" step="1" value="30" inputmode="numeric"> s</label>
+              <button class="act" id="ad-break-cue" type="button">Cue ad break</button>
+              <p class="field-error" id="ad-break-error" aria-live="polite"></p>
+              <p class="note" id="ad-break-status" role="status"></p>
+            </div>
           </section>
         </div>
         <div id="live-logs-slot">

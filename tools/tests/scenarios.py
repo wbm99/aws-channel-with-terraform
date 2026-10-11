@@ -13,7 +13,7 @@ import sys
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -55,6 +55,8 @@ FIXTURE_MD5 = hashlib.md5(FIXTURE_CLIP.read_bytes()).hexdigest()
 DEFAULT_ADS = {"clip_md5": None, "clip_seconds": None, "duration_mode": "per_trigger"}
 CLIP_SAVED = {"clip": "ads/clip.mp4", "clip_seconds": 2.0, "duration_mode": "clip"}
 CLIP_DEPLOYED = {"clip_md5": FIXTURE_MD5, "clip_seconds": 2.0, "duration_mode": "clip"}
+LONG_CLIP_DEPLOYED = {"clip_md5": FIXTURE_MD5, "clip_seconds": 24.5, "duration_mode": "clip"}
+PER_TRIGGER_DEPLOYED = {"clip_md5": FIXTURE_MD5, "clip_seconds": 2.0, "duration_mode": "per_trigger"}
 
 SCENARIOS: dict[str, dict] = {
     "not-deployed": dict(deployed=False),
@@ -81,6 +83,15 @@ SCENARIOS: dict[str, dict] = {
     "config-clip-pending": dict(ads_saved=CLIP_SAVED, clip=True),
     "config-clip-deployed": dict(ads_saved=CLIP_SAVED, clip=True, ads_deployed=CLIP_DEPLOYED),
     "config-malformed": dict(ads_saved="malformed"),
+    # The Live page's ad break control. `cue` is a break sent `ago` seconds before the page opens; `breaks` puts its
+    # marker in the playlist.
+    "on-air-ads-clip": dict(**ON, metrics=LIVE, playing=True, ads_deployed=LONG_CLIP_DEPLOYED),
+    "on-air-ads-per-trigger": dict(**ON, metrics=LIVE, playing=True, ads_deployed=PER_TRIGGER_DEPLOYED),
+    "on-air-ads-marker-only": dict(**ON, metrics=LIVE, playing=True),
+    "ad-break-running": dict(**ON, metrics=LIVE, playing=True, ads_deployed=PER_TRIGGER_DEPLOYED,
+                             cue=dict(seconds=30, ago=10), breaks=True),
+    "ad-break-not-seen": dict(**ON, metrics=LIVE, playing=True, cue=dict(seconds=30, ago=61)),
+    "on-air-old-stack": dict(**ON, metrics=LIVE, playing=True, ads_deployed=None),
 }
 
 
@@ -136,14 +147,16 @@ class FakeSource:
         self.running = False
 
 
-def growing_playlist():
+def growing_playlist(breaks: bool = False):
     state = {"seq": 500}
+    marker = ('#EXT-X-DATERANGE:ID="scenario-break",START-DATE="2026-10-11T12:03:10.000Z",DURATION=30.0,'
+              'SCTE35-OUT=0xFC30\n') if breaks else ""
 
     def fetch(url: str) -> str:
         if url.endswith("/index.m3u8"):
             return "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5500000\nindex_1.m3u8\n"
         state["seq"] += 1
-        return f"#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:{state['seq']}\n"
+        return f"#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:{state['seq']}\n{marker}"
 
     return fetch
 
@@ -190,6 +203,8 @@ def build(name: str) -> Scenario:
     ads_saved = spec.pop("ads_saved", None)
     clip = spec.pop("clip", False)
     ads_deployed = spec.pop("ads_deployed", DEFAULT_ADS)
+    cue = spec.pop("cue", None)
+    breaks = spec.pop("breaks", False)
     clients = stub_aws(**spec)
     commands: list = []
     outputs = dict(OUTPUTS, ads=ads_deployed) if ads_deployed is not None else OUTPUTS
@@ -208,8 +223,14 @@ def build(name: str) -> Scenario:
     console.source = FakeSource(running=source == "running")
     console.grafana_url = grafana
     console.read_passphrase = lambda arn: "0123456789abcdef0123456789abcdef"
-    console.pipeline = Pipeline(**clients, fetch=growing_playlist() if playing else no_playlist,
+    console.pipeline = Pipeline(**clients, fetch=growing_playlist(breaks) if playing else no_playlist,
                                 source_status=console.source.status, logs=console.logs)
+    if cue:
+        # Sent `ago` seconds before the page opened: rewind the cue's clocks rather than make the test wait.
+        console.ad_breaks.cued(1760184190, cue["seconds"], None)
+        sent = console.ad_breaks._cue
+        console.ad_breaks._cue = replace(sent, cued_at=sent.cued_at - cue["ago"],
+                                         cued_at_ms=sent.cued_at_ms - cue["ago"] * 1000)
     scenario = Scenario(console=console, commands=commands, settings=settings)
     if job:
         # Output shaped like the real thing, so progress can be measured: halfway through in both cases.
