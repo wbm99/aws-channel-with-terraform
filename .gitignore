@@ -7,6 +7,9 @@ crash.log
 *.tfvars
 !*.tfvars.example
 backend.hcl
+# Written by the console: its settings and the ad clip
+envs/demo/*.auto.tfvars.json
+envs/demo/ads/
 .terraform.lock.hcl.bak
 
 # Python

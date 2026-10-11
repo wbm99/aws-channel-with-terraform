@@ -47,6 +47,7 @@ module "player" {
 
   name          = "${var.project}-demo"
   manifest_path = module.package.hls_manifest_path
+  ads           = merge(var.ads, { clip = var.ads.clip == null ? null : "${path.root}/${var.ads.clip}" })
 }
 
 module "delivery" {
