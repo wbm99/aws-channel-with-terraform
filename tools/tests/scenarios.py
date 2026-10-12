@@ -6,15 +6,19 @@ driven through every state without an AWS account. Run one with:  python tools/t
 
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
 import sys
+import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from livectl.config import ConfigStore  # noqa: E402
 from livectl.jobs import JobRunner  # noqa: E402
 from livectl.pipeline import Pipeline  # noqa: E402
 from livectl.server import Console, make_server  # noqa: E402
@@ -44,6 +48,17 @@ LIVE = {"src_connected": 1.0, "src_bitrate": 6_000_000.0, "src_not_recovered": 0
         "ml_alerts": 0.0, "ml_fps": 30.0, "mp_ingress_bytes": 74_000_000.0, "cf_requests": 42.0}
 ON = dict(flow="ACTIVE", channel="RUNNING")
 
+# The ad settings: what the scenario's settings file holds (`ads_saved`, or "malformed"), whether the clip file is
+# there (`clip`), and what Terraform reports as deployed (`ads_deployed`; None is a stack from before ad breaks).
+FIXTURE_CLIP = Path(__file__).parent / "fixtures" / "ad.mp4"
+FIXTURE_MD5 = hashlib.md5(FIXTURE_CLIP.read_bytes()).hexdigest()
+DEFAULT_ADS = {"clip_md5": None, "clip_seconds": None, "duration_mode": "per_trigger"}
+# The fixture lasts 2 s, too short to be a break; the settings claim 24.5 s, which the Ads tab never checks.
+CLIP_SAVED = {"clip": "ads/clip.mp4", "clip_seconds": 24.5, "duration_mode": "clip"}
+CLIP_DEPLOYED = {"clip_md5": FIXTURE_MD5, "clip_seconds": 24.5, "duration_mode": "clip"}
+LONG_CLIP_DEPLOYED = {"clip_md5": FIXTURE_MD5, "clip_seconds": 24.5, "duration_mode": "clip"}
+PER_TRIGGER_DEPLOYED = {"clip_md5": FIXTURE_MD5, "clip_seconds": 2.0, "duration_mode": "per_trigger"}
+
 SCENARIOS: dict[str, dict] = {
     "not-deployed": dict(deployed=False),
     "deploying": dict(deployed=False, job="deploy"),
@@ -64,6 +79,20 @@ SCENARIOS: dict[str, dict] = {
     "root-identity": dict(identity="root"),
     # `just ui` found Docker and started Grafana, so the console was given its URL.
     "on-air-grafana": dict(**ON, metrics=LIVE, playing=True, grafana="http://127.0.0.1:3000/d/mediaconnect-source"),
+    # The Configuration page's Ads tab.
+    "config-no-clip": dict(),
+    "config-clip-pending": dict(ads_saved=CLIP_SAVED, clip=True),
+    "config-clip-deployed": dict(ads_saved=CLIP_SAVED, clip=True, ads_deployed=CLIP_DEPLOYED),
+    "config-malformed": dict(ads_saved="malformed"),
+    # The Live page's ad break control. `cue` is a break sent `ago` seconds before the page opens; `breaks` puts its
+    # marker in the playlist.
+    "on-air-ads-clip": dict(**ON, metrics=LIVE, playing=True, ads_deployed=LONG_CLIP_DEPLOYED),
+    "on-air-ads-per-trigger": dict(**ON, metrics=LIVE, playing=True, ads_deployed=PER_TRIGGER_DEPLOYED),
+    "on-air-ads-marker-only": dict(**ON, metrics=LIVE, playing=True),
+    "ad-break-running": dict(**ON, metrics=LIVE, playing=True, ads_deployed=PER_TRIGGER_DEPLOYED,
+                             cue=dict(seconds=30, ago=10), breaks=True),
+    "ad-break-not-seen": dict(**ON, metrics=LIVE, playing=True, cue=dict(seconds=30, ago=61)),
+    "on-air-old-stack": dict(**ON, metrics=LIVE, playing=True, ads_deployed=None),
 }
 
 
@@ -119,14 +148,16 @@ class FakeSource:
         self.running = False
 
 
-def growing_playlist():
+def growing_playlist(breaks: bool = False):
     state = {"seq": 500}
+    marker = ('#EXT-X-DATERANGE:ID="scenario-break",START-DATE="2026-10-11T12:03:10.000Z",DURATION=30.0,'
+              'SCTE35-OUT=0xFC30\n') if breaks else ""
 
     def fetch(url: str) -> str:
         if url.endswith("/index.m3u8"):
             return "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5500000\nindex_1.m3u8\n"
         state["seq"] += 1
-        return f"#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:{state['seq']}\n"
+        return f"#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:{state['seq']}\n{marker}"
 
     return fetch
 
@@ -140,9 +171,25 @@ class Scenario:
     console: Console
     commands: list = field(default_factory=list)
     release: threading.Event = field(default_factory=threading.Event)
+    settings: str = ""  # the scenario's own directory for the settings file and the clip
 
     def close(self) -> None:
         self.release.set()
+        if self.settings:
+            shutil.rmtree(self.settings, ignore_errors=True)
+
+
+def settings_dir(saved, clip: bool) -> str:
+    """A settings directory of the scenario's own, so no scenario reads or writes envs/demo's settings."""
+    tf_dir = Path(tempfile.mkdtemp(prefix="livectl-scenario-"))
+    if saved == "malformed":
+        (tf_dir / "console.auto.tfvars.json").write_text('{"ads": ')
+    elif saved is not None:
+        (tf_dir / "console.auto.tfvars.json").write_text(json.dumps({"ads": saved}))
+    if clip:
+        (tf_dir / "ads").mkdir()
+        shutil.copy(FIXTURE_CLIP, tf_dir / "ads" / "clip.mp4")
+    return str(tf_dir)
 
 
 def build(name: str) -> Scenario:
@@ -154,24 +201,38 @@ def build(name: str) -> Scenario:
     health = spec.pop("health", "CONNECTED")
     identity = spec.pop("identity", "ok")
     grafana = spec.pop("grafana", None)
+    ads_saved = spec.pop("ads_saved", None)
+    clip = spec.pop("clip", False)
+    ads_deployed = spec.pop("ads_deployed", DEFAULT_ADS)
+    cue = spec.pop("cue", None)
+    breaks = spec.pop("breaks", False)
     clients = stub_aws(**spec)
     commands: list = []
+    outputs = dict(OUTPUTS, ads=ads_deployed) if ads_deployed is not None else OUTPUTS
 
     def runner(args):
-        return json.dumps({k: {"value": v} for k, v in OUTPUTS.items()} if deployed else {})
+        return json.dumps({k: {"value": v} for k, v in outputs.items()} if deployed else {})
 
     def command(args):
         commands.append(list(args))
         return lambda log: log("$ " + " ".join(args))
 
+    settings = settings_dir(ads_saved, clip)
     console = Console(**clients, jobs=JobRunner(), runner=runner, command=command,
-                      logs=logs_client(recent_events(health)), sts=sts_client(identity))
+                      logs=logs_client(recent_events(health)), sts=sts_client(identity),
+                      config=ConfigStore(settings))
     console.source = FakeSource(running=source == "running")
     console.grafana_url = grafana
     console.read_passphrase = lambda arn: "0123456789abcdef0123456789abcdef"
-    console.pipeline = Pipeline(**clients, fetch=growing_playlist() if playing else no_playlist,
+    console.pipeline = Pipeline(**clients, fetch=growing_playlist(breaks) if playing else no_playlist,
                                 source_status=console.source.status, logs=console.logs)
-    scenario = Scenario(console=console, commands=commands)
+    if cue:
+        # Sent `ago` seconds before the page opened: rewind the cue's clocks rather than make the test wait.
+        console.ad_breaks.cued(1760184190, cue["seconds"], None)
+        sent = console.ad_breaks._cue
+        console.ad_breaks._cue = replace(sent, cued_at=sent.cued_at - cue["ago"],
+                                         cued_at_ms=sent.cued_at_ms - cue["ago"] * 1000)
+    scenario = Scenario(console=console, commands=commands, settings=settings)
     if job:
         # Output shaped like the real thing, so progress can be measured: halfway through in both cases.
         output = {

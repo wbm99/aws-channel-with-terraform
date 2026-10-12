@@ -303,6 +303,32 @@ the new outputs exist), open `just ui` and check:
     if it does, a finer dashboard is possible.
 38. The next day, Cost Explorer's GetMetricData charge for the hours the MediaPackage dashboard was open.
 
+## Ad breaks (SCTE-35)
+
+The console can cue an ad break while on air. **Configuration → Ads** holds the settings: an optional MP4 clip and
+whether a break lasts the clip's length or is chosen on each cue (5–180 s). They are saved to
+`envs/demo/console.auto.tfvars.json` and `envs/demo/ads/clip.mp4` (both gitignored), which Terraform reads on its own,
+so the next deploy, from the console or `just up`, uploads the clip next to the player page.
+
+On the **Live** page, **Cue ad break** inserts a SCTE-35 splice insert into the running MediaLive channel
+(`BatchUpdateSchedule`, immediate). MediaLive carries it in the TS segments, MediaPackage writes it into the HLS
+playlist as an `EXT-X-DATERANGE`, and the console traces it: when it was cued, when the marker reached the playlist.
+The player sees the same tag and plays the clip over the live video for the break's length (looping a shorter clip,
+cutting a longer one), with live playing muted underneath so it resumes at the edge. Without a clip, the break is a
+marker in the playlist only.
+
+This is **client-side** ad insertion: the clip is a separate file, visible in the browser's developer tools and
+blockable by an ad blocker. Broadcasters avoid that with server-side insertion (MediaTailor between MediaPackage and
+CloudFront), where ad segments are spliced into the same stream; the signalling chain shown here is what SSAI builds
+on.
+
+Checked live on 2026-10-11: a cue reaches the playlist in about 5 seconds, in every variant. MediaPackage writes two
+tags per break with one ID, an OUT tag (`PLANNED-DURATION`, `SCTE35-OUT`) and later a closing one (`DURATION`,
+`SCTE35-IN`), and `SCTE35-OUT` keeps the splice section, so the console matches its marker by `splice_event_id`. The
+player showed a 15 s clip for a 15 s break, looped it through a 25 s break and cut it at 8 s, and live latency was
+unchanged after each. Not tested: whether MediaPackage v2 would also work with only one of MediaLive's two SCTE-35
+settings; both are set.
+
 ## Grafana
 
 A local Grafana shows the MediaConnect source and the MediaLive channel at a 5-second resolution, read straight from
@@ -510,3 +536,8 @@ dashboard adds CloudWatch queries, about 0.005 to 1.38 USD per hour per dashboar
 - MediaLive creates the `ElementalMediaLive` log group itself, so it outlives `terraform destroy`. The leftover scan
   lists it as information (log storage only, not billed by the hour).
 - `livectl check-clean` covers the media resources and CloudFront (flows, channels, inputs, channel groups, distributions). It does not look at secrets, IAM roles or S3 buckets; `terraform destroy` removes those, and the README's teardown ends with it.
+- Possible drift on MediaLive, seen once (2026-10-11, about 15 minutes after a fresh deploy, while on air): a plan
+  wanted to set the running channel's `log_level` from `DISABLED` back to `INFO` and to add the default tags to the
+  input. Not investigated: whether it recurs on every plan, whether an apply off air clears it, or why AWS reads it
+  back that way. It matters only for a deploy while on air, which the console refuses anyway; it is why switching the
+  ad duration mode cannot be applied live.

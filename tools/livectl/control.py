@@ -1,4 +1,4 @@
-"""Start and stop the live workflow, waiting for each state change."""
+"""Start and stop the live workflow, waiting for each state change, and cue ad breaks on it."""
 
 from __future__ import annotations
 
@@ -10,6 +10,10 @@ from livectl.targets import Targets
 
 class WaitTimeout(RuntimeError):
     """Raised when a resource does not reach the expected state in time."""
+
+
+class NotRunning(RuntimeError):
+    """Raised when an ad break is cued on a channel that is not running."""
 
 
 def wait_for(
@@ -122,3 +126,24 @@ def stop(mediaconnect, medialive, targets: Targets, *, log: Callable[[str], None
         log(f"stopping the {FLOW}")
         mediaconnect.stop_flow(FlowArn=targets.flow_arn)
     _reach(read_flow, "STANDBY", FLOW, log, **wait_kwargs)
+
+
+SCTE35_TICKS_PER_SECOND = 90_000  # SCTE-35 durations count 90 kHz ticks, not seconds
+
+
+def cue_ad_break(medialive, channel_id: str, seconds: float, *, clock_ms: Callable[[], int]) -> int:
+    """Insert a SCTE-35 splice insert into the running channel now, and return its event ID.
+
+    The ID is the wall clock in seconds, so a restarted console never reuses one within a broadcast.
+    """
+    state = channel_state(medialive, channel_id)
+    if state != "RUNNING":
+        raise NotRunning(f"the {CHANNEL} is {state}; ad breaks are cued on a running channel")
+    event_id = (clock_ms() // 1000) % 2**32
+    medialive.batch_update_schedule(ChannelId=channel_id, Creates={"ScheduleActions": [{
+        "ActionName": f"ad-break-{event_id}",
+        "ScheduleActionStartSettings": {"ImmediateModeScheduleActionStartSettings": {}},
+        "ScheduleActionSettings": {"Scte35SpliceInsertSettings": {
+            "SpliceEventId": event_id, "Duration": round(seconds * SCTE35_TICKS_PER_SECOND)}},
+    }]})
+    return event_id

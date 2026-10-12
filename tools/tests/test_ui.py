@@ -5,6 +5,7 @@ They check what a person sees and can click, in every state.
 """
 
 import re
+from pathlib import Path
 import threading
 import time
 
@@ -14,7 +15,7 @@ playwright_api = pytest.importorskip("playwright.sync_api")
 expect = playwright_api.expect
 
 from livectl.server import make_server  # noqa: E402
-from scenarios import OUTPUTS, SCENARIOS, build  # noqa: E402
+from scenarios import FIXTURE_CLIP, OUTPUTS, SCENARIOS, build  # noqa: E402
 
 EXPECTED = {
     "not-deployed": ("Not deployed", ["deploy", "teardown", "scan"]),
@@ -32,6 +33,16 @@ EXPECTED = {
     "no-credentials": ("No AWS credentials", []),
     "root-identity": ("Off air", ["deploy", "teardown", "scan", "go-live"]),
     "source-received-mismatch": ("On air · playing", ["scan", "go-off-air", "source-stop"]),
+    "config-no-clip": ("Off air", ["deploy", "teardown", "scan", "go-live"]),
+    "config-clip-pending": ("Off air", ["deploy", "teardown", "scan", "go-live"]),
+    "config-clip-deployed": ("Off air", ["deploy", "teardown", "scan", "go-live"]),
+    "config-malformed": ("Off air", ["deploy", "teardown", "scan", "go-live"]),
+    "on-air-ads-clip": ("On air · playing", ["scan", "go-off-air", "source-start"]),
+    "on-air-ads-per-trigger": ("On air · playing", ["scan", "go-off-air", "source-start"]),
+    "on-air-ads-marker-only": ("On air · playing", ["scan", "go-off-air", "source-start"]),
+    "ad-break-running": ("On air · playing", ["scan", "go-off-air", "source-start"]),
+    "ad-break-not-seen": ("On air · playing", ["scan", "go-off-air", "source-start"]),
+    "on-air-old-stack": ("On air · playing", ["scan", "go-off-air", "source-start"]),
 }
 
 
@@ -617,7 +628,7 @@ def test_the_form_is_built_from_the_choices(open_scenario):
     expect(bitrate).to_have_value("6")
     assert [bitrate.get_attribute(a) for a in ("min", "max", "step")] == ["0.5", "10", "0.1"]
     expect(form.locator('[name="service_name"]')).to_have_attribute("maxlength", "60")
-    expect(page.locator('.menu a[data-page]')).to_have_text(["Control", "Source", "Live", "Logs"])
+    expect(page.locator('.menu a[data-page]')).to_have_text(["Control", "Source", "Configuration", "Live", "Logs"])
 
 
 def test_two_edits_make_one_apply_with_only_those_fields(open_scenario):
@@ -883,3 +894,169 @@ def test_the_endpoints_card_has_no_grafana_row_without_it(open_scenario):
 
     expect(page.locator("#endpoints dt", has_text="SRT ingest")).to_have_count(1)
     expect(page.locator("#endpoints dt", has_text="Grafana")).to_have_count(0)
+
+
+# --- Configuration → Ads ------------------------------------------------------------------------------------------
+
+def saved_settings(scenario):
+    return scenario.console.config.read().get("ads", {})
+
+
+def test_the_ads_tab_offers_a_clip_when_there_is_none(open_scenario):
+    page, _ = open_scenario("config-no-clip", "config")
+
+    expect(page.locator("#view-config")).to_be_visible()
+    expect(page.get_by_role("tab", name="Ads")).to_have_attribute("aria-selected", "true")
+    expect(page.locator("#ads-clip-input")).to_have_attribute("accept", "video/mp4")
+    expect(page.get_by_label("Length of the clip")).to_be_disabled()
+    expect(page.get_by_label("Chosen per trigger")).to_be_checked()
+    expect(page.locator("#ads-status")).not_to_contain_text("deploy to apply")
+
+
+def test_picking_a_clip_uploads_it_with_its_length(open_scenario):
+    page, scenario = open_scenario("config-no-clip", "config")
+
+    page.locator("#ads-clip-input").set_input_files(str(FIXTURE_CLIP))
+
+    expect(page.locator("#ads-clip-summary")).to_contain_text("2.0 s", timeout=10000)
+    expect(page.locator("#ads-clip-summary")).to_contain_text("KB")
+    assert (Path(scenario.settings) / "ads" / "clip.mp4").read_bytes() == FIXTURE_CLIP.read_bytes()
+    assert abs(saved_settings(scenario)["clip_seconds"] - 2.0) < 0.1
+    # Too short to be a break by itself: it is used per trigger, and the page says why.
+    expect(page.get_by_label("Length of the clip")).to_be_disabled()
+    expect(page.locator("#ads-mode-hint")).to_contain_text("5 to 180 s")
+
+
+def test_a_file_the_browser_cannot_play_is_refused_before_upload(open_scenario, tmp_path):
+    page, scenario = open_scenario("config-no-clip", "config")
+    fake = tmp_path / "not-a-video.mp4"
+    fake.write_text("these are not video frames")
+
+    page.locator("#ads-clip-input").set_input_files(str(fake))
+
+    expect(page.locator("#ads-error")).to_contain_text("does not play in the browser")
+    assert not (Path(scenario.settings) / "ads" / "clip.mp4").exists()
+
+
+def test_choosing_the_clip_length_is_saved(open_scenario):
+    page, scenario = open_scenario("config-clip-deployed", "config")
+    page.get_by_label("Chosen per trigger").check()
+    expect(page.locator("#ads-status")).to_contain_text("Saved — deploy to apply")
+    assert saved_settings(scenario)["duration_mode"] == "per_trigger"
+
+
+def test_a_saved_change_says_to_deploy(open_scenario):
+    page, _ = open_scenario("config-clip-pending", "config")
+    expect(page.locator("#ads-status")).to_contain_text("Saved — deploy to apply")
+
+
+def test_deployed_settings_say_so(open_scenario):
+    page, _ = open_scenario("config-clip-deployed", "config")
+    expect(page.locator("#ads-status")).to_contain_text("Matches what is deployed")
+    expect(page.get_by_label("Length of the clip")).to_be_checked()
+
+
+def test_removing_the_clip_returns_to_per_trigger(open_scenario):
+    page, scenario = open_scenario("config-clip-deployed", "config")
+
+    page.get_by_role("button", name="Remove clip").click()
+
+    expect(page.locator("#ads-clip-input")).to_be_visible()
+    expect(page.get_by_label("Chosen per trigger")).to_be_checked()
+    assert not (Path(scenario.settings) / "ads" / "clip.mp4").exists()
+
+
+def test_a_malformed_config_is_shown_instead_of_the_form(open_scenario):
+    page, _ = open_scenario("config-malformed", "config")
+    expect(page.locator("#ads-error")).to_contain_text("not valid JSON")
+    expect(page.locator("#ads-form")).to_be_hidden()
+
+
+def test_config_changes_are_disabled_while_a_job_runs(open_scenario):
+    page, _ = open_scenario("deploying", "config")
+    expect(page.locator("#ads-status")).to_contain_text("deploy is still running")
+    expect(page.locator("#ads-clip-input")).to_be_disabled()
+    expect(page.get_by_label("Chosen per trigger")).to_be_disabled()
+
+
+def test_the_ads_card_fits_a_phone(open_scenario):
+    # The console's header and chain are wider than a phone on every page; this checks only what the card adds.
+    page, _ = open_scenario("config-clip-deployed", "config")
+    page.set_viewport_size({"width": 375, "height": 800})
+    expect(page.locator("#ads-clip-summary")).to_be_visible()
+    assert page.locator("#view-config .card").evaluate("card => card.scrollWidth <= card.clientWidth")
+
+
+# --- Live → ad breaks -------------------------------------------------------------------------------------------
+
+def splice_durations(scenario):
+    return [request["Creates"]["ScheduleActions"][0]["ScheduleActionSettings"]["Scte35SpliceInsertSettings"]["Duration"]
+            for name, request in scenario.console.medialive.calls if name == "batch_update_schedule"]
+
+
+def test_off_air_the_cue_says_why_not(open_scenario):
+    page, _ = open_scenario("off-air", "live")
+    expect(page.locator("#ad-break-cue")).to_be_disabled()
+    expect(page.locator("#ad-break-status")).to_have_text("Go live first: breaks are cued on a running channel.")
+
+
+def test_clip_mode_cues_the_clip_length(open_scenario):
+    page, scenario = open_scenario("on-air-ads-clip", "live")
+
+    expect(page.locator("#ad-break-seconds")).to_be_hidden()
+    expect(page.locator("#ad-break-cue")).to_have_text("Cue ad break · 24.5 s")
+    page.locator("#ad-break-cue").click()
+
+    expect(page.locator("#ad-break-status")).to_contain_text("cued ")
+    assert splice_durations(scenario) == [2_205_000]
+
+
+def test_per_trigger_asks_for_seconds_and_checks_the_range(open_scenario):
+    page, scenario = open_scenario("on-air-ads-per-trigger", "live")
+    seconds = page.locator("#ad-break-seconds")
+    expect(seconds).to_be_visible()
+
+    seconds.fill("4")
+    page.locator("#ad-break-cue").click()
+    expect(page.locator("#ad-break-error")).to_contain_text("5 to 180")
+    assert splice_durations(scenario) == []
+
+    seconds.fill("30")
+    page.locator("#ad-break-cue").click()
+    expect(page.locator("#ad-break-status")).to_contain_text("· 30 s")
+    assert splice_durations(scenario) == [2_700_000]
+
+
+def test_a_poll_keeps_a_half_typed_duration(open_scenario):
+    page, _ = open_scenario("on-air-ads-per-trigger", "live")
+    page.locator("#ad-break-seconds").fill("4")
+    page.wait_for_timeout(4500)  # two polls
+    expect(page.locator("#ad-break-seconds")).to_have_value("4")
+
+
+def test_marker_only_is_labelled(open_scenario):
+    page, _ = open_scenario("on-air-ads-marker-only", "live")
+    expect(page.locator("#ad-break-mode")).to_contain_text("marker only")
+    page.locator("#ad-break-seconds").fill("30")
+    page.locator("#ad-break-cue").click()
+    expect(page.locator("#ad-break-status")).to_contain_text("marker only")
+
+
+def test_a_running_break_shows_its_trace_and_blocks_another(open_scenario):
+    page, _ = open_scenario("ad-break-running", "live")
+    status = page.locator("#ad-break-status")
+    expect(status).to_contain_text(re.compile(r"cued \d\d:\d\d:\d\d · in manifest \d\d:\d\d:\d\d · 30 s"))
+    expect(page.locator("#ad-break-cue")).to_be_disabled()
+    expect(page.locator("#ad-break-cue")).to_contain_text(re.compile(r"\d+ s left"))
+
+
+def test_an_unseen_marker_points_at_the_scte_settings(open_scenario):
+    page, _ = open_scenario("ad-break-not-seen", "live")
+    expect(page.locator("#ad-break-status")).to_contain_text(
+        "not seen in manifest after 60 s — check SCTE settings in package/encode")
+
+
+def test_an_old_stack_asks_for_a_redeploy(open_scenario):
+    page, _ = open_scenario("on-air-old-stack", "live")
+    expect(page.locator("#ad-break-cue")).to_be_disabled()
+    expect(page.locator("#ad-break-status")).to_have_text("Deploy once more to enable ad breaks.")

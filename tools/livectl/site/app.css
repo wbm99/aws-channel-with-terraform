@@ -298,3 +298,29 @@ button.act.quiet { border-color: transparent; background: none; color: var(--mut
 @media (max-width: 900px) {
   .source, .source-form { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Configuration */
+.config { max-width: 760px; }
+.config-tabs { margin-bottom: 4px; }
+.config-intro { margin-top: 12px; }
+.ads-form { display: grid; gap: 18px; margin-top: 16px; }
+.ads-form[hidden] { display: none; }
+.ads-form h3, .ads-mode legend { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase;
+  letter-spacing: .04em; margin: 0 0 8px; padding: 0; }
+.ads-clip label.file { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 6px; }
+.ads-clip input[type="file"] { font: inherit; font-size: 13px; max-width: 100%; }
+.ads-clip-saved { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; }
+.ads-clip-saved[hidden] { display: none; }
+.ads-mode { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 6px; }
+.ads-mode label { font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.ads-mode input:disabled + * , .ads-mode label:has(input:disabled) { color: var(--muted); }
+
+/* Live: ad breaks */
+.ad-break { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; flex-basis: 100%; }
+.ad-break-mode { font-size: 12px; color: var(--text-2); }
+.ad-break-seconds { font-size: 13px; color: var(--text-2); display: flex; align-items: center; gap: 6px; }
+.ad-break-seconds[hidden] { display: none; }
+.ad-break-seconds input { font: inherit; font-size: 13px; width: 5em; padding: 6px 8px; border-radius: 10px;
+  border: 1px solid var(--border); }
+.ad-break .field-error, .ad-break .note { flex-basis: 100%; margin: 0; }
+.ad-break .field-error:empty, .ad-break .note:empty { display: none; }

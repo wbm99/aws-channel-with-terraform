@@ -14,3 +14,13 @@ variable "source_cidr" {
   description = "CIDR of the machine that pushes the SRT stream, for example 203.0.113.10/32."
   type        = string
 }
+
+variable "ads" {
+  description = "Ad break settings written by the console to console.auto.tfvars.json. The clip path is relative to this directory; modules/player validates it."
+  type = object({
+    clip          = optional(string)
+    clip_seconds  = optional(number)
+    duration_mode = optional(string, "per_trigger")
+  })
+  default = {}
+}

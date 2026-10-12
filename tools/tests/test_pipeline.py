@@ -280,3 +280,10 @@ def test_a_denied_channel_read_shows_the_action_on_the_node():
 
     assert nodes["medialive_channel"].health == UNKNOWN
     assert nodes["medialive_channel"].error == "access denied: medialive:DescribeChannel"
+
+
+def test_the_pipeline_keeps_its_last_manifest_check():
+    pipeline = make(stub_aws(flow="ACTIVE", channel="RUNNING", metrics=LIVE_METRICS))
+    assert pipeline.last_check is None
+    pipeline.nodes(TARGETS)
+    assert pipeline.last_check.sequence == 101

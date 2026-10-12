@@ -27,6 +27,7 @@
   <nav class="menu" aria-label="Pages">
     <a href="#control" data-page="control">Control</a>
     <a href="#source" data-page="source">Source</a>
+    <a href="#config" data-page="config">Configuration</a>
     <a href="#live" data-page="live">Live</a>
     <a href="#logs" data-page="logs">Logs</a>
   </nav>
@@ -122,6 +123,41 @@
       </div>
     </main>
 
+    <!-- Configuration: settings that reach AWS at the next deploy, one tab per part of the stack. -->
+    <main class="view" id="view-config" data-view="config" hidden>
+      <section class="card config" aria-labelledby="config-title">
+        <h2 class="card-title" id="config-title">Configuration</h2>
+        <div class="tabs config-tabs" role="tablist" aria-label="Configuration">
+          <button type="button" role="tab" id="config-tab-ads" aria-selected="true" aria-controls="config-ads">Ads</button>
+        </div>
+        <div class="config-panel" role="tabpanel" id="config-ads" aria-labelledby="config-tab-ads">
+          <p class="note config-intro">An optional clip the player shows during an ad break, and how long a break lasts.
+            Saved here, sent to AWS by the next deploy. Without a clip a break is a marker in the manifest only.</p>
+          <div class="ads-form" id="ads-form">
+            <div class="ads-clip">
+              <h3>Ad clip</h3>
+              <div id="ads-clip-empty">
+                <label class="file" for="ads-clip-input">Choose an MP4 (H.264, up to 50 MB)</label>
+                <input id="ads-clip-input" type="file" accept="video/mp4">
+              </div>
+              <div class="ads-clip-saved" id="ads-clip-saved" hidden>
+                <span id="ads-clip-summary"></span>
+                <button class="act" id="ads-clip-remove" type="button">Remove clip</button>
+              </div>
+            </div>
+            <fieldset class="ads-mode" id="ads-mode">
+              <legend>Break duration</legend>
+              <label><input type="radio" name="duration_mode" value="clip" id="ads-mode-clip"> Length of the clip</label>
+              <label><input type="radio" name="duration_mode" value="per_trigger" id="ads-mode-per-trigger"> Chosen per trigger</label>
+              <p class="note" id="ads-mode-hint">A break longer than the clip loops it; a shorter one cuts it off.</p>
+            </fieldset>
+          </div>
+          <p class="note error" id="ads-error" role="alert"></p>
+          <p class="note" id="ads-status" role="status"></p>
+        </div>
+      </section>
+    </main>
+
     <!-- Live: watch the broadcast and its logs. -->
     <main class="view" id="view-live" data-view="live" hidden>
       <div class="live">
@@ -133,6 +169,14 @@
           <section class="card live-bar" aria-label="Live figures">
             <dl class="stats" id="stats"></dl>
             <div class="live-actions" id="live-actions"></div>
+            <div class="ad-break" id="ad-break">
+              <span class="ad-break-mode" id="ad-break-mode"></span>
+              <label class="ad-break-seconds" id="ad-break-seconds-label" for="ad-break-seconds" hidden>Break
+                <input id="ad-break-seconds" type="number" min="5" max="180" step="1" value="30" inputmode="numeric"> s</label>
+              <button class="act" id="ad-break-cue" type="button">Cue ad break</button>
+              <p class="field-error" id="ad-break-error" aria-live="polite"></p>
+              <p class="note" id="ad-break-status" role="status"></p>
+            </div>
           </section>
         </div>
         <div id="live-logs-slot">

@@ -15,15 +15,15 @@ def test_every_action_has_an_answer():
 
 def test_not_deployed_offers_deploy_teardown_and_scan():
     assert allowed(Situation(deployed=False, job_running=None, flow_state=None, channel_state=None)) == {
-        "deploy", "teardown", "scan", "source-stop"}
+        "deploy", "teardown", "scan", "source-stop", "config"}
 
 
 def test_off_air_offers_going_live_but_not_going_off_air():
-    assert allowed(OFF_AIR) == {"deploy", "teardown", "scan", "go-live", "source-stop"}
+    assert allowed(OFF_AIR) == {"deploy", "teardown", "scan", "go-live", "source-stop", "config"}
 
 
 def test_on_air_refuses_deploy_and_teardown_and_offers_the_source():
-    assert allowed(ON_AIR) == {"scan", "go-off-air", "source-start", "source-stop"}
+    assert allowed(ON_AIR) == {"scan", "go-off-air", "source-start", "source-stop", "config", "ad-break"}
     assert "Go off air first" in refusals(ON_AIR)["teardown"].message
     assert refusals(ON_AIR)["deploy"].status == 409
 
@@ -103,7 +103,7 @@ def test_without_credentials_every_aws_action_is_refused_with_the_reason():
     answers = refusals(situation)
 
     for action in ACTIONS:
-        if action == "source-stop":
+        if action in ("source-stop", "config"):  # stopping FFmpeg and saving a local file need no AWS
             assert answers[action] is None
         else:
             assert answers[action].status == 403 and answers[action].message == message, action
@@ -114,3 +114,22 @@ def test_without_credentials_no_step_is_suggested():
                           credentials="No AWS credentials found.")
 
     assert next_action(situation) is None
+
+
+def test_a_break_needs_a_running_channel():
+    assert refusals(OFF_AIR)["ad-break"].message == "Go live first: breaks are cued on a running channel."
+    partly = Situation(deployed=True, job_running=None, flow_state="ACTIVE", channel_state="IDLE")
+    assert refusals(partly)["ad-break"].status == 409
+    assert refusals(ON_AIR)["ad-break"] is None
+
+
+def test_config_changes_wait_for_a_job():
+    busy = Situation(deployed=True, job_running="deploy", flow_state="STANDBY", channel_state="IDLE")
+    assert refusals(busy)["config"].message == "deploy is still running"
+    assert refusals(busy)["config"].status == 409
+
+
+def test_config_is_allowed_off_air_and_without_a_stack():
+    nothing = Situation(deployed=False, job_running=None, flow_state=None, channel_state=None)
+    assert refusals(nothing)["config"] is None
+    assert refusals(OFF_AIR)["config"] is None

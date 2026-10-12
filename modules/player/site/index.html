@@ -27,6 +27,9 @@
     body.embed main { max-width: none; padding: 0; }
     body.embed h1, body.embed .stats, body.embed .note { display: none; }
     body.embed video { width: 100vw; height: 100vh; border-radius: 0; object-fit: contain; display: block; }
+    /* An ad break: the clip covers the live video, which keeps playing muted underneath. */
+    #ad { position: absolute; inset: 0; height: 100%; object-fit: contain; }
+    #ad[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -44,6 +47,7 @@
     <p class="note">Compare the clock burned into the video with the browser clock above for an approximate glass-to-glass latency. Clocks are not synchronised, so this is a demonstration, not a measurement.</p>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+  <script src="ads.js"></script>
   <script>
     if (new URLSearchParams(location.search).has('embed')) document.body.classList.add('embed');
     const video = document.getElementById('video');
@@ -108,6 +112,56 @@
     }
     tick();
 
+    // Client-side ad insertion: when the playhead reaches a SCTE-35 break, the clip plays over the live video for the
+    // break's length (looping if the clip is shorter, cut if it is longer). Live keeps playing muted underneath, so when
+    // the break ends it is already at the right point: no seek, no buffering. Each break plays once.
+    function startAds(src) {
+      const ad = document.createElement('video');
+      Object.assign(ad, { id: 'ad', src, preload: 'auto', loop: true, playsInline: true, hidden: true });
+      document.querySelector('.screen').append(ad);
+      const known = new Map();
+      const played = new Set();
+      let active = null;
+      let liveMuted = video.muted;
+
+      hls.on(Hls.Events.LEVEL_UPDATED, (event, data) => {
+        for (const b of AdBreaks.breaks(data.details && data.details.dateRanges)) known.set(b.id, b);
+      });
+
+      function begin(b) {
+        played.add(b.id);
+        if (ad.error) return;          // the clip never loaded: stay on live
+        active = b;
+        liveMuted = video.muted;
+        video.muted = true;
+        ad.muted = liveMuted;          // sound only if the viewer had turned it on (autoplay rules)
+        ad.currentTime = 0;
+        ad.hidden = false;
+        ad.play().catch(() => { ad.muted = true; ad.play().catch(end); });
+      }
+
+      function end() {
+        if (!active) return;
+        active = null;
+        ad.pause();
+        ad.hidden = true;
+        video.muted = liveMuted;
+      }
+
+      ad.addEventListener('error', end);
+      setInterval(() => {
+        const at = hls.playingDate;
+        if (!at) return;
+        const ms = at.getTime();
+        if (active) {
+          if (ms >= active.endMs) end();
+          return;
+        }
+        const next = AdBreaks.due([...known.values()], ms, played);
+        if (next) begin(next);
+      }, 250);
+    }
+
     fetch('config.json', { cache: 'no-store' })
       .then((response) => response.json())
       .then((config) => {
@@ -129,6 +183,7 @@
           setInterval(() => {
             latency.textContent = hls.latency ? hls.latency.toFixed(1) + ' s' : 'n/a';
           }, 500);
+          if (config.adClip) startAds(config.adClip);
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
           video.src = url;
         }

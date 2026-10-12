@@ -72,3 +72,8 @@ output "events_log_group" {
   description = "Log group holding MediaLive and MediaConnect events, read by the console."
   value       = module.observability.log_group_name
 }
+
+output "ads" {
+  description = "Deployed ad settings (clip MD5, clip length, duration mode), read by the console to configure the ad break trigger."
+  value       = module.player.ads
+}

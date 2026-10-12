@@ -184,3 +184,44 @@ def test_a_flow_in_error_is_stopped_rather_than_waited_on():
     stop(flow, channel, TARGETS, **FAST)
 
     assert flow.calls == ["stop_flow"]
+
+
+# --- ad breaks ------------------------------------------------------------------------------
+
+from livectl.control import NotRunning, cue_ad_break  # noqa: E402
+from stubs import StubClient  # noqa: E402
+
+CUED_AT_MS = 1_760_184_190_000
+
+
+def medialive_in(state):
+    return StubClient(describe_channel={"Id": "7387208", "State": state}, batch_update_schedule={})
+
+
+def test_a_cue_is_one_immediate_splice_insert():
+    medialive = medialive_in("RUNNING")
+
+    event_id = cue_ad_break(medialive, "7387208", 30, clock_ms=lambda: CUED_AT_MS)
+
+    assert event_id == 1_760_184_190
+    [(name, request)] = [call for call in medialive.calls if call[0] == "batch_update_schedule"]
+    assert request == {"ChannelId": "7387208", "Creates": {"ScheduleActions": [{
+        "ActionName": "ad-break-1760184190",
+        "ScheduleActionStartSettings": {"ImmediateModeScheduleActionStartSettings": {}},
+        "ScheduleActionSettings": {"Scte35SpliceInsertSettings": {"SpliceEventId": 1_760_184_190,
+                                                                  "Duration": 2_700_000}},
+    }]}}
+
+
+def test_a_fractional_length_rounds_to_90khz_ticks():
+    medialive = medialive_in("RUNNING")
+    cue_ad_break(medialive, "7387208", 24.5, clock_ms=lambda: CUED_AT_MS)
+    settings = medialive.calls[-1][1]["Creates"]["ScheduleActions"][0]["ScheduleActionSettings"]
+    assert settings["Scte35SpliceInsertSettings"]["Duration"] == 2_205_000
+
+
+def test_no_cue_unless_the_channel_runs():
+    medialive = medialive_in("IDLE")
+    with pytest.raises(NotRunning):
+        cue_ad_break(medialive, "7387208", 30, clock_ms=lambda: CUED_AT_MS)
+    assert [name for name, _ in medialive.calls] == ["describe_channel"]
