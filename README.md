@@ -76,7 +76,7 @@ docker compose up                                  # the console on http://127.0
 
 Everything else (deploy, go live, the test source, tear down, the leftover scan) is in the console. Recipes that
 need only Terraform or `livectl` run the same way, for example `docker compose run --rm console just check-clean`
-(also `status`, `outputs`, `plan`, `test-tf`). Three do not: `just send` needs the AWS CLI, which the image leaves
+(also `status`, `outputs`, `plan`, `test-tf`). Three do not: `just send` (and `send-backup`) needs the AWS CLI, which the image leaves
 out (use *Send test source* in the console); `just ui` inside `run` publishes no port (use `docker compose up`); and
 `just test` needs the dev tools, which only CI's test image has.
 
@@ -114,6 +114,8 @@ just up                                            # a few minutes, CloudFront i
 just start                                         # flow first, then the channel (about 2 minutes)
 just send                                          # FFmpeg test pattern; leave it running
                                                    # tune it: FPS=25 SERVICE_NAME="Match 1" just send
+just send-backup                                   # optional, second terminal: the failover source on port 5001;
+                                                   # stop `just send` and the flow switches to it
 just player                                        # the URL to open in a browser
 
 # 4. Tear down (do not skip: MediaLive and MediaConnect bill by the hour while running)
@@ -234,7 +236,7 @@ It is deliberately blunt about its limits:
 To see every state without an AWS account, `just ui-scenario <name>` serves the console against stub clients
 (`not-deployed`, `off-air`, `on-air-playing`, `on-air-no-source`, `partly-on`, … listed in `tools/tests/scenarios.py`).
 
-### Verify the console live (costs money: about 1.74 USD/hour while on air)
+### Verify the console live (costs money: about 1.83 USD/hour while on air)
 
 Offline tests prove the console's logic, not AWS's answers. After `just up` (re-run it once on an existing stack so
 the new outputs exist), open `just ui` and check:
@@ -488,7 +490,7 @@ comes out private, make it public in the package's *Package settings*, or `docke
 
 ## Costs
 
-While the demo runs, the priced items come to about **1.74 USD per hour** (about 0.43 for a 15-minute demo) for a single-pipeline
+While the demo runs, the priced items come to about **1.83 USD per hour** (about 0.46 for a 15-minute demo; 1.74 with `source_failover = false`) for a single-pipeline
 channel. When nothing is running, cost is close to zero. Details, assumptions and what could not be priced are in
 [docs/cost-estimate.md](docs/cost-estimate.md). A $25 monthly budget with alerts lives in `bootstrap/`. An open Grafana
 dashboard adds CloudWatch queries, about 0.005 to 1.38 USD per hour per dashboard, only while it is open.

@@ -17,3 +17,8 @@ output "passphrase_secret_arn" {
   description = "ARN of the Secrets Manager secret holding the SRT passphrase."
   value       = aws_secretsmanager_secret.srt.arn
 }
+
+output "backup_ingest_port" {
+  description = "Port the backup SRT listener accepts content on, or null when backup_source_enabled is false."
+  value       = var.backup_source_enabled ? var.backup_ingest_port : null
+}
