@@ -16,8 +16,9 @@ provider "awscc" {
 module "ingest" {
   source = "../../modules/ingest"
 
-  name           = "${var.project}-demo"
-  whitelist_cidr = var.source_cidr
+  name                  = "${var.project}-demo"
+  whitelist_cidr        = var.source_cidr
+  backup_source_enabled = var.source_failover
 }
 
 module "medialive_role" {

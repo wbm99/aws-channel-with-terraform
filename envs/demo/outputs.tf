@@ -13,6 +13,11 @@ output "ingest_port" {
   value       = module.ingest.ingest_port
 }
 
+output "backup_ingest_port" {
+  description = "Port of the backup SRT listener, or null when source_failover is false."
+  value       = module.ingest.backup_ingest_port
+}
+
 output "passphrase_secret_arn" {
   description = "Secrets Manager ARN of the SRT passphrase."
   value       = module.ingest.passphrase_secret_arn

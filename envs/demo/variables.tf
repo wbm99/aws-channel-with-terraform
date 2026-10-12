@@ -15,6 +15,12 @@ variable "source_cidr" {
   type        = string
 }
 
+variable "source_failover" {
+  description = "Add a backup SRT listener to the MediaConnect flow and fail over to it when the primary stops. Adds one MediaConnect input hour (about 0.09 USD) per running hour."
+  type        = bool
+  default     = true
+}
+
 variable "ads" {
   description = "Ad break settings written by the console to console.auto.tfvars.json. The clip path is relative to this directory; modules/player validates it."
   type = object({

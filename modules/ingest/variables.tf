@@ -30,3 +30,20 @@ variable "thumbnails_enabled" {
   type        = bool
   default     = true
 }
+
+variable "backup_source_enabled" {
+  description = "Add a second SRT listener and enable source failover on the flow. Each source is billed as a MediaConnect input hour while the flow runs."
+  type        = bool
+  default     = false
+}
+
+variable "backup_ingest_port" {
+  description = "UDP port the backup SRT listener accepts content on. Must differ from ingest_port, since both sources share the flow's ingest IP."
+  type        = number
+  default     = 5001
+
+  validation {
+    condition     = var.backup_ingest_port != var.ingest_port
+    error_message = "backup_ingest_port must differ from ingest_port."
+  }
+}

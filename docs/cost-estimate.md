@@ -23,11 +23,18 @@ item could not be retrieved or an interpretation is mine, it is marked. Nothing 
 | MediaLive output, 480p | Single Pipeline SD AVC output, <10 Mbps, <=30 fps, Standard VQ | 0.2124 / hour | 1 | 0.2124 |
 | MediaConnect active flow | Active Flow usage | 0.16 / hour | 1 | 0.1600 |
 | MediaConnect input | 20 Mbps input tier (my reading of `Running20mbpsInput`) | 0.09 / hour | 1 | 0.0900 |
+| MediaConnect backup input (`source_failover`, on by default) | 20 Mbps input tier, second source (see below) | 0.09 / hour | 1 | 0.0900 |
 | MediaConnect output to MediaLive | 20 Mbps output tier (my reading of `Running20mbpsOutput`) | 0.04 / hour | 1 | 0.0400 |
 | MediaPackage ingest | Ingest | 0.03 / GB | 4.5 GB | 0.1350 |
 | MediaPackage origination/packaging | Origination/Packaging | 0.05 / GB | 2.3 GB | 0.1150 |
 | CloudFront requests | HTTPS requests | 0.01 / 10,000 | about 1,200 | 0.0012 |
-| **Total (priced items)** | | | | **about 1.74** |
+| **Total (priced items)** | | | | **about 1.83** |
+
+**The backup source.** The price list bills MediaConnect inputs per input per hour, so I count the backup as a second
+`Running20mbpsInput` hour. Whether an idle backup with nothing connected is billed is not stated in the price list; I
+assume it is, as the primary is. Set `source_failover = false` in `terraform.tfvars` to drop it (about 1.74 per hour).
+A second contribution stream adds no transfer cost on the way in, and the flow still has one output to MediaLive, so
+nothing else changes.
 
 **Not priced (could not retrieve or not looked up):**
 - CloudFront data transfer out (2.3 GB per hour for one viewer). The price list query returned only request prices; CloudFront
@@ -44,8 +51,8 @@ item could not be retrieved or an interpretation is mine, it is marked. Nothing 
 
 | Session | Estimated cost |
 |---|---|
-| 15-minute demo | about 0.43 |
-| 1-hour demo | about 1.74 |
+| 15-minute demo | about 0.46 (0.43 without the backup source) |
+| 1-hour demo | about 1.83 (1.74 without the backup source) |
 | Everything I ran while building this project (roughly one hour of full-stack running in total) | about 2, well under the 25 budget |
 
 ## What the Standard (two-pipeline) channel class would cost

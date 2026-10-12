@@ -11,7 +11,7 @@ choice.
 
 This repository creates resources that bill **by the hour while running**, not by request.
 
-- A running demo costs **about 1.74 USD/hour** (MediaLive ~1.20, MediaConnect ~0.29, MediaPackage ~0.25, rest smaller).
+- A running demo costs **about 1.83 USD/hour** (MediaLive ~1.20, MediaConnect ~0.38 with the backup source, MediaPackage ~0.25, rest smaller).
   The breakdown is in `docs/cost-estimate.md`.
 - **Never leave a `just start` without a `just stop`.** The flow and channel keep billing until stopped, even with no
   viewers and no source connected.

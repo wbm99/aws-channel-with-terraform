@@ -123,11 +123,19 @@ grafana-down:
 # --- source ------------------------------------------------------------------
 
 # Push the FFmpeg test stream to the ingest (leave running; Ctrl-C stops it)
-send:
+send: (_send "ingest_port")
+
+# Push the test stream to the backup listener; stop `just send` to watch the flow fail over
+send-backup: (_send "backup_ingest_port")
+
+_send port_output:
     #!/usr/bin/env bash
     set -euo pipefail
     SRT_HOST="$(terraform -chdir={{tf_dir}} output -raw ingest_ip)"
-    SRT_PORT="$(terraform -chdir={{tf_dir}} output -raw ingest_port)"
+    SRT_PORT="$(terraform -chdir={{tf_dir}} output -json {{port_output}})"
+    if [ "$SRT_PORT" = "null" ]; then
+      echo "no backup listener: set source_failover = true and run just up" >&2; exit 1
+    fi
     # Resolved at the moment of use so the passphrase never lands in a file or the shell history.
     SRT_PASSPHRASE="$(aws secretsmanager get-secret-value \
       --secret-id "$(terraform -chdir={{tf_dir}} output -raw passphrase_secret_arn)" \

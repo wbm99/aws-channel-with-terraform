@@ -59,6 +59,14 @@ resource "awscc_mediaconnect_flow" "this" {
     }
   }
 
+  source_failover_config = var.backup_source_enabled ? {
+    state         = "ENABLED"
+    failover_mode = "FAILOVER"
+    source_priority = {
+      primary_source = "${var.name}-srt"
+    }
+  } : null
+
   source_monitoring_config = {
     thumbnail_state = var.thumbnails_enabled ? "ENABLED" : "DISABLED"
   }
@@ -67,4 +75,25 @@ resource "awscc_mediaconnect_flow" "this" {
     aws_iam_role_policy.read_secret,
     aws_secretsmanager_secret_version.srt,
   ]
+}
+
+# The backup is a second SRT listener on the same flow (same ingest IP, its own port). MediaConnect switches to it
+# when the primary stops delivering and back when the primary returns. MERGE (SMPTE 2022-7) needs RTP or RIST, so
+# SRT can only use FAILOVER.
+resource "awscc_mediaconnect_flow_source" "backup" {
+  count = var.backup_source_enabled ? 1 : 0
+
+  flow_arn       = awscc_mediaconnect_flow.this.flow_arn
+  name           = "${var.name}-srt-backup"
+  description    = "Backup SRT listener for source failover."
+  protocol       = "srt-listener"
+  ingest_port    = var.backup_ingest_port
+  whitelist_cidr = var.whitelist_cidr
+  min_latency    = var.min_latency_ms
+
+  decryption = {
+    key_type   = "srt-password"
+    role_arn   = aws_iam_role.flow.arn
+    secret_arn = aws_secretsmanager_secret.srt.arn
+  }
 }
