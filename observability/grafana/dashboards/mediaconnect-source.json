@@ -156,7 +156,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "noValue": "\u2014",
+          "noValue": "—",
           "color": {
             "mode": "thresholds"
           },
@@ -218,13 +218,27 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourceBitRate",
           "statistic": "Average",
-          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceBitRate\" live-sports-aws-demo', 'Average', 5))",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,SourceARN} MetricName=\"SourceBitRate\" live-sports-aws-demo-srt', 'Average', 5))",
           "period": "5",
           "id": "",
-          "label": "${PROP('Dim.FlowARN')}"
+          "label": "${PROP('Dim.SourceARN')}"
         }
       ],
       "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^arn:.*-srt-backup$",
+            "renamePattern": "Backup"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^arn:.*-srt$",
+            "renamePattern": "Primary"
+          }
+        },
         {
           "id": "renameByRegex",
           "options": {
@@ -235,7 +249,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "noValue": "\u2014",
+          "noValue": "—",
           "color": {
             "mode": "thresholds"
           },
@@ -262,7 +276,7 @@
         },
         "colorMode": "none",
         "graphMode": "none",
-        "textMode": "value",
+        "textMode": "value_and_name",
         "justifyMode": "center"
       },
       "timeFrom": "2m",
@@ -296,13 +310,27 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourceRoundTripTime",
           "statistic": "Average",
-          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceRoundTripTime\" live-sports-aws-demo', 'Average', 5))",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,SourceARN} MetricName=\"SourceRoundTripTime\" live-sports-aws-demo-srt', 'Average', 5))",
           "period": "5",
           "id": "",
-          "label": "${PROP('Dim.FlowARN')}"
+          "label": "${PROP('Dim.SourceARN')}"
         }
       ],
       "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^arn:.*-srt-backup$",
+            "renamePattern": "Backup"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^arn:.*-srt$",
+            "renamePattern": "Primary"
+          }
+        },
         {
           "id": "renameByRegex",
           "options": {
@@ -313,7 +341,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "noValue": "\u2014",
+          "noValue": "—",
           "color": {
             "mode": "thresholds"
           },
@@ -340,7 +368,7 @@
         },
         "colorMode": "none",
         "graphMode": "none",
-        "textMode": "value",
+        "textMode": "value_and_name",
         "justifyMode": "center"
       },
       "timeFrom": "2m",
@@ -374,13 +402,27 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourcePacketLossPercent",
           "statistic": "Average",
-          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourcePacketLossPercent\" live-sports-aws-demo', 'Average', 5))",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,SourceARN} MetricName=\"SourcePacketLossPercent\" live-sports-aws-demo-srt', 'Average', 5))",
           "period": "5",
           "id": "",
-          "label": "${PROP('Dim.FlowARN')}"
+          "label": "${PROP('Dim.SourceARN')}"
         }
       ],
       "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^arn:.*-srt-backup$",
+            "renamePattern": "Backup"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^arn:.*-srt$",
+            "renamePattern": "Primary"
+          }
+        },
         {
           "id": "renameByRegex",
           "options": {
@@ -391,7 +433,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "noValue": "\u2014",
+          "noValue": "—",
           "color": {
             "mode": "thresholds"
           },
@@ -418,7 +460,7 @@
         },
         "colorMode": "none",
         "graphMode": "none",
-        "textMode": "value",
+        "textMode": "value_and_name",
         "justifyMode": "center"
       },
       "timeFrom": "2m",
@@ -469,7 +511,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "noValue": "\u2014",
+          "noValue": "—",
           "color": {
             "mode": "thresholds"
           },
@@ -547,7 +589,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "noValue": "\u2014",
+          "noValue": "—",
           "color": {
             "mode": "thresholds"
           },
@@ -611,10 +653,10 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourceBitRate",
           "statistic": "Average",
-          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceBitRate\" live-sports-aws-demo', 'Average', 5))",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,SourceARN} MetricName=\"SourceBitRate\" live-sports-aws-demo-srt', 'Average', 5))",
           "period": "5",
           "id": "",
-          "label": "${PROP('Dim.FlowARN')}"
+          "label": "Bitrate ${PROP('Dim.SourceARN')}"
         },
         {
           "refId": "B",
@@ -636,6 +678,20 @@
         }
       ],
       "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^(.+) arn:.*-srt-backup$",
+            "renamePattern": "$1 · backup"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^(.+) arn:.*-srt$",
+            "renamePattern": "$1 · primary"
+          }
+        },
         {
           "id": "renameByRegex",
           "options": {
@@ -686,18 +742,6 @@
                 "value": "Disconnections"
               }
             ]
-          },
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "A"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Bitrate"
-              }
-            ]
           }
         ]
       },
@@ -742,13 +786,27 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourceRoundTripTime",
           "statistic": "Average",
-          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceRoundTripTime\" live-sports-aws-demo', 'Average', 5))",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,SourceARN} MetricName=\"SourceRoundTripTime\" live-sports-aws-demo-srt', 'Average', 5))",
           "period": "5",
           "id": "",
-          "label": "${PROP('Dim.FlowARN')}"
+          "label": "${PROP('Dim.SourceARN')}"
         }
       ],
       "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^arn:.*-srt-backup$",
+            "renamePattern": "Backup"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^arn:.*-srt$",
+            "renamePattern": "Primary"
+          }
+        },
         {
           "id": "renameByRegex",
           "options": {
@@ -810,10 +868,10 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourcePacketLossPercent",
           "statistic": "Average",
-          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourcePacketLossPercent\" live-sports-aws-demo', 'Average', 5))",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,SourceARN} MetricName=\"SourcePacketLossPercent\" live-sports-aws-demo-srt', 'Average', 5))",
           "period": "5",
           "id": "",
-          "label": "${PROP('Dim.FlowARN')}"
+          "label": "Packet loss ${PROP('Dim.SourceARN')}"
         },
         {
           "refId": "B",
@@ -835,6 +893,20 @@
         }
       ],
       "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^(.+) arn:.*-srt-backup$",
+            "renamePattern": "$1 · backup"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^(.+) arn:.*-srt$",
+            "renamePattern": "$1 · primary"
+          }
+        },
         {
           "id": "renameByRegex",
           "options": {
@@ -887,10 +959,6 @@
               {
                 "id": "unit",
                 "value": "percent"
-              },
-              {
-                "id": "displayName",
-                "value": "Packet loss"
               }
             ]
           }

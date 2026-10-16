@@ -66,7 +66,7 @@ def test_each_failover_listener_is_queried_on_its_source_arn():
     arn = "arn:aws:mediaconnect:us-east-1:123456789012:source:1-abc-b:demo-srt-backup"
     by_id = {s.id: s for s in metric_specs(MINIMAL, [("backup", arn)])}
 
-    assert {by_id[key].name for key in ("backup_connected", "backup_bitrate", "backup_selected")} == {
-        "SourceConnected", "SourceBitRate", "SourceSelected"}
+    assert {by_id[key].name for key in ("backup_connected", "backup_bitrate", "backup_rtt", "backup_selected")} == {
+        "SourceConnected", "SourceBitRate", "SourceRoundTripTime", "SourceSelected"}
     assert dims(by_id["backup_selected"]) == {"SourceARN": arn}
     assert not any(s.id.startswith("primary_") for s in metric_specs(MINIMAL))

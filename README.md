@@ -320,9 +320,10 @@ the new outputs exist), open `just ui` and check:
     false.
 41. Send the test source again: the primary is back on air within seconds, and the backup stands by.
 42. A few minutes in, `aws cloudwatch list-metrics --namespace AWS/MediaConnect --metric-name SourceSelected` lists
-    both listeners under a `SourceARN` dimension, and the node's listener rows carry a bitrate. The console asks for
-    `SourceConnected`, `SourceBitRate` and `SourceSelected` by `SourceARN`; neither the name nor `SourceSelected` on
-    SRT listeners has been seen live. They decide the node only when no Source Health event has.
+    both listeners under a `SourceARN` dimension, and the node's listener rows carry a bitrate. `SourceARN` itself
+    was seen live on 2026-10-16 (`SourceLatency` per listener); `SourceSelected` on SRT listeners has not been. It
+    decides the node only when no Source Health event has. The node's *Bitrate* and *Round trip* are the on-air
+    listener's (*Figures from*), not the flow's average, which the idle backup halves.
 
 ## Ad breaks (SCTE-35)
 
@@ -441,7 +442,9 @@ MediaPackage origin and the CloudFront distribution at their 1-minute resolution
   are charged per metric per month and every deploy creates a new distribution, and access logs arrive up to an hour
   late, reliably only about four hours after logging is enabled.
 - **It finds the flow and the channel by itself:** each MediaConnect query is a CloudWatch search for this project's
-  flows, wrapped in `REMOVE_EMPTY`, so nothing needs editing after a redeploy. A MediaLive channel ID is a number with
+  flows, wrapped in `REMOVE_EMPTY`, so nothing needs editing after a redeploy. Averages (bitrate, round trip, packet loss,
+  jitter, latency) search per listener instead (`SourceARN`) and draw *primary* and *backup* separately: averaged
+  over the flow, the idle backup's zeros halved them (seen live: a 2000 ms latency read as 1000 ms). A MediaLive channel ID is a number with
   no name in it, so the MediaLive dashboard has a *Channel* drop-down instead. Its default, *All*, searches every
   channel in the region and `REMOVE_EMPTY` keeps the one with data, the running one. The list also holds destroyed
   channels from the last two weeks; pick one to look back at an earlier run. Another MediaLive channel in the same

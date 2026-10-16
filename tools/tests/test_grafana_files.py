@@ -21,6 +21,9 @@ METRICS = {
     "SourceARQRecovered": "Sum", "SourceJitter": "Average", "SourceLatency": "Average",
     "SourcePCRError": "Sum", "SourcePCRAccuracyError": "Sum", "SourcePTSError": "Sum", "SourceCRCError": "Sum",
 }
+# Averages are read per listener: over the flow, an idle backup's zeros halve them (seen live 2026-10-16: latency
+# 1000 ms, from the primary's 2000 and the backup's 0). Sums, maxima and counters stay per flow.
+PER_SOURCE = {"SourceBitRate", "SourceRoundTripTime", "SourcePacketLossPercent", "SourceJitter", "SourceLatency"}
 OVERVIEW, DETAIL = "mediaconnect-source", "mediaconnect-detail"
 EVENTS_GROUP = "/aws/events/live-sports-aws-demo"
 
@@ -51,9 +54,16 @@ def metric_targets(uid: str) -> list:
 
 
 def names(p: dict) -> dict:
-    """refId -> the display name an override gives it."""
-    return {o["matcher"]["options"]: next(x["value"] for x in o["properties"] if x["id"] == "displayName")
-            for o in p["fieldConfig"]["overrides"]}
+    """refId -> the series name: an override's display name, or a per-listener query's label prefix."""
+    found = {o["matcher"]["options"]: x["value"] for o in p["fieldConfig"]["overrides"] for x in o["properties"]
+             if x["id"] == "displayName"}
+    for t in p.get("targets", []):
+        if t.get("metricName") in PER_SOURCE and t["label"] != SOURCE_LABEL:
+            found[t["refId"]] = t["label"].removesuffix(" " + SOURCE_LABEL)
+    return dict(sorted(found.items()))
+
+
+SOURCE_LABEL = "${PROP('Dim.SourceARN')}"
 
 
 def test_the_two_dashboards_identity_refresh_and_links():
@@ -75,8 +85,14 @@ def test_every_metric_query_searches_this_projects_flows_every_5_seconds():
             metric = target["metricName"]
             assert target["datasource"]["uid"] == "cloudwatch"
             assert METRICS[metric] == target["statistic"]
-            assert target["expression"] == ("REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"%s\" "
-                                            "live-sports-aws-demo', '%s', 5))" % (metric, target["statistic"]))
+            if metric in PER_SOURCE:
+                # The listeners' names end their ARNs: …-srt and …-srt-backup both match.
+                assert target["expression"] == ("REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,SourceARN} MetricName=\"%s\" "
+                                                "live-sports-aws-demo-srt', 'Average', 5))" % metric)
+                assert target["label"].endswith(SOURCE_LABEL)
+            else:
+                assert target["expression"] == ("REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"%s\" "
+                                                "live-sports-aws-demo', '%s', 5))" % (metric, target["statistic"]))
             assert target["period"] == "5"
 
 
@@ -120,7 +136,33 @@ def test_the_now_tiles_read_only_the_last_2_minutes_and_show_just_the_value():
     for title in ("Connected", "Up for", "Bitrate", "Round trip", "Packet loss"):
         tile = panel(title, kind="stat")
         assert (tile["timeFrom"], tile["hideTimeOverride"]) == ("2m", True), title
-        assert tile["options"]["textMode"] == "value"
+    # The per-listener tiles show one box each, so each box names its listener.
+    assert [panel(t, kind="stat")["options"]["textMode"] for t in ("Connected", "Up for")] == ["value", "value"]
+    assert [panel(t, kind="stat")["options"]["textMode"] for t in ("Bitrate", "Round trip", "Packet loss")] == [
+        "value_and_name"] * 3
+
+
+def test_per_listener_series_are_named_primary_and_backup():
+    """Backup first: the primary's pattern (…-srt at the end) does not match …-srt-backup, but order keeps it safe."""
+    for uid, title, kind in [(OVERVIEW, "Bitrate", "stat"), (OVERVIEW, "Round trip time", "timeseries"),
+                             (OVERVIEW, "Bitrate", "timeseries"), (DETAIL, "Network", None)]:
+        p = panel(title, uid, kind)
+        renames = [(t["options"]["regex"], t["options"]["renamePattern"]) for t in p["transformations"]]
+        prefixed = len(p["targets"]) > 1
+        assert renames[:2] == ([("^(.+) arn:.*-srt-backup$", "$1 · backup"), ("^(.+) arn:.*-srt$", "$1 · primary")]
+                               if prefixed else
+                               [("^arn:.*-srt-backup$", "Backup"), ("^arn:.*-srt$", "Primary")]), title
+        prefix = "Latency " if prefixed else ""
+        arn = "arn:aws:mediaconnect:us-east-1:1:source:1-x:live-sports-aws-demo-srt"
+        assert rename(renames, prefix + arn) == ("Latency · primary" if prefixed else "Primary"), title
+        assert rename(renames, prefix + arn + "-backup") == ("Latency · backup" if prefixed else "Backup"), title
+
+
+def rename(renames: list, name: str) -> str:
+    """Grafana's renameByRegex, in order: JavaScript's `$1` is Python's `\\1`."""
+    for regex, pattern in renames:
+        name = re.sub(regex, pattern.replace("$1", r"\1"), name)
+    return name
 
 
 def test_tiles_say_nothing_is_fine_when_there_is_no_data():
