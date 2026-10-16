@@ -441,7 +441,9 @@ MediaPackage origin and the CloudFront distribution at their 1-minute resolution
   are charged per metric per month and every deploy creates a new distribution, and access logs arrive up to an hour
   late, reliably only about four hours after logging is enabled.
 - **It finds the flow and the channel by itself:** each MediaConnect query is a CloudWatch search for this project's
-  flows, wrapped in `REMOVE_EMPTY`, so nothing needs editing after a redeploy. A MediaLive channel ID is a number with
+  flows, wrapped in `REMOVE_EMPTY`, so nothing needs editing after a redeploy. Averages (bitrate, round trip, packet loss,
+  jitter, latency) search per listener instead (`SourceARN`) and draw *primary* and *backup* separately: averaged
+  over the flow, the idle backup's zeros halved them (seen live: a 2000 ms latency read as 1000 ms). A MediaLive channel ID is a number with
   no name in it, so the MediaLive dashboard has a *Channel* drop-down instead. Its default, *All*, searches every
   channel in the region and `REMOVE_EMPTY` keeps the one with data, the running one. The list also holds destroyed
   channels from the last two weeks; pick one to look back at an earlier run. Another MediaLive channel in the same

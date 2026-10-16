@@ -593,10 +593,10 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourceJitter",
           "statistic": "Average",
-          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceJitter\" live-sports-aws-demo', 'Average', 5))",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,SourceARN} MetricName=\"SourceJitter\" live-sports-aws-demo-srt', 'Average', 5))",
           "period": "5",
           "id": "",
-          "label": "${PROP('Dim.FlowARN')}"
+          "label": "Jitter ${PROP('Dim.SourceARN')}"
         },
         {
           "refId": "B",
@@ -611,13 +611,27 @@
           "namespace": "AWS/MediaConnect",
           "metricName": "SourceLatency",
           "statistic": "Average",
-          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,FlowARN} MetricName=\"SourceLatency\" live-sports-aws-demo', 'Average', 5))",
+          "expression": "REMOVE_EMPTY(SEARCH('{AWS/MediaConnect,SourceARN} MetricName=\"SourceLatency\" live-sports-aws-demo-srt', 'Average', 5))",
           "period": "5",
           "id": "",
-          "label": "${PROP('Dim.FlowARN')}"
+          "label": "Latency ${PROP('Dim.SourceARN')}"
         }
       ],
       "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^(.+) arn:.*-srt-backup$",
+            "renamePattern": "$1 · backup"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^(.+) arn:.*-srt$",
+            "renamePattern": "$1 · primary"
+          }
+        },
         {
           "id": "renameByRegex",
           "options": {
@@ -637,32 +651,7 @@
           },
           "unit": "ms"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "A"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Jitter"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "B"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Latency"
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "options": {
         "legend": {
