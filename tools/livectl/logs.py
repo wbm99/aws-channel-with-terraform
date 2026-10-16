@@ -2,8 +2,9 @@
 
 Two sources: the events log group (EventBridge events from MediaLive and MediaConnect, one JSON document per line)
 and MediaLive's own `ElementalMediaLive` group (encoder and as-run logs, one stream per channel ARN and pipeline).
-Event field names for MediaConnect Source Health and Flow Status Change are from the AWS documentation; anything
-not recognised is summarised as compact JSON rather than dropped.
+Event field names for MediaConnect Source Health, Flow Health and Flow Status Change are from the AWS documentation;
+anything not recognised is summarised as compact JSON rather than dropped. Source Health names the source in its
+`resources` (flow ARN, then source ARN), which is how the primary and backup listeners are told apart.
 """
 
 from __future__ import annotations
@@ -18,8 +19,9 @@ from livectl.targets import Targets
 LOG_TABS = ("all", "srt", "mediaconnect", "medialive")
 ELEMENTAL_GROUP = "ElementalMediaLive"
 LOOKBACK_MS = 30 * 60 * 1000
-# The two event types that say whether an SRT source is connected right now, as a CloudWatch Logs filter pattern.
-SOURCE_PATTERN = '?"MediaConnect Source Health" ?"MediaConnect Flow Status Change"'
+# The event types that say whether each SRT source is connected right now and whether the flow has failed over, as a
+# CloudWatch Logs filter pattern.
+SOURCE_PATTERN = '?"MediaConnect Source Health" ?"MediaConnect Flow Health" ?"MediaConnect Flow Status Change"'
 MAX_PAGES = 5
 
 
@@ -48,19 +50,31 @@ def _brief(detail: dict, limit: int = 160) -> str:
 def _health(detail: dict) -> tuple[str, str]:
     """State and flags of a Source/Flow Health event: 'disconnected, no bitrate' plus any TR 101 290 errors."""
     current = detail.get("current") or {}
-    state = str(current.get("state") or "?").lower()
+    # Source Health calls it `state`, Flow Health `source_state`.
+    state = str(current.get("state") or current.get("source_state") or "?").lower()
     if current.get("isBitrateZero"):
         state += ", no bitrate"
     flags = [name for name, on in (current.get("tr101") or {}).items() if on]
     return state, (f" · TR 101 290: {', '.join(flags)}" if flags else "")
 
 
-def _mediaconnect(kind: str, detail: dict) -> tuple[str, str]:
+def source_arn(resources: list) -> Optional[str]:
+    """The source ARN among an event's resources, if it names one."""
+    return next((r for r in resources if isinstance(r, str) and ":source:" in r), None)
+
+
+def _mediaconnect(kind: str, detail: dict, resources: list) -> tuple[str, str]:
     if kind == "MediaConnect Source Health":
         state, flags = _health(detail)
-        return "srt", f"MediaConnect · source {state}{flags}"
+        arn = source_arn(resources)
+        # The ARN ends with the source's name, which says which listener it is (…-srt or …-srt-backup).
+        name = f" {arn.rsplit(':', 1)[-1]}" if arn else ""
+        return "srt", f"MediaConnect · source{name} {state}{flags}"
     if kind == "MediaConnect Flow Health":
         state, flags = _health(detail)
+        switch = (detail.get("current") or {}).get("failover_switch")
+        if switch != (detail.get("previous") or {}).get("failover_switch") and switch is not None:
+            flags += f" · failover switch {'on' if switch else 'off'}"
         return "mediaconnect", f"MediaConnect · flow {state}{flags}"
     if kind == "MediaConnect Flow Status Change":
         return "mediaconnect", f"MediaConnect · flow {detail.get('previousStatus', '?')} → {detail.get('currentStatus', '?')}"
@@ -99,7 +113,7 @@ def format_event(message: str, at_ms: int) -> Optional[LogLine]:
         return None
     source, kind, detail = event.get("source"), event.get("detail-type", ""), event.get("detail") or {}
     if source == "aws.mediaconnect":
-        tab, text = _mediaconnect(kind, detail)
+        tab, text = _mediaconnect(kind, detail, event.get("resources") or [])
     elif source == "aws.medialive":
         tab, text = "medialive", _medialive(kind, detail)
     else:
@@ -160,27 +174,55 @@ def medialive_lines(reader: LogReader, channel_arn: str, after_ms: int) -> list[
     return lines
 
 
-def latest_source_state(events: list[tuple[int, str]], flow_arn: str) -> Optional[tuple[str, int]]:
-    """(state, at_ms) of the newest Source Health event for this flow since it last became ACTIVE, else None.
+@dataclass(frozen=True)
+class SourceEvents:
+    """What this flow's events say since it last became ACTIVE.
+
+    `states` maps each source ARN to the (state, at_ms) of its newest Source Health event; an event that names no
+    source is filed under None. `failover` is (failover_switch, at_ms of the event that last changed it) from Flow
+    Health, or None if no event has carried it.
+    """
+
+    states: dict
+    failover: Optional[tuple[bool, int]] = None
+
+    def newest(self) -> Optional[tuple[str, int]]:
+        """The newest state of any source: what a flow with a single source reports."""
+        return max(self.states.values(), key=lambda item: item[1], default=None)
+
+
+def source_events(events: list[tuple[int, str]], flow_arn: str) -> SourceEvents:
+    """Read Source Health and Flow Health events for this flow, oldest first.
 
     MediaConnect sends Source Health within about a second of a source connecting or dropping (seen live on
     2026-09-27), while the SourceConnected metric arrives minutes later. Events from before the flow's latest start
     belong to an earlier session and say nothing about now.
     """
-    latest: Optional[tuple[str, int]] = None
+    states: dict = {}
+    failover: Optional[tuple[bool, int]] = None
     for at_ms, message in sorted(events):
         try:
             event = json.loads(message)
         except ValueError:
             continue
-        if not any(r.startswith(flow_arn) for r in event.get("resources") or []):
+        resources = event.get("resources") or []
+        if not any(isinstance(r, str) and r.startswith(flow_arn) for r in resources):
             continue
         detail = event.get("detail") or {}
         kind = event.get("detail-type")
         if kind == "MediaConnect Flow Status Change" and detail.get("currentStatus") == "ACTIVE":
-            latest = None
+            states, failover = {}, None
         elif kind == "MediaConnect Source Health":
             state = (detail.get("current") or {}).get("state")
             if state:
-                latest = (str(state).upper(), at_ms)
-    return latest
+                states[source_arn(resources)] = (str(state).upper(), at_ms)
+        elif kind == "MediaConnect Flow Health":
+            switch = (detail.get("current") or {}).get("failover_switch")
+            if isinstance(switch, bool) and (failover is None or failover[0] != switch):
+                failover = (switch, at_ms)
+    return SourceEvents(states, failover)
+
+
+def latest_source_state(events: list[tuple[int, str]], flow_arn: str) -> Optional[tuple[str, int]]:
+    """(state, at_ms) of the newest Source Health event for this flow since it last became ACTIVE, else None."""
+    return source_events(events, flow_arn).newest()

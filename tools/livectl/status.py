@@ -29,10 +29,12 @@ def source_connected(cloudwatch, flow_arn: str, now: Optional[datetime] = None) 
 
 def get_status(mediaconnect, medialive, cloudwatch, targets: Targets) -> dict:
     ingest = f"srt://{targets.ingest_ip}:{targets.ingest_port}" if targets.ingest_ip else None
+    backup = f"srt://{targets.ingest_ip}:{targets.backup_ingest_port}" if ingest and targets.backup_ingest_port else None
     return {
         "flow": flow_status(mediaconnect, targets.flow_arn),
         "channel": channel_state(medialive, targets.channel_id),
         "source_connected": source_connected(cloudwatch, targets.flow_arn),
         "ingest": ingest,
+        "ingest_backup": backup,
         "player": targets.player_url,
     }

@@ -43,6 +43,8 @@ EXPECTED = {
     "ad-break-running": ("On air · playing", ["scan", "go-off-air", "source-start"]),
     "ad-break-not-seen": ("On air · playing", ["scan", "go-off-air", "source-start"]),
     "on-air-old-stack": ("On air · playing", ["scan", "go-off-air", "source-start"]),
+    "on-air-backup-ready": ("On air · playing", ["scan", "go-off-air", "source-start"]),
+    "on-air-on-backup": ("On air · on backup source", ["scan", "go-off-air", "source-start"]),
 }
 
 
@@ -1060,3 +1062,75 @@ def test_an_old_stack_asks_for_a_redeploy(open_scenario):
     page, _ = open_scenario("on-air-old-stack", "live")
     expect(page.locator("#ad-break-cue")).to_be_disabled()
     expect(page.locator("#ad-break-status")).to_have_text("Deploy once more to enable ad breaks.")
+
+
+# --- source failover -----------------------------------------------------------------------------------------------
+
+
+def test_the_backup_ingest_is_listed_and_copies_its_own_srt_url(open_scenario):
+    page, _ = open_scenario("on-air-backup-ready")
+
+    expect(page.locator("#endpoints")).to_contain_text("SRT backup ingest")
+    page.locator('#endpoints button[data-copy="ingest_backup"]').click()
+
+    assert page.evaluate("navigator.clipboard.readText()") == "srt://203.0.113.20:5001"
+
+
+def test_a_stack_without_a_backup_lists_no_backup_ingest(open_scenario):
+    page, _ = open_scenario("on-air-playing")
+
+    expect(page.locator('#endpoints button[data-copy="ingest"]')).to_be_visible()
+    expect(page.locator("#endpoints")).not_to_contain_text("backup")
+    page.goto(page.url.replace("#control", "#source"))
+    expect(page.locator("#encoder-address")).to_have_text("srt://203.0.113.20:5000")
+    expect(page.locator("#encoder-backup-address")).to_be_hidden()
+
+
+def test_the_source_node_shows_both_listeners_with_the_backup_standing_by(open_scenario):
+    page, _ = open_scenario("on-air-backup-ready")
+    node = page.locator('#chain button[data-node="srt_source"]')
+
+    expect(node).to_contain_text("backup ready")
+    expect(node).to_have_attribute("data-health", "ok")
+    node.click()
+    expect(page.locator("#detail")).to_contain_text("Primary listener · port 5000")
+    expect(page.locator("#detail")).to_contain_text("connected · on air · 6.0 Mbps")
+    expect(page.locator("#detail")).to_contain_text("connected · standing by · 6.0 Mbps")
+
+
+def test_a_failover_shows_on_the_node_the_verdict_and_the_logs(open_scenario):
+    page, _ = open_scenario("on-air-on-backup")
+    node = page.locator('#chain button[data-node="srt_source"]')
+
+    expect(page.locator("#verdict-text")).to_have_text("On air · on backup source")
+    expect(node).to_have_attribute("data-health", "warn")
+    expect(node).to_contain_text("on backup · primary lost")
+    node.click()
+    detail = page.locator("#detail")
+    expect(detail).to_contain_text("Primary listener · port 5000")
+    expect(detail).to_contain_text("not connected")
+    expect(detail).to_contain_text("Failover switch")
+    expect(detail).to_contain_text("on since")
+    page.keyboard.press("Escape")
+
+    page.goto(page.url.replace("#control", "#live"))
+    page.locator('[data-tab="mediaconnect"]').click()
+    expect(page.locator("#log")).to_contain_text("failover switch on")
+    page.locator('[data-tab="srt"]').click()
+    expect(page.locator("#log")).to_contain_text("source live-sports-aws-demo-srt disconnected")
+    expect(page.locator("#log")).to_contain_text("source live-sports-aws-demo-srt-backup connected")
+
+
+def test_the_encoder_card_reveals_and_copies_the_backup_url_with_the_passphrase(open_scenario):
+    page, _ = open_scenario("on-air-backup-ready", "source")
+
+    expect(page.locator("#encoder-backup-address")).to_have_text("srt://203.0.113.20:5001")
+    expect(page.locator("#encoder-backup-url")).to_contain_text("passphrase=••••")
+    page.locator("#encoder-copy-backup-url").click()
+    copied = page.evaluate("navigator.clipboard.readText()")
+    assert copied.startswith("srt://203.0.113.20:5001?mode=caller&passphrase=0123456789abcdef")
+
+    page.locator("#encoder-show").click()
+    expect(page.locator("#encoder-backup-url")).to_have_text(copied)
+    page.locator("#encoder-show").click()
+    expect(page.locator("#encoder-backup-url")).to_contain_text("passphrase=••••")

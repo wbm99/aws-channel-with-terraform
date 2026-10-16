@@ -112,11 +112,19 @@
             <dt>URL</dt>
             <dd><span class="value wrap" id="encoder-url"></span>
               <button class="copy" id="encoder-copy-url" type="button">Copy</button></dd>
+            <dt class="encoder-backup" hidden>Backup address</dt>
+            <dd class="encoder-backup" hidden><span class="value" id="encoder-backup-address"></span>
+              <button class="copy" id="encoder-copy-backup-address" type="button">Copy</button></dd>
+            <dt class="encoder-backup" hidden>Backup URL</dt>
+            <dd class="encoder-backup" hidden><span class="value wrap" id="encoder-backup-url"></span>
+              <button class="copy" id="encoder-copy-backup-url" type="button">Copy</button></dd>
           </dl>
           <p class="note">In OBS: <b>Settings → Stream</b>, Service <b>Custom…</b>, paste the URL as the Server and leave
             the Stream Key empty. The URL holds caller mode, AES-256 encryption (<code>pbkeylen=32</code>) and the
-            <span id="encoder-latency"></span> ms latency set above, in microseconds. MediaConnect takes one sender
-            at a time: stop the test source first.</p>
+            <span id="encoder-latency"></span> ms latency set above, in microseconds. Each listener takes one sender
+            at a time: stop the test source first, or send to the backup.</p>
+          <p class="note encoder-backup" hidden>The backup takes over within half a second of the primary going quiet,
+            and hands back as soon as the primary returns. Send the same codecs, resolution and audio to both.</p>
           <p class="note error" id="encoder-error" role="alert"></p>
         </section>
         </div>

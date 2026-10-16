@@ -111,3 +111,10 @@ def test_the_ads_output_is_read():
     ads = {"clip_md5": None, "clip_seconds": None, "duration_mode": "per_trigger"}
     assert resolve_targets(None, None, "envs/demo", fake_runner({**OUTPUTS, "ads": {"value": ads}})).ads == ads
     assert resolve_targets(None, None, "envs/demo", fake_runner(OUTPUTS)).ads is None
+
+
+def test_the_backup_port_is_read_and_absent_when_terraform_reports_null():
+    with_backup = resolve_targets(None, None, "envs/demo", fake_runner(dict(OUTPUTS, backup_ingest_port={"value": 5001})))
+    without = resolve_targets(None, None, "envs/demo", fake_runner(dict(OUTPUTS, backup_ingest_port={"value": None})))
+
+    assert with_backup.backup_ingest_port == 5001 and without.backup_ingest_port is None

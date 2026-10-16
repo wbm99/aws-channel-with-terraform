@@ -25,6 +25,7 @@ class Targets:
     player_url: Optional[str] = None
     ingest_ip: Optional[str] = None
     ingest_port: Optional[int] = None
+    backup_ingest_port: Optional[int] = None  # None when source_failover is off, or on a stack from before it
     input_id: Optional[str] = None
     channel_arn: Optional[str] = None
     channel_group: Optional[str] = None
@@ -88,6 +89,7 @@ def resolve_targets(
         player_url=outputs.get("player_url"),
         ingest_ip=outputs.get("ingest_ip"),
         ingest_port=outputs.get("ingest_port"),
+        backup_ingest_port=outputs.get("backup_ingest_port"),
         input_id=text("medialive_input_id"),
         channel_arn=text("medialive_channel_arn"),
         channel_group=text("mediapackage_channel_group"),

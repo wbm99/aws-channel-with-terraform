@@ -1036,3 +1036,25 @@ def test_clip_mode_with_a_clip_outside_the_range_is_refused(tmp_path):
     status, body = call(console, "POST", "/api/ad-break", body={})
     assert status == 409 and "5 to 180" in body["error"]
     assert schedule_calls(medialive) == []
+
+
+def test_the_backup_listener_is_an_endpoint_and_shares_the_passphrase(aws):
+    console = connection_console()
+    console.runner = lambda args: json.dumps(dict(OUTPUTS, passphrase_secret_arn={"value": "arn:secret"},
+                                                  backup_ingest_port={"value": 5001}))
+    console.forget_targets()
+
+    _, pipeline = call(console, "GET", "/api/pipeline")
+    status, payload = call(console, "POST", "/api/source/connection")
+
+    assert pipeline["endpoints"]["ingest_backup"] == "srt://203.0.113.20:5001"
+    assert status == 200 and payload["backup_address"] == "srt://203.0.113.20:5001"
+    assert payload["backup_url"] == payload["url"].replace(":5000?", ":5001?")
+
+
+def test_without_a_backup_listener_there_is_no_backup_endpoint(aws):
+    _, pipeline = call(stub_console(), "GET", "/api/pipeline")
+    _, payload = call(connection_console(), "POST", "/api/source/connection")
+
+    assert pipeline["endpoints"]["ingest_backup"] is None
+    assert payload["backup_address"] is None and payload["backup_url"] is None

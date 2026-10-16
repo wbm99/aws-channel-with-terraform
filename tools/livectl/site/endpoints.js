@@ -3,6 +3,7 @@ import { el } from './format.js';
 
 const ROWS = [
   ['ingest', 'SRT ingest'],
+  ['ingest_backup', 'SRT backup ingest'],
   ['player', 'Player'],
   ['manifest', 'HLS manifest'],
   ['grafana', 'Grafana'],
@@ -22,7 +23,8 @@ export async function copy(button, value) {
 export function renderEndpoints(list, endpoints) {
   list.replaceChildren(...ROWS.flatMap(([key, label]) => {
     const value = endpoints[key];
-    if (key === 'grafana' && !value) return [];   // Grafana is optional: no row unless it runs
+    // Optional: no Grafana row unless it runs, no backup row unless the stack has a backup listener.
+    if ((key === 'grafana' || key === 'ingest_backup') && !value) return [];
     return [
       el('dt', {}, label),
       el('dd', {},

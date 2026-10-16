@@ -70,6 +70,8 @@ def _print_status(status: dict) -> None:
     print(f"source:    {connected}")
     if status["ingest"]:
         print(f"ingest:    {status['ingest']}")
+    if status.get("ingest_backup"):
+        print(f"backup:    {status['ingest_backup']}")
     if status["player"]:
         print(f"player:    {status['player']}")
 

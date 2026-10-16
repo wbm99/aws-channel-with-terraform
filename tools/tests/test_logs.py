@@ -169,7 +169,7 @@ def test_an_input_change_names_the_input():
 
 # --- the SRT source's state from events, not from a metric minutes behind ------------------------
 
-from livectl.logs import SOURCE_PATTERN, latest_source_state  # noqa: E402
+from livectl.logs import SOURCE_PATTERN, latest_source_state, source_events  # noqa: E402
 
 OTHER_FLOW = "arn:aws:mediaconnect:us-east-1:123456789012:flow:1-zzz:someone-else"
 
@@ -217,4 +217,54 @@ def test_the_reader_passes_the_filter_pattern_to_cloudwatch():
 
     LogReader(Logs()).events("/aws/events/demo", after_ms=T, pattern=SOURCE_PATTERN)
 
-    assert calls[0]["filterPattern"] == '?"MediaConnect Source Health" ?"MediaConnect Flow Status Change"'
+    assert calls[0]["filterPattern"] == ('?"MediaConnect Source Health" ?"MediaConnect Flow Health" '
+                                         '?"MediaConnect Flow Status Change"')
+
+
+# --- source failover: two listeners on one flow -----------------------------------------------------------------
+
+PRIMARY = "arn:aws:mediaconnect:us-east-1:123456789012:source:1-abc-p:demo-srt"
+BACKUP = "arn:aws:mediaconnect:us-east-1:123456789012:source:1-abc-b:demo-srt-backup"
+
+
+def flow_health(switch, previous=False):
+    return event("aws.mediaconnect", "MediaConnect Flow Health",
+                 {"current": {"failover_switch": switch, "source_state": "CONNECTED"},
+                  "previous": {"failover_switch": previous, "source_state": "CONNECTED"}})
+
+
+def test_each_source_keeps_its_own_newest_state():
+    """A backup dropping must not make the primary look dropped: Source Health names its source."""
+    events = [(T, flow_change("ACTIVE")), (T + 10, health("CONNECTED", (FLOW, PRIMARY))),
+              (T + 20, health("CONNECTED", (FLOW, BACKUP))), (T + 30, health("DISCONNECTED", (FLOW, BACKUP)))]
+
+    found = source_events(events, FLOW)
+
+    assert found.states == {PRIMARY: ("CONNECTED", T + 10), BACKUP: ("DISCONNECTED", T + 30)}
+
+
+def test_the_failover_switch_keeps_the_time_it_last_changed():
+    events = [(T, flow_change("ACTIVE")), (T + 10, flow_health(True)), (T + 20, flow_health(True, previous=True))]
+
+    assert source_events(events, FLOW).failover == (True, T + 10)
+
+
+def test_a_flow_restart_forgets_the_failover_and_the_sources():
+    events = [(T, flow_health(True)), (T + 5, health("CONNECTED", (FLOW, BACKUP))), (T + 10, flow_change("ACTIVE"))]
+
+    found = source_events(events, FLOW)
+
+    assert found.states == {} and found.failover is None
+
+
+def test_source_health_names_the_listener_in_the_log_line():
+    line = format_event(health("DISCONNECTED", (FLOW, BACKUP)), T)
+
+    assert line.text == "MediaConnect · source demo-srt-backup disconnected"
+
+
+def test_flow_health_reads_its_source_state_and_says_when_the_failover_switch_turns():
+    line = format_event(flow_health(True), T)
+
+    assert line.text == "MediaConnect · flow connected · failover switch on"
+    assert "failover" not in format_event(flow_health(True, previous=True), T).text

@@ -58,3 +58,19 @@ def test_the_rate_adds_up_what_is_running():
     assert hourly_rate(chain(mediaconnect_flow=("ACTIVE", OK))) == pytest.approx(0.29)
     assert hourly_rate(chain(**ON)) == pytest.approx(1.485)
     assert hourly_rate(chain(**ON, mediapackage_channel=("RECEIVING", OK))) == pytest.approx(1.735)
+
+
+def test_on_the_backup_source_the_verdict_says_so():
+    nodes = chain(**ON, player=("PLAYING", OK))
+    nodes["srt_source"] = NodeStatus(id="srt_source", title="", state="CONNECTED", health=WARN, summary="",
+                                     checked_at="t", details={"On air": "backup"})
+
+    assert verdict(nodes, None).text == "On air · on backup source"
+
+
+def test_the_backup_listener_adds_its_input_hour_to_the_rate():
+    nodes = chain(**ON)
+    flow = nodes["mediaconnect_flow"]
+    nodes["mediaconnect_flow"] = NodeStatus(**{**flow.to_dict(), "details": {"Source failover": "primary a, backup b"}})
+
+    assert hourly_rate(nodes) == round(hourly_rate(chain(**ON)) + 0.09, 3)
