@@ -16,7 +16,7 @@ from urllib.parse import quote
 from botocore.exceptions import ClientError
 
 from livectl.cache import TtlCache
-from livectl.logs import SOURCE_PATTERN, LogReader, clock_label, latest_source_state
+from livectl.logs import SOURCE_PATTERN, LogReader, SourceEvents, clock_label, source_events
 from livectl.manifest import Fetch, ManifestCheck, ManifestWatcher, http_fetch
 from livectl.metrics import fetch_metrics
 from livectl.targets import Targets
@@ -90,31 +90,119 @@ def _mbps(bits_per_second: Optional[float]) -> Optional[str]:
 
 
 SOURCE_UP = {"CONNECTED", "RECEIVING"}
+# The source node's detail that says which listener feeds the flow, "primary" or "backup"; the verdict reads it.
+ON_AIR = "On air"
+METRIC_LAG = "CloudWatch metric (one to three minutes behind)"
+
+
+@dataclass(frozen=True)
+class Listener:
+    """One SRT listener of a flow with source failover."""
+
+    role: str  # "primary" or "backup"
+    name: str
+    arn: str
+    port: Optional[int]
+
+
+def listeners(flow: Optional[dict]) -> list[Listener]:
+    """The primary and backup listeners of a flow with source failover enabled, primary first; [] for a flow with a
+    single source, which the source node then describes as it always has."""
+    sources = (flow or {}).get("Sources") or []
+    config = (flow or {}).get("SourceFailoverConfig") or {}
+    if len(sources) < 2 or config.get("State") != "ENABLED":
+        return []
+    primary = (config.get("SourcePriority") or {}).get("PrimarySource") or sources[0].get("Name")
+    ordered = sorted(sources[:2], key=lambda source: source.get("Name") != primary)
+    return [Listener(role, source.get("Name", ""), source.get("SourceArn", ""), source.get("IngestPort"))
+            for role, source in zip(("primary", "backup"), ordered)]
+
+
+def _connected(listener: Listener, metrics: dict, events: Optional[SourceEvents]) -> tuple[Optional[bool], bool]:
+    """Whether a listener has a sender, and whether a MediaConnect event (rather than CloudWatch) said so."""
+    if events and listener.arn in events.states:
+        return events.states[listener.arn][0] in SOURCE_UP, True
+    value = metrics.get(f"{listener.role}_connected")
+    return (None if value is None else value >= 1), False
+
+
+def _on_air(up: dict[str, Optional[bool]], metrics: dict) -> tuple[Optional[str], Optional[str]]:
+    """Which listener feeds the flow, and how that is known. MediaConnect takes the primary whenever it delivers and
+    switches to the backup after 500 ms without it, so the listeners' states answer at once; SourceSelected, a
+    minute or more behind, answers only when they cannot."""
+    if up["primary"]:
+        return "primary", "listener states (the primary is connected)"
+    if up["primary"] is False:
+        if up["backup"]:
+            return "backup", "listener states (only the backup is connected)"
+        if up["backup"] is False:
+            return None, None
+    selected = {role: metrics.get(f"{role}_selected") for role in ("primary", "backup")}
+    best = max(selected, key=lambda role: selected[role] or 0)
+    if (selected[best] or 0) > 0:
+        return best, "CloudWatch SourceSelected (a minute or more behind)"
+    return None, None
 
 
 def source_node(flow_status: Optional[str], metrics: dict, process: Optional[dict], at: str,
-                event: Optional[tuple[str, int]] = None) -> NodeStatus:
+                events: Optional[SourceEvents] = None, sources: tuple[Listener, ...] = ()) -> NodeStatus:
     """Connected or not comes from the newest MediaConnect Source Health event when there is one (seconds behind),
-    else from the SourceConnected metric (minutes behind). The figures always come from CloudWatch."""
+    else from the SourceConnected metric (minutes behind). The figures always come from CloudWatch.
+
+    With source failover (`sources` holds both listeners), the node is connected while either listener is, and turns
+    amber when the backup is on air: the stream still plays, but the primary is lost and nothing stands behind it.
+    """
     picked = {k: metrics.get(k) for k in ("src_connected", "src_bitrate", "src_rtt", "src_not_recovered", "src_cc_errors")}
     # The node is the flow's SRT source; an FFmpeg test source on this machine is only one thing that can feed it.
     details = {"Test source (FFmpeg on this machine)": (process or {}).get("state", "not started from this console")}
-    if event:
-        connected: Optional[float] = 1.0 if event[0] in SOURCE_UP else 0.0
-        details["state from"] = f"MediaConnect event at {clock_label(event[1])} UTC"
+    on_air: Optional[str] = None
+    up: dict[str, Optional[bool]] = {}
+    if sources:
+        heard = {}
+        for listener in sources:
+            up[listener.role], heard[listener.role] = _connected(listener, metrics, events)
+        on_air, how = _on_air(up, metrics)
+        for listener in sources:
+            state = {True: "connected", False: "not connected", None: "no data yet"}[up[listener.role]]
+            if up[listener.role]:
+                state += " · on air" if on_air == listener.role else " · standing by"
+                # Only beside "connected": the metric runs minutes behind, and would show a dropped one still sending.
+                rate = metrics.get(f"{listener.role}_bitrate")
+                state += f" · {_mbps(rate)}" if rate else ""
+            details[f"{listener.role.capitalize()} listener · port {listener.port}"] = state
+        details[ON_AIR] = on_air
+        details["on air from"] = how
+        details["state from"] = ("MediaConnect events" if all(heard.values())
+                                 else "MediaConnect events and " + METRIC_LAG if any(heard.values()) else METRIC_LAG)
+        connected: Optional[float] = (1.0 if any(up.values()) else
+                                      0.0 if all(value is False for value in up.values()) else None)
+        if events and events.failover:
+            switch, switched_at = events.failover
+            details["Failover switch"] = f"{'on' if switch else 'off'} since {clock_label(switched_at)} UTC"
     else:
-        connected = picked["src_connected"]
-        details["state from"] = "CloudWatch metric (one to three minutes behind)"
+        event = events.newest() if events else None
+        if event:
+            connected = 1.0 if event[0] in SOURCE_UP else 0.0
+            details["state from"] = f"MediaConnect event at {clock_label(event[1])} UTC"
+        else:
+            connected = picked["src_connected"]
+            details["state from"] = METRIC_LAG
     if flow_status != "ACTIVE":
         health, summary = OFF, "flow not active"
     elif connected is None:
         health, summary = UNKNOWN, "waiting for metrics (about a minute)"
     elif connected < 1:
         health, summary = BAD, "not connected"
+    elif on_air == "backup":
+        rate = metrics.get("backup_bitrate")
+        health, summary = WARN, "on backup · primary lost" + (f" · {_mbps(rate)}" if rate else "")
     elif (picked["src_not_recovered"] or 0) > 0 or (picked["src_cc_errors"] or 0) > 0:
         health, summary = WARN, "connected, losing packets"
     else:
-        health, summary = OK, "connected" + (f" · {_mbps(picked['src_bitrate'])}" if picked["src_bitrate"] else "")
+        rate = metrics.get("primary_bitrate") or picked["src_bitrate"]
+        health, summary = OK, "connected" + (f" · {_mbps(rate)}" if rate else "")
+        if up.get("backup"):
+            summary += " · backup ready"
     state = None if connected is None else ("CONNECTED" if connected >= 1 else "DISCONNECTED")
     return _node("srt_source", at, state=state, health=health, summary=summary, metrics=picked, details=details)
 
@@ -124,10 +212,13 @@ def flow_node(flow: dict, region: str, at: str) -> NodeStatus:
     source = flow.get("Source", {})
     health = {"ACTIVE": OK, "STANDBY": OFF, "ERROR": BAD}.get(status, WARN)
     summary = {"ACTIVE": "listening for SRT", "STANDBY": "stopped"}.get(status, status.lower())
+    pair = listeners(flow)
     details = {
         "Flow ARN": flow.get("FlowArn"),
         "Protocol": source.get("Transport", {}).get("Protocol"),
         "Ingest": f"{source.get('IngestIp')}:{source.get('IngestPort')}" if source.get("IngestIp") else None,
+        "Source failover": (f"primary {pair[0].name} (port {pair[0].port}), backup {pair[1].name} "
+                            f"(port {pair[1].port})") if pair else None,
     }
     url = f"https://{region}.console.aws.amazon.com/mediaconnect/home?region={region}#/flows/{quote(flow.get('FlowArn', ''), safe='')}"
     return _node("mediaconnect_flow", at, state=status, health=health, summary=summary, details=details, console_url=url)
@@ -267,25 +358,27 @@ class Pipeline:
             service = SERVICE_FOR_KEY.get(key)
             return None, (service and denial(error, service)) or f"{type(error).__name__}: {error}"
 
-    def _source_event(self, targets: Targets) -> Optional[tuple[str, int]]:
+    def _source_events(self, targets: Targets) -> SourceEvents:
         since = int(self._now().timestamp() * 1000) - SOURCE_EVENTS_LOOKBACK_MS
         found = LogReader(self._logs).events(targets.events_log_group, after_ms=since, pattern=SOURCE_PATTERN)
-        return latest_source_state([(at, message) for at, _, message in found], targets.flow_arn)
+        return source_events([(at, message) for at, _, message in found], targets.flow_arn)
 
     def nodes(self, targets: Targets) -> list[NodeStatus]:
         at = self._now().isoformat(timespec="seconds")
-        metrics, metrics_error = self._read(
-            "metrics", METRICS_TTL, lambda: fetch_metrics(self._cloudwatch, targets, self._now()))
-        metrics = metrics or {}
-
+        # The flow first: it names the listeners whose metrics to ask for.
         flow, flow_error = self._read(
             "flow", STATE_TTL, lambda: self._mediaconnect.describe_flow(FlowArn=targets.flow_arn)["Flow"])
         flow_status = flow["Status"] if flow else None
+        pair = tuple(listeners(flow))
 
-        event = None
+        metrics, metrics_error = self._read("metrics", METRICS_TTL, lambda: fetch_metrics(
+            self._cloudwatch, targets, self._now(), [(listener.role, listener.arn) for listener in pair]))
+        metrics = metrics or {}
+
+        events = None
         if flow_status == "ACTIVE" and self._logs is not None and targets.events_log_group:
-            event, _ = self._read("source-events", STATE_TTL, lambda: self._source_event(targets))
-        source = source_node(flow_status, metrics, self._source_status(), at, event)
+            events, _ = self._read("source-events", STATE_TTL, lambda: self._source_events(targets))
+        source = source_node(flow_status, metrics, self._source_status(), at, events, pair)
         if metrics_error:
             source = NodeStatus(**{**source.to_dict(), "error": f"metrics: {metrics_error}"})
         source_lost = source.health == BAD  # known to be disconnected, not merely unknown

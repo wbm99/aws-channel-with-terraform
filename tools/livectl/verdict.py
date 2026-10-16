@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from livectl.pipeline import BAD, OK, UNKNOWN, WARN, NodeStatus
+from livectl.pipeline import BAD, OK, ON_AIR, UNKNOWN, WARN, NodeStatus
 
 # docs/cost-estimate.md, us-east-1, per hour while the resource is up.
 RATES = {
     "mediaconnect_flow": 0.29,     # active flow 0.16 + 20 Mbps input 0.09 + output 0.04
+    "mediaconnect_backup": 0.09,   # the backup listener: a second 20 Mbps input
     "medialive_channel": 1.195,    # HD input + 1080p + 720p + 480p outputs
     "mediapackage_channel": 0.25,  # billed per GB; this is the estimate at the demo bitrate
 }
@@ -40,6 +41,8 @@ def verdict(nodes: Optional[dict[str, NodeStatus]], job: Optional[dict]) -> Verd
     source = nodes["srt_source"].health
     if source == BAD:
         return Verdict("On air · no source", "bad")
+    if nodes["srt_source"].details.get(ON_AIR) == "backup":
+        return Verdict("On air · on backup source", "warn")
     if source == WARN or channel.health == WARN:
         return Verdict("On air · source degraded", "warn")
     if nodes["player"].health == OK:
@@ -53,6 +56,8 @@ def hourly_rate(nodes: Optional[dict[str, NodeStatus]]) -> float:
     rate = 0.0
     if nodes["mediaconnect_flow"].state == "ACTIVE":
         rate += RATES["mediaconnect_flow"]
+        if nodes["mediaconnect_flow"].details.get("Source failover"):
+            rate += RATES["mediaconnect_backup"]
     if nodes["medialive_channel"].state == "RUNNING":
         rate += RATES["medialive_channel"]
     if nodes["mediapackage_channel"].state == "RECEIVING":

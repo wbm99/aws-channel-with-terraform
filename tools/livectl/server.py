@@ -223,6 +223,8 @@ def _snapshot(console: Console, offset: int = 0, job_key: Optional[str] = None) 
         "nodes": [node.to_dict() for node in nodes],
         "endpoints": {
             "ingest": f"srt://{targets.ingest_ip}:{targets.ingest_port}" if targets.ingest_ip else None,
+            "ingest_backup": (f"srt://{targets.ingest_ip}:{targets.backup_ingest_port}"
+                              if targets.ingest_ip and targets.backup_ingest_port else None),
             "player": targets.player_url,
             "manifest": targets.manifest_url,
             "passphrase_secret_arn": targets.passphrase_secret_arn,
@@ -462,8 +464,11 @@ def _connection(console: Console, host: str) -> Response:
     # The same options source/send-srt.sh sends. Latency goes in microseconds, as FFmpeg and OBS read it.
     query = urlencode({"mode": "caller", "passphrase": passphrase, "pbkeylen": 32, "pkt_size": 1316,
                        "latency": latency_ms * 1000})
+    # The backup listener shares the passphrase and differs only in its port.
+    backup = f"srt://{targets.ingest_ip}:{int(targets.backup_ingest_port)}" if targets.backup_ingest_port else None
     return _json(200, {"address": address, "passphrase": passphrase, "pbkeylen": 32, "latency_ms": latency_ms,
-                       "url": f"{address}?{query}"})
+                       "url": f"{address}?{query}", "backup_address": backup,
+                       "backup_url": f"{backup}?{query}" if backup else None})
 
 
 def _save_settings(console: Console, body: Any) -> Response:

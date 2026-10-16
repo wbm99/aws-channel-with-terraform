@@ -2,13 +2,17 @@
 
 Metric names and dimensions were checked against the AWS documentation on 2026-09-26, except the CloudFront
 dimension set (`DistributionId`, `Region=Global`), which is on the live checklist in the README.
+
+With source failover, each SRT listener also gets its own queries on the `SourceARN` dimension, named after its role
+(`primary_connected`, `backup_selected`, ...). The documentation lists "Source ARN" as a dimension of every source
+metric; the exact name `SourceARN` and `SourceSelected` on SRT listeners have not been seen live yet.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Sequence
 
 from livectl.targets import Targets
 
@@ -25,7 +29,8 @@ class MetricSpec:
     stat: str
 
 
-def metric_specs(targets: Targets) -> list[MetricSpec]:
+def metric_specs(targets: Targets, sources: Sequence[tuple[str, str]] = ()) -> list[MetricSpec]:
+    """The queries for targets, plus three per (role, source ARN) in sources."""
     flow = (("FlowARN", targets.flow_arn),)
     channel = (("ChannelId", targets.channel_id), ("Pipeline", "0"))
     specs = [
@@ -34,6 +39,17 @@ def metric_specs(targets: Targets) -> list[MetricSpec]:
         MetricSpec("src_rtt", "AWS/MediaConnect", "SourceRoundTripTime", flow, "Average"),
         MetricSpec("src_not_recovered", "AWS/MediaConnect", "SourceNotRecoveredPackets", flow, "Sum"),
         MetricSpec("src_cc_errors", "AWS/MediaConnect", "SourceContinuityCounter", flow, "Sum"),
+    ]
+    for role, arn in sources:
+        source = (("SourceARN", arn),)
+        specs += [
+            MetricSpec(f"{role}_connected", "AWS/MediaConnect", "SourceConnected", source, "Maximum"),
+            MetricSpec(f"{role}_bitrate", "AWS/MediaConnect", "SourceBitRate", source, "Average"),
+            # 1 while the flow takes its content from this source. Averaged, a minute that saw a switch reads
+            # between 0 and 1 on both, and the higher one held the air longer.
+            MetricSpec(f"{role}_selected", "AWS/MediaConnect", "SourceSelected", source, "Average"),
+        ]
+    specs += [
         MetricSpec("ml_alerts", "AWS/MediaLive", "ActiveAlerts", channel, "Maximum"),
         MetricSpec("ml_fps", "AWS/MediaLive", "InputVideoFrameRate", channel, "Maximum"),
         MetricSpec("ml_input_loss", "AWS/MediaLive", "InputLossSeconds", channel, "Sum"),
@@ -57,9 +73,10 @@ def metric_specs(targets: Targets) -> list[MetricSpec]:
     return specs
 
 
-def fetch_metrics(cloudwatch, targets: Targets, now: datetime) -> dict[str, Optional[float]]:
+def fetch_metrics(cloudwatch, targets: Targets, now: datetime,
+                  sources: Sequence[tuple[str, str]] = ()) -> dict[str, Optional[float]]:
     """The newest one-minute value of each metric, or None where CloudWatch has no datapoint."""
-    specs = metric_specs(targets)
+    specs = metric_specs(targets, sources)
     response = cloudwatch.get_metric_data(
         MetricDataQueries=[
             {

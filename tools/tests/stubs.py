@@ -13,6 +13,8 @@ from botocore.exceptions import ClientError, NoCredentialsError
 
 FLOW_ARN = "arn:aws:mediaconnect:us-east-1:123456789012:flow:1-abc:live-sports-aws-demo"
 CHANNEL_ID = "7387208"
+PRIMARY_SOURCE_ARN = "arn:aws:mediaconnect:us-east-1:123456789012:source:1-abc-p:live-sports-aws-demo-srt"
+BACKUP_SOURCE_ARN = "arn:aws:mediaconnect:us-east-1:123456789012:source:1-abc-b:live-sports-aws-demo-srt-backup"
 
 
 class StubClient:
@@ -54,9 +56,22 @@ def stub_aws(
     distribution: str = "Deployed",
     fail: tuple = (),
     metadata: Optional[dict] = None,
+    backup: bool = False,
 ) -> dict[str, StubClient]:
-    """Clients describing one state of the whole chain. `fail` names operations that raise."""
+    """Clients describing one state of the whole chain. `fail` names operations that raise. `backup` gives the flow a
+    second SRT listener with source failover, as `source_failover = true` deploys it."""
     error = RuntimeError("AccessDeniedException: stubbed failure")
+    source = {"Name": "live-sports-aws-demo-srt", "SourceArn": PRIMARY_SOURCE_ARN, "IngestIp": "203.0.113.20",
+              "IngestPort": 5000, "Transport": {"Protocol": "srt-listener"}}
+    failover = {}
+    if backup:
+        failover = {"SourceFailoverConfig": {"State": "ENABLED", "FailoverMode": "FAILOVER",
+                                             "SourcePriority": {"PrimarySource": "live-sports-aws-demo-srt"}}}
+        # MediaConnect lists the sources in no promised order: the backup first, so the code cannot rely on it.
+        sources = [dict(source, Name="live-sports-aws-demo-srt-backup", SourceArn=BACKUP_SOURCE_ARN, IngestPort=5001),
+                   source]
+    else:
+        sources = [source]
 
     def maybe(name: str, answer: Any) -> Any:
         return error if name in fail else answer
@@ -65,7 +80,7 @@ def stub_aws(
         "mediaconnect": StubClient(
             describe_flow=maybe("describe_flow", {"Flow": {
                 "FlowArn": FLOW_ARN, "Name": "live-sports-aws-demo", "Status": flow,
-                "Source": {"IngestIp": "203.0.113.20", "IngestPort": 5000, "Transport": {"Protocol": "srt-listener"}},
+                "Source": source, "Sources": sources, **failover,
             }}),
             describe_flow_source_metadata=maybe("describe_flow_source_metadata", metadata or {
                 "FlowArn": FLOW_ARN, "Messages": [], "TransportMediaInfo": {"Programs": []}}),

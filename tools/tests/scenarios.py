@@ -15,6 +15,7 @@ import threading
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -23,7 +24,8 @@ from livectl.jobs import JobRunner  # noqa: E402
 from livectl.pipeline import Pipeline  # noqa: E402
 from livectl.server import Console, make_server  # noqa: E402
 from livectl.source import SourceSettings  # noqa: E402
-from stubs import CHANNEL_ID, FLOW_ARN, logs_client, source_metadata, sts_client, stub_aws  # noqa: E402
+from stubs import (BACKUP_SOURCE_ARN, CHANNEL_ID, FLOW_ARN, PRIMARY_SOURCE_ARN, logs_client,  # noqa: E402
+                   source_metadata, sts_client, stub_aws)
 
 CHANNEL_ARN = f"arn:aws:medialive:us-east-1:123456789012:channel:{CHANNEL_ID}"
 
@@ -93,23 +95,45 @@ SCENARIOS: dict[str, dict] = {
                              cue=dict(seconds=30, ago=10), breaks=True),
     "ad-break-not-seen": dict(**ON, metrics=LIVE, playing=True, cue=dict(seconds=30, ago=61)),
     "on-air-old-stack": dict(**ON, metrics=LIVE, playing=True, ads_deployed=None),
+    # Source failover: both listeners connected, the primary on air.
+    "on-air-backup-ready": dict(**ON, metrics=dict(LIVE, primary_bitrate=6_000_000.0, backup_bitrate=6_000_000.0),
+                                playing=True, backup="CONNECTED"),
+    # The primary sender has stopped; MediaConnect said so a second ago and switched to the backup.
+    "on-air-on-backup": dict(**ON, metrics=dict(LIVE, primary_bitrate=6_000_000.0, backup_bitrate=6_000_000.0),
+                             playing=True, health="DISCONNECTED", backup="CONNECTED"),
 }
 
 
-def recent_events(health: str = "CONNECTED") -> list[tuple[int, str]]:
-    """Three events a person would see around going live, the last one a second ago."""
+def recent_events(health: str = "CONNECTED", backup: Optional[str] = None) -> list[tuple[int, str]]:
+    """Three events a person would see around going live, the last one a second ago.
+
+    With `backup` (the backup listener's state), Source Health names each source, as MediaConnect does, and a
+    disconnected primary next to a connected backup brings the Flow Health event that reports the switch.
+    """
     now = int(time.time() * 1000)
 
-    def event(source, kind, detail, resource):
-        return json.dumps({"source": source, "detail-type": kind, "detail": detail, "resources": [resource]})
+    def event(source, kind, detail, *resources):
+        return json.dumps({"source": source, "detail-type": kind, "detail": detail, "resources": list(resources)})
 
-    return [
+    def source_health(state, *resources):
+        return event("aws.mediaconnect", "MediaConnect Source Health", {"unhealthy": True, "current": {
+            "state": state, "tr101": {"ts_sync_loss": False, "continuity_count_error": True}}}, *resources)
+
+    events = [
         (now - 3000, event("aws.mediaconnect", "MediaConnect Flow Status Change",
                            {"previousStatus": "STANDBY", "currentStatus": "ACTIVE"}, FLOW_ARN)),
         (now - 2000, event("aws.medialive", "MediaLive Channel State Change", {"state": "RUNNING"}, CHANNEL_ARN)),
-        (now - 1000, event("aws.mediaconnect", "MediaConnect Source Health", {"unhealthy": True, "current": {
-            "state": health, "tr101": {"ts_sync_loss": False, "continuity_count_error": True}}}, FLOW_ARN)),
     ]
+    if backup is None:
+        return events + [(now - 1000, source_health(health, FLOW_ARN))]
+    events += [(now - 1500, source_health(backup, FLOW_ARN, BACKUP_SOURCE_ARN)),
+               (now - 1000, source_health(health, FLOW_ARN, PRIMARY_SOURCE_ARN))]
+    if health == "DISCONNECTED" and backup == "CONNECTED":
+        events.append((now - 900, event("aws.mediaconnect", "MediaConnect Flow Health", {
+            "unhealthy": False,
+            "current": {"failover_switch": True, "source_state": "CONNECTED", "isBitrateZero": False},
+            "previous": {"failover_switch": False, "source_state": "CONNECTED", "isBitrateZero": False}}, FLOW_ARN)))
+    return events
 
 
 class FakeSource:
@@ -206,9 +230,12 @@ def build(name: str) -> Scenario:
     ads_deployed = spec.pop("ads_deployed", DEFAULT_ADS)
     cue = spec.pop("cue", None)
     breaks = spec.pop("breaks", False)
-    clients = stub_aws(**spec)
+    backup = spec.pop("backup", None)
+    clients = stub_aws(**spec, backup=backup is not None)
     commands: list = []
-    outputs = dict(OUTPUTS, ads=ads_deployed) if ads_deployed is not None else OUTPUTS
+    outputs = dict(OUTPUTS, ads=ads_deployed) if ads_deployed is not None else dict(OUTPUTS)
+    if backup is not None:
+        outputs["backup_ingest_port"] = 5001
 
     def runner(args):
         return json.dumps({k: {"value": v} for k, v in outputs.items()} if deployed else {})
@@ -219,7 +246,7 @@ def build(name: str) -> Scenario:
 
     settings = settings_dir(ads_saved, clip)
     console = Console(**clients, jobs=JobRunner(), runner=runner, command=command,
-                      logs=logs_client(recent_events(health)), sts=sts_client(identity),
+                      logs=logs_client(recent_events(health, backup)), sts=sts_client(identity),
                       config=ConfigStore(settings))
     console.source = FakeSource(running=source == "running")
     console.grafana_url = grafana

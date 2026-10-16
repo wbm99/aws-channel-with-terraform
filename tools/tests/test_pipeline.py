@@ -287,3 +287,92 @@ def test_the_pipeline_keeps_its_last_manifest_check():
     assert pipeline.last_check is None
     pipeline.nodes(TARGETS)
     assert pipeline.last_check.sequence == 101
+
+
+# --- source failover ------------------------------------------------------------------------------------------
+
+from dataclasses import replace  # noqa: E402
+import json  # noqa: E402
+
+from livectl.pipeline import listeners  # noqa: E402
+from stubs import BACKUP_SOURCE_ARN, PRIMARY_SOURCE_ARN, logs_client  # noqa: E402
+
+AT = int(NOW.timestamp() * 1000)
+WITH_EVENTS = replace(TARGETS, events_log_group="/aws/events/demo")
+
+
+def health_event(at, state, source):
+    return (at, json.dumps({"source": "aws.mediaconnect", "detail-type": "MediaConnect Source Health",
+                            "resources": [FLOW_ARN, source], "detail": {"current": {"state": state}}}))
+
+
+def failover_source(metrics=None, events=()):
+    clients = stub_aws(flow="ACTIVE", channel="RUNNING", metrics=metrics or {}, backup=True)
+    pipeline = Pipeline(**clients, fetch=playing_fetch(), clock=Clock(), now=lambda: NOW,
+                        source_status=lambda: None, logs=logs_client(list(events)))
+    return by_id(pipeline.nodes(WITH_EVENTS))["srt_source"], clients
+
+
+def test_listeners_put_the_primary_first_whatever_order_mediaconnect_lists_them():
+    flow = stub_aws(backup=True)["mediaconnect"].describe_flow()["Flow"]
+
+    primary, backup = listeners(flow)
+
+    assert (primary.role, primary.arn, primary.port) == ("primary", PRIMARY_SOURCE_ARN, 5000)
+    assert (backup.role, backup.arn, backup.port) == ("backup", BACKUP_SOURCE_ARN, 5001)
+    assert listeners(stub_aws()["mediaconnect"].describe_flow()["Flow"]) == []
+
+
+def test_each_listener_gets_its_own_metric_queries():
+    _, clients = failover_source()
+
+    queries = clients["cloudwatch"].calls[0][1]["MetricDataQueries"]
+    arns = {q["Id"]: q["MetricStat"]["Metric"]["Dimensions"][0]["Value"] for q in queries}
+    assert arns["primary_selected"] == PRIMARY_SOURCE_ARN and arns["backup_selected"] == BACKUP_SOURCE_ARN
+
+
+def test_both_listeners_connected_is_ok_with_the_backup_standing_by():
+    source, _ = failover_source(dict(LIVE_METRICS, primary_bitrate=6e6, backup_bitrate=6e6), events=[
+        health_event(AT - 2000, "CONNECTED", PRIMARY_SOURCE_ARN), health_event(AT - 1000, "CONNECTED", BACKUP_SOURCE_ARN)])
+
+    assert (source.state, source.health) == ("CONNECTED", OK)
+    assert source.summary == "connected · 6.0 Mbps · backup ready"
+    assert source.details["Primary listener · port 5000"] == "connected · on air · 6.0 Mbps"
+    assert source.details["Backup listener · port 5001"] == "connected · standing by · 6.0 Mbps"
+
+
+def test_a_backup_that_drops_leaves_the_primary_on_air():
+    """Before listeners were told apart, the newest Source Health of either one decided the whole node."""
+    source, _ = failover_source(LIVE_METRICS, events=[
+        health_event(AT - 2000, "CONNECTED", PRIMARY_SOURCE_ARN), health_event(AT - 1000, "DISCONNECTED", BACKUP_SOURCE_ARN)])
+
+    assert (source.state, source.health) == ("CONNECTED", OK)
+    assert source.details["On air"] == "primary"
+    assert source.details["Backup listener · port 5001"] == "not connected"
+
+
+def test_a_lost_primary_puts_the_backup_on_air_and_turns_the_node_amber():
+    source, _ = failover_source(dict(LIVE_METRICS, primary_bitrate=6e6, backup_bitrate=5e6), events=[
+        health_event(AT - 2000, "CONNECTED", BACKUP_SOURCE_ARN), health_event(AT - 1000, "DISCONNECTED", PRIMARY_SOURCE_ARN)])
+
+    assert (source.state, source.health) == ("CONNECTED", WARN)
+    assert source.summary == "on backup · primary lost · 5.0 Mbps"
+    assert source.details["On air"] == "backup"
+    assert source.details["Primary listener · port 5000"] == "not connected", "no stale bitrate beside it"
+    assert "listener states" in source.details["on air from"]
+
+
+def test_both_listeners_lost_is_no_source():
+    source, _ = failover_source(LIVE_METRICS, events=[
+        health_event(AT - 2000, "DISCONNECTED", BACKUP_SOURCE_ARN), health_event(AT - 1000, "DISCONNECTED", PRIMARY_SOURCE_ARN)])
+
+    assert (source.state, source.health) == ("DISCONNECTED", BAD)
+    assert source.details["On air"] is None
+
+
+def test_without_events_source_selected_says_which_listener_is_on_air():
+    source, _ = failover_source(dict(LIVE_METRICS, primary_connected=None, backup_connected=1.0,
+                                     primary_selected=0.2, backup_selected=0.8))
+
+    assert source.details["On air"] == "backup" and "SourceSelected" in source.details["on air from"]
+    assert source.health == WARN

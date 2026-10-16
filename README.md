@@ -150,6 +150,11 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
   only end-to-end proof that viewers get video. Whether the SRT source is connected comes from MediaConnect's Source
   Health events, which arrive within about a second; the `SourceConnected` metric is one to three minutes behind and
   is only the fallback. Clicking a node opens its details in a drawer, with a link to the AWS console.
+- **Source failover:** with the backup listener (`source_failover`, on by default), the source node's details list
+  both listeners, each *connected · on air*, *connected · standing by* or *not connected*, and the newest
+  `failover_switch` from MediaConnect's Flow Health events. Which one is on air follows from their states (MediaConnect
+  takes the primary whenever it sends and the backup after 500 ms without it); per-source `SourceSelected` answers only
+  when no event has. On the backup the node turns amber and the verdict reads *On air · on backup source*.
 
 **Control** is for setting up and tearing down:
 
@@ -169,8 +174,8 @@ It has two pages, picked from a side menu, with the same header and pipeline on 
   A stopwatch and a progress bar show how far it has got: Terraform's own plan gives deploy and teardown an exact
   count (*12 of 31 resources · 39%*), and going live or off air counts the flow and channel reaching their states.
   The bar is blue while the job runs, green when it succeeds and red if it fails; the header pill shows the same.
-- **Endpoints:** SRT ingest, player, HLS manifest and the Secrets Manager ARN of the passphrase, each with a Copy
-  button that copies exactly the value.
+- **Endpoints:** SRT ingest, SRT backup ingest (when the stack has one), player, HLS manifest and the Secrets Manager
+  ARN of the passphrase, each with a Copy button that copies exactly the value.
 - **Maintenance,** apart from the steps: *Scan for leftovers* and *Tear down stack* (`terraform destroy`, after you
   type `destroy`; refused while on air).
 
@@ -242,7 +247,8 @@ Offline tests prove the console's logic, not AWS's answers. After `just up` (re-
 the new outputs exist), open `just ui` and check:
 
 1. Every node shows a state; none says "not in the Terraform outputs yet".
-2. **Go live**: the verdict goes *Going live…* then *On air · no source*; the cost shows about $1.49 / h.
+2. **Go live**: the verdict goes *Going live…* then *On air · no source*; the cost shows about $1.57 / h ($1.49 with
+   `source_failover = false`).
 3. **Send test source**: within seconds the SRT node reads *connected* (its details say *state from MediaConnect
    event*), the verdict *On air · playing* follows once segments reach CloudFront, and the player shows the
    burned-in clock. Stop the source and the node turns *not connected* within seconds as well.
@@ -304,6 +310,19 @@ the new outputs exist), open `just ui` and check:
 37. Within 3 hours of a session, query a MediaPackage metric at a 5-second period and note whether it returns data;
     if it does, a finer dashboard is possible.
 38. The next day, Cost Explorer's GetMetricData charge for the hours the MediaPackage dashboard was open.
+39. **Source failover:** *Endpoints* lists *SRT backup ingest* on port 5001. With the test source on, run
+    `just send-backup` in a terminal: the source node's details read *Primary … connected · on air* and *Backup …
+    connected · standing by*, each from a MediaConnect event (the Source Health event's `resources` name the source;
+    the documentation's example does, a real one is not yet seen). The **Source (SRT)** log tab names each listener.
+40. Stop the test source: within seconds the node turns amber, *on backup · primary lost*, the verdict reads *On air ·
+    on backup source*, and the player keeps the picture after a short jump. Note what *Failover switch* shows and when
+    the **MediaConnect** tab logs *failover switch on*: what `failover_switch` means is not documented beyond true or
+    false.
+41. Send the test source again: the primary is back on air within seconds, and the backup stands by.
+42. A few minutes in, `aws cloudwatch list-metrics --namespace AWS/MediaConnect --metric-name SourceSelected` lists
+    both listeners under a `SourceARN` dimension, and the node's listener rows carry a bitrate. The console asks for
+    `SourceConnected`, `SourceBitRate` and `SourceSelected` by `SourceARN`; neither the name nor `SourceSelected` on
+    SRT listeners has been seen live. They decide the node only when no Source Health event has.
 
 ## Ad breaks (SCTE-35)
 
