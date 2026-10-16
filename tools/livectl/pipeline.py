@@ -162,6 +162,10 @@ def source_node(flow_status: Optional[str], metrics: dict, process: Optional[dic
         for listener in sources:
             up[listener.role], heard[listener.role] = _connected(listener, metrics, events)
         on_air, how = _on_air(up, metrics)
+        # The flow's averages include the other listener's zeros: show the figures of the one on air.
+        shown = on_air or "primary"
+        picked["src_bitrate"], picked["src_rtt"] = metrics.get(f"{shown}_bitrate"), metrics.get(f"{shown}_rtt")
+        details["Figures from"] = f"{shown} listener"
         for listener in sources:
             state = {True: "connected", False: "not connected", None: "no data yet"}[up[listener.role]]
             if up[listener.role]:
@@ -199,7 +203,7 @@ def source_node(flow_status: Optional[str], metrics: dict, process: Optional[dic
     elif (picked["src_not_recovered"] or 0) > 0 or (picked["src_cc_errors"] or 0) > 0:
         health, summary = WARN, "connected, losing packets"
     else:
-        rate = metrics.get("primary_bitrate") or picked["src_bitrate"]
+        rate = picked["src_bitrate"]
         health, summary = OK, "connected" + (f" · {_mbps(rate)}" if rate else "")
         if up.get("backup"):
             summary += " · backup ready"

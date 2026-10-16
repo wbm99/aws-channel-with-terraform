@@ -1096,6 +1096,7 @@ def test_the_source_node_shows_both_listeners_with_the_backup_standing_by(open_s
     expect(page.locator("#detail")).to_contain_text("Primary listener · port 5000")
     expect(page.locator("#detail")).to_contain_text("connected · on air · 6.0 Mbps")
     expect(page.locator("#detail")).to_contain_text("connected · standing by · 6.0 Mbps")
+    expect(page.locator("#detail")).to_contain_text("primary listener")   # Figures from: not the flow's average
 
 
 def test_a_failover_shows_on_the_node_the_verdict_and_the_logs(open_scenario):

@@ -320,9 +320,10 @@ the new outputs exist), open `just ui` and check:
     false.
 41. Send the test source again: the primary is back on air within seconds, and the backup stands by.
 42. A few minutes in, `aws cloudwatch list-metrics --namespace AWS/MediaConnect --metric-name SourceSelected` lists
-    both listeners under a `SourceARN` dimension, and the node's listener rows carry a bitrate. The console asks for
-    `SourceConnected`, `SourceBitRate` and `SourceSelected` by `SourceARN`; neither the name nor `SourceSelected` on
-    SRT listeners has been seen live. They decide the node only when no Source Health event has.
+    both listeners under a `SourceARN` dimension, and the node's listener rows carry a bitrate. `SourceARN` itself
+    was seen live on 2026-10-16 (`SourceLatency` per listener); `SourceSelected` on SRT listeners has not been. It
+    decides the node only when no Source Health event has. The node's *Bitrate* and *Round trip* are the on-air
+    listener's (*Figures from*), not the flow's average, which the idle backup halves.
 
 ## Ad breaks (SCTE-35)
 

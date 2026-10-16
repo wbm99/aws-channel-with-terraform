@@ -4,8 +4,9 @@ Metric names and dimensions were checked against the AWS documentation on 2026-0
 dimension set (`DistributionId`, `Region=Global`), which is on the live checklist in the README.
 
 With source failover, each SRT listener also gets its own queries on the `SourceARN` dimension, named after its role
-(`primary_connected`, `backup_selected`, ...). The documentation lists "Source ARN" as a dimension of every source
-metric; the exact name `SourceARN` and `SourceSelected` on SRT listeners have not been seen live yet.
+(`primary_connected`, `backup_selected`, ...). `SourceARN` was seen live on 2026-10-16; `SourceSelected` on SRT
+listeners not yet. Averages over the flow (`src_bitrate`, `src_rtt`) then mix in the idle listener's zeros (a 2000 ms
+latency read 1000 ms), so the source node shows the on-air listener's own figures instead.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ class MetricSpec:
 
 
 def metric_specs(targets: Targets, sources: Sequence[tuple[str, str]] = ()) -> list[MetricSpec]:
-    """The queries for targets, plus three per (role, source ARN) in sources."""
+    """The queries for targets, plus four per (role, source ARN) in sources."""
     flow = (("FlowARN", targets.flow_arn),)
     channel = (("ChannelId", targets.channel_id), ("Pipeline", "0"))
     specs = [
@@ -45,6 +46,7 @@ def metric_specs(targets: Targets, sources: Sequence[tuple[str, str]] = ()) -> l
         specs += [
             MetricSpec(f"{role}_connected", "AWS/MediaConnect", "SourceConnected", source, "Maximum"),
             MetricSpec(f"{role}_bitrate", "AWS/MediaConnect", "SourceBitRate", source, "Average"),
+            MetricSpec(f"{role}_rtt", "AWS/MediaConnect", "SourceRoundTripTime", source, "Average"),
             # 1 while the flow takes its content from this source. Averaged, a minute that saw a switch reads
             # between 0 and 1 on both, and the higher one held the air longer.
             MetricSpec(f"{role}_selected", "AWS/MediaConnect", "SourceSelected", source, "Average"),

@@ -376,3 +376,17 @@ def test_without_events_source_selected_says_which_listener_is_on_air():
 
     assert source.details["On air"] == "backup" and "SourceSelected" in source.details["on air from"]
     assert source.health == WARN
+
+
+def test_the_figures_are_the_on_air_listeners_not_the_flows_average():
+    """Live 2026-10-16: over the flow, the idle backup's zeros halved the average (2000 ms latency read 1000 ms)."""
+    diluted = dict(LIVE_METRICS, src_bitrate=3e6, src_rtt=40.0, primary_bitrate=6e6, primary_rtt=80.0,
+                   backup_bitrate=0.0, backup_rtt=0.0)
+    primary, _ = failover_source(diluted, events=[health_event(AT - 1000, "CONNECTED", PRIMARY_SOURCE_ARN)])
+    backup, _ = failover_source(dict(diluted, backup_bitrate=5e6, backup_rtt=60.0), events=[
+        health_event(AT - 2000, "CONNECTED", BACKUP_SOURCE_ARN), health_event(AT - 1000, "DISCONNECTED", PRIMARY_SOURCE_ARN)])
+
+    assert (primary.metrics["src_bitrate"], primary.metrics["src_rtt"]) == (6e6, 80.0)
+    assert primary.summary.startswith("connected · 6.0 Mbps")
+    assert primary.details["Figures from"] == "primary listener"
+    assert (backup.metrics["src_bitrate"], backup.metrics["src_rtt"]) == (5e6, 60.0)
